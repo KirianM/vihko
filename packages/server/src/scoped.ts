@@ -9,12 +9,14 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { PEOPLE, SPACES, TEMPLATE_KEY, anchorChanged, templateMarked, trimSlashes, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
+import { PEOPLE, SPACES, TEMPLATE_KEY, anchorChanged, templateMarked, trimSlashes, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, searchQueryProblem, SEARCH_LIMITS, parseSpacePath, parseThreads, placement, rulesInFile, rulesOf, sameSpace, WORKSPACE_FILE, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
 import { attachmentPath, noteAttachmentsDir } from './attachments.ts'
 import { diskSpelling, isPlainFile } from './fsutil.ts'
+import { fileByName, isFileTarget } from './fileNames.ts'
+import { shownPath } from './logging.ts'
 import { diskSpaceFolders } from './spaceFolders.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
@@ -29,7 +31,7 @@ import type { Orphans } from './http/app.ts'
 import type { KeyWithUser } from './keys.ts'
 import type { PermissionsEngine } from './permissions.ts'
 import type { PermissionHolds } from './permissionHolds.ts'
-import type { PermissionsFile } from './permissionsFile.ts'
+import { ConfigInvalidError, type PermissionsFile } from './permissionsFile.ts'
 import type { Profiles } from './profiles.ts'
 import { shiftCode, type LinkState } from './relink.ts'
 import { createFromTemplate } from './templates.ts'
@@ -65,18 +67,32 @@ export interface ScopedDeps {
   links?: () => LinkIndex
   /** After a folder moved from vihko: what state.db and the trash keep by its path follows it (folderRefs.ts). */
   onFolderMoved?: (from: string, to: string) => void
+  /** After a note moved from vihko: what state.db keeps by its path follows it (folderRefs.ts `noteMoved`). */
+  onNoteMoved?: (from: string, to: string) => void
+  /** Before a folder's rules are written at its new path: when its grants began goes with them (grantStarts.ts). */
+  onFolderMoving?: (from: string, to: string) => void
+  /**
+   * After someone (or their agent) moved a note or folder out of another
+   * person's own space, to another space: `owner` (their username) is told
+   * (notices.ts `moved_out`).
+   */
+  onMovedOut?: (move: { kind: 'note' | 'folder'; owner: string; from: string; to: string; by: string }) => void
 }
 
 /**
  * What a folder holds, as `not_empty` tells whoever tried to delete it
  * (scoped `contentsView`): paths relative to the folder, each list capped at
- * FOLDER_LIST_CAP; `kept` blocks it (vihko never touches those). Whoever
- * deletes a folder manages it and sees everything in it (grants only add): nothing
- * in it is hidden from them.
+ * FOLDER_LIST_CAP. `hidden`: its hidden folders (`.obsidian/`…), which vihko
+ * doesn't show and which go to the trash with it, so the dialog names them
+ * before anything goes; `hiddenFiles`, how many files they hold. `kept`
+ * blocks it (links vihko never follows). Whoever deletes a folder manages it
+ * and sees everything in it (grants only add): nothing in it is hidden from
+ * them.
  */
 export interface FolderContentsView {
   notes: { total: number; paths: string[] }
   files: { total: number; paths: string[] }
+  hidden: { total: number; paths: string[]; files: number }
   kept: { total: number; paths: string[] }
 }
 
@@ -134,6 +150,8 @@ export interface OutgoingLink {
    * between notes leave it out (see `links`).
    */
   self?: true
+  /** It leads to a file that isn't a note (`[[invoice.pdf]]`, found by name in the note's space): `dstPath` is the file. */
+  file?: true
 }
 
 /**
@@ -534,9 +552,12 @@ export class ScopedNotes {
    * if there's none.
    */
   pathOfUid(uid: string): string {
-    const r = this.deps.index.prepare('select path from notes where uid = ? order by path limit 1').get(uid) as { path: string } | undefined
-    if (!r) throw new NoteError('not_found', 'there is no note with that uid')
-    return this.visible(r.path).path
+    // Only among the notes its person reads: a note someone else wrote with the same uid, where they can't read,
+    // never takes the lookup over nor hides the right one. Several: the one indexed first.
+    const rows = this.deps.index.prepare('select path from notes where uid = ? order by rowid').all(uid) as { path: string }[]
+    const readable = rows.map((r) => r.path).filter((p) => this.access.userCanRead(p))
+    if (readable.length === 0) throw new NoteError('not_found', 'there is no note with that uid')
+    return this.visible(readable.find((p) => this.access.canRead(p)) ?? readable[0]!).path
   }
 
   /** A note's headings, in order (link anchors). */
@@ -593,6 +614,13 @@ export class ScopedNotes {
     const out = outgoing.map((l): OutgoingLink => {
       const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
       const row: OutgoingLink = { ...l, candidates, ...(l.status === 'resolved' && l.dstPath === p ? { self: true as const } : {}) }
+      // No note by that name, but a file (`[[invoice.pdf]]`): it leads there, for whoever reads the file.
+      if (row.status === 'missing' && l.kind !== 'markdown' && isFileTarget(l.target)) {
+        const file = fileByName(this.deps.index, p, l.target)
+        if (file !== null && this.access.userCanRead(file)) {
+          return this.access.canReadNamed(file) ? { ...row, status: 'resolved', dstPath: file, anchorOk: null, candidates: null, file: true } : noAccess(row, this.access.reasonFor(file))
+        }
+      }
       const link = this.maskedLink(row)
       for (const c of link.candidates ?? []) titles[c] ??= (titleOf.get(c) as { title: string } | undefined)?.title ?? c
       return link
@@ -715,6 +743,8 @@ export class ScopedNotes {
    * (`template:true`, `prop:template`).
    */
   search(q: string): SearchResult[] {
+    const over = searchQueryProblem(q)
+    if (over) throw new RequestError(400, 'query_too_complex', `a search takes at most ${SEARCH_LIMITS[over]} ${over}`)
     const w = this.access.notesWhere('n')
     const asked = parseSearchQuery(q).filters.some((f) => (f.kind === 'field' || f.kind === 'exists') && !f.negate && f.key === TEMPLATE_KEY)
     return search(this.deps.index, q, asked ? w : { sql: `${w.sql} and not ${templateSql('n')}`, params: w.params })
@@ -891,8 +921,9 @@ export class ScopedNotes {
     }
     if (!opts.dryRun) {
       const r = await this.edit(path, (t) => planEdits(t, ops), opts)
-      // Planned on an ETag, the text it changed was the one it had read; appends alone may land on a text it hasn't seen.
-      return this.written(NoteService.checkPath(path), r.etag, opts.ifMatch !== undefined)
+      // Planned on an ETag, the text it changed was the one it had read; appends alone may land on a text it hasn't seen,
+      // and so does a change planned on a text someone has typed in since (`rebased`).
+      return this.written(NoteService.checkPath(path), r.etag, opts.ifMatch !== undefined && !r.rebased)
     }
     try {
       await this.edit(path, (t) => {
@@ -963,16 +994,19 @@ export class ScopedNotes {
     const suffix = this.deps.attachments(f).perNote
     const assets = suffix !== undefined ? { from: noteAttachmentsDir(f, suffix), to: noteAttachmentsDir(t, suffix) } : null
     const engine = this.deps.permissions
-    const assetRules = engine && assets && assets.from !== assets.to && rulesOf(engine.section).some((r) => r.folder === assets.from || r.folder.startsWith(assets.from + '/'))
+    const assetRules = engine && assets && assets.from !== assets.to && this.hasRules(assets.from)
+    // Its grants go along within its space, or where the person manages; elsewhere only `ai: false` (see grantsTravel).
+    const grants = assets && this.grantsTravel(assets.from, folderOf(t)) ? {} : { grants: false as const }
     const audience = engine && this.deps.keys && (opts.dryRun || this.access.isAgent)
-      ? audienceChange(engine, this.deps.keys(), [{ before: f, after: t }, ...(assetRules ? [{ before: `${assets.from}/_`, after: `${assets.to}/_` }] : [])], assetRules ? ruleMove(engine, assets.from, assets.to).rules : null)
+      ? audienceChange(engine, this.deps.keys(), [{ before: f, after: t }, ...(assetRules ? [{ before: `${assets.from}/_`, after: `${assets.to}/_` }] : [])], assetRules ? ruleMove(engine, assets.from, assets.to, grants).rules : null)
       : undefined
     if (!opts.dryRun && this.access.isAgent && audience && widens(audience) && opts.confirmAudience !== true) throw new AudienceWidens(audience)
     const { confirmAudience: _, ...moveOpts } = opts
     if (!opts.dryRun) await this.clearForgotten(folderOf(t))
     // The folder of images' rules are first written at its new path too (never left without them), then the old ones go.
     const file = this.deps.permissionsFile
-    const copied = !opts.dryRun && assetRules && file ? (await file.moveRules(assets.from, assets.to, { actor: this.access.actor, keepFrom: true })).changed : false
+    if (!opts.dryRun && assetRules && file) this.deps.onFolderMoving?.(assets.from, assets.to)
+    const copied = !opts.dryRun && assetRules && file ? (await this.rulesWritable(() => file.moveRules(assets.from, assets.to, { actor: this.access.actor, keepFrom: true, ...grants }))).changed : false
     let report: MoveReport
     try {
       // Images it takes to another space are only those the principal can read.
@@ -983,12 +1017,20 @@ export class ScopedNotes {
       if (copied) await file!.removeRules(assets!.to, { actor: this.access.actor }).catch(() => {})
       throw err
     }
-    if (copied) {
+    if (!opts.dryRun && assetRules && file && (copied || report.images.folder)) {
       // The folder of images moved: its old rules go; it stayed: the copies go.
       const stale = report.images.folder ? assets!.from : assets!.to
-      await file!.removeRules(stale, { actor: this.access.actor })
-        .catch((err) => this.deps.log?.(`the rules of ${stale} stay in vihko.yaml after moving ${f}: ${err instanceof Error ? err.message : String(err)}`))
+      await file.removeRules(stale, { actor: this.access.actor })
+        .catch((err) => this.deps.log?.(`the rules of ${shownPath(stale)} stay in vihko.yaml after moving ${shownPath(f)}: ${err instanceof Error ? err.message : String(err)}`))
     }
+    if (!report.dryRun) {
+      try {
+        this.deps.onNoteMoved?.(f, t)
+      } catch (err) {
+        this.deps.log?.(`what opens on coming in still names ${shownPath(f)} after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    if (!report.dryRun) this.movedOut('note', f, t)
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
     const broken = brokenLinks(masked.shifted, (p) => (p === f ? t : p), f, t)
@@ -1171,6 +1213,46 @@ export class ScopedNotes {
   }
 
   /**
+   * Whether the grants of a folder this person moves (its subfolders' too)
+   * go with it into `dest`: always within its space, where they were given
+   * already; into another space only where the person manages, and could
+   * give them anyway. Otherwise someone with only `edit` there would bring
+   * along, in a folder of their own (or a note's folder of images), grants up
+   * to `manage` for anyone, in a space that isn't theirs to share. `ai:
+   * false` always goes: it only closes.
+   */
+  private grantsTravel(from: string, dest: string): boolean {
+    return spaceRootOf(from) === spaceRootOf(dest) || this.access.canManage(dest)
+  }
+
+  /**
+   * Whether vihko.yaml has rules at any of `folders` or under them: by what
+   * the file says, and by what is in force (all that is known when the file
+   * isn't YAML).
+   */
+  private hasRules(...folders: string[]): boolean {
+    const fs = folders.map((x) => x.normalize('NFC'))
+    const keys = this.deps.permissions ? rulesOf(this.deps.permissions.section).map((r) => r.folder) : []
+    const text = this.deps.permissionsFile?.read().text
+    try { if (text) keys.push(...rulesInFile(text).keys()) } catch { /* not YAML: what is in force */ }
+    return keys.some((k) => fs.some((x) => k === x || k.startsWith(x + '/')))
+  }
+
+  /**
+   * Writing the rules a move carries: when vihko.yaml can't be changed as it
+   * is (a mistake in it, fixed by hand), `409 permissions_invalid`: this
+   * folder has rules of its own, and they can't move with it until then.
+   */
+  private async rulesWritable<T>(write: () => Promise<T>): Promise<T> {
+    try {
+      return await write()
+    } catch (err) {
+      if (err instanceof ConfigInvalidError) throw new RequestError(409, 'permissions_invalid', `${WORKSPACE_FILE} can't be changed as it is, and the rules of what moves are in it: it's fixed by hand first`)
+      throw err
+    }
+  }
+
+  /**
    * An existing folder the person may rename, move or delete (`manage` in it,
    * `edit` where it is): the permissions decide first, `not_found` where they
    * don't see it; where they see it but may not, `forbidden`, unless it
@@ -1209,8 +1291,10 @@ export class ScopedNotes {
    * stops it, and so do notes held in it (`held_inside`).
    * A shared space's root deletes the space: `manage` there, and its
    * managers are kept with each trash entry, so they can still restore it.
+   * `dryRun`: nothing is deleted; `contents` says what deleting it would take
+   * (what a dialog names before anyone confirms), with the same checks.
    */
-  async deleteFolder(path: string, opts: { trash?: boolean } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
+  async deleteFolder(path: string, opts: { trash?: boolean; dryRun?: boolean } = {}): Promise<{ path: string; trashed: TrashEntry[]; contents?: FolderContentsView }> {
     const p = NoteService.checkFolder(path)
     const space = parseSpacePath(p)
     const sharedRoot = space !== null && space.inner === '' && space.space.kind === 'shared'
@@ -1226,7 +1310,8 @@ export class ScopedNotes {
     if (this.deps.holds?.heldInside(p)) throw new RequestError(409, 'held_inside', `notes held after a move made outside vihko are in ${p}: release them first`)
     const view = () => this.contentsView(this.deps.notes.folderContents(p))
     const now = view()
-    if (now.kept.total > 0 || (!opts.trash && (now.notes.total > 0 || now.files.total > 0))) throw new FolderNotEmpty(p, now)
+    if (opts.dryRun) return { path: p, trashed: [], contents: now }
+    if (now.kept.total > 0 || (!opts.trash && (now.notes.total > 0 || now.files.total > 0 || now.hidden.total > 0))) throw new FolderNotEmpty(p, now)
     const canWrite = (f: string) => this.access.canWrite(f)
     let r: { path: string; trashed: TrashEntry[] }
     try {
@@ -1241,7 +1326,7 @@ export class ScopedNotes {
       throw err
     }
     await this.deps.permissionsFile?.removeRules(p, { actor: this.access.actor })
-      .catch((err) => this.deps.log?.(`permissions of the deleted folder ${p} stay in vihko.yaml: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) => this.deps.log?.(`permissions of the deleted folder ${shownPath(p)} stay in vihko.yaml: ${err instanceof Error ? err.message : String(err)}`))
     return r
   }
 
@@ -1253,7 +1338,7 @@ export class ScopedNotes {
    */
   private contentsView(c: FolderContents): FolderContentsView {
     const list = (paths: string[]) => ({ total: paths.length, paths: paths.slice(0, FOLDER_LIST_CAP) })
-    return { notes: list(c.notes), files: list(c.files), kept: list(c.kept) }
+    return { notes: list(c.notes), files: list(c.files), hidden: { ...list(c.hidden), files: c.hiddenFiles.length }, kept: list(c.kept) }
   }
 
   /**
@@ -1296,7 +1381,8 @@ export class ScopedNotes {
     const back = (p: string) => (p === t || p.startsWith(t + '/') ? f + p.slice(t.length) : p)
     const engine = this.deps.permissions
     const under = (this.deps.index.prepare("select path from folders where path = ? or path like ? escape '\\'").all(f, likePrefix(f)) as { path: string }[]).map((r) => r.path)
-    const moved = engine ? ruleMove(engine, f, t) : { rules: null }
+    const grants = space !== null || this.grantsTravel(f, parentFolder(t)!) ? {} : { grants: false as const }
+    const moved = engine ? ruleMove(engine, f, t, grants) : { rules: null }
     // A new space: its root's rule in place of the folder's own.
     const plan = space && moved.rules ? { rules: [...moved.rules.filter((r) => r.folder !== t), space] } : moved
     const mask = (r: FolderMoveReport) => {
@@ -1312,10 +1398,13 @@ export class ScopedNotes {
       const pairs = [...r.notes.map((n) => ({ before: n.from, after: n.to })), ...under.map((d) => ({ before: `${d}/_`, after: `${t}${d.slice(f.length)}/_` }))]
       return { ...r, audience: audienceChange(engine, this.deps.keys(), pairs, plan.rules) }
     }
-    if (!space) await this.clearForgotten(parentFolder(t)!)
-    const file = this.deps.permissionsFile
+    // vihko.yaml is only written when there are rules to carry, or to clear where it goes: a mistake
+    // in the file then never stops moving a folder that has none.
+    const file = space !== null || this.hasRules(f, t) ? this.deps.permissionsFile : undefined
+    if (!space) await this.rulesWritable(() => this.clearForgotten(parentFolder(t)!))
     const before = file?.read().text ?? null
-    const copied = file ? (await file.moveRules(f, t, { actor, keepFrom: true, ...(space ? { extra: [space] } : {}) })).changed : false
+    if (file) this.deps.onFolderMoving?.(f, t)
+    const copied = file ? (await this.rulesWritable(() => file.moveRules(f, t, { actor, keepFrom: true, ...grants, ...(space ? { extra: [space] } : {}) }))).changed : false
     const afterCopy = copied ? file!.read().text : null
     let report: FolderMoveReport
     try {
@@ -1325,16 +1414,33 @@ export class ScopedNotes {
       if (copied) await file!.update((x) => (x === afterCopy ? before ?? '' : x), { actor }).catch(() => {})
       throw err
     }
-    if (copied) {
-      await file!.removeRules(f, { actor })
-        .catch((err) => this.deps.log?.(`the old rules of ${f} stay in vihko.yaml after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`))
+    if (file && this.hasRules(f)) {
+      await file.removeRules(f, { actor })
+        .catch((err) => this.deps.log?.(`the old rules of ${shownPath(f)} stay in vihko.yaml after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`))
     }
     try {
       this.deps.onFolderMoved?.(f, t)
     } catch (err) {
-      this.deps.log?.(`keys, pins or trash entries under ${f} still name it after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`)
+      this.deps.log?.(`keys, pins or trash entries under ${shownPath(f)} still name it after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`)
     }
+    this.movedOut('folder', f, t)
     return mask(report)
+  }
+
+  /**
+   * Whoever manages (or edits) something another person shared from their
+   * own space may take it to another space: never behind their back. The
+   * owner is told, unless they did it themselves (or an agent of theirs).
+   */
+  private movedOut(kind: 'note' | 'folder', from: string, to: string) {
+    const s = parseSpacePath(from)
+    if (!s || s.space.kind !== 'personal' || sameSpace(from, to)) return
+    if (s.space.owner === this.access.user.username.normalize('NFC')) return
+    try {
+      this.deps.onMovedOut?.({ kind, owner: s.space.owner, from, to, by: this.access.user.id })
+    } catch (err) {
+      this.deps.log?.(`the owner of ${shownPath(s.space.root)} couldn't be told of a move out of it: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   /** Unless `from` is a shared space's root this person manages, and `to` another shared space's root: a space renamed (`moveFolder` with `renameSpace`). */
@@ -1404,8 +1510,10 @@ export class ScopedNotes {
   trash(): (TrashEntry & { space: string | null })[] {
     return this.deps.notes.trash().flatMap((e) => {
       const orphaned = this.orphanedFor(e)
-      const files = orphaned ? e.files : e.files?.filter((f) => this.access.canWrite(f.path))
-      if (!orphaned && (e.kind === 'files' ? !files?.length : !this.access.canWrite(e.path))) return []
+      // Only what was deleted since the person could read there: sharing a folder doesn't share what left it before.
+      const since = (path: string) => this.access.sawAt(folderOf(path), e.deletedAt)
+      const files = orphaned ? e.files : e.files?.filter((f) => this.access.canWrite(f.path) && since(f.path))
+      if (!orphaned && (e.kind === 'files' ? !files?.length : !this.access.canWrite(e.path) || !since(e.path))) return []
       // Who managed a deleted space is kept for the trash, never shown.
       const { managers: _, ...shown } = e
       return [{ ...shown, ...(files ? { files } : {}), space: spaceRootOf(e.kind === 'files' ? `${e.path}/_` : e.path) }]
@@ -1443,6 +1551,20 @@ export class ScopedNotes {
     const dest = to === undefined || to === entry.path ? this.writable(entry.path) : this.creatable(to)
     await this.clearForgotten(folderOf(dest))
     return shown(await this.guardAsync(dest, () => this.spelled(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite, mayName: this.mayName }))))
+  }
+
+  /**
+   * The file an Obsidian-style reference in the note at `note` names
+   * (`![[photo.png]]`, `[[invoice.pdf]]`): relative to the note, or by name
+   * in its space (fileNames.ts). `not_found` alike for a note the principal
+   * can't read, a name that leads nowhere or to several files, and a file
+   * they can't read: nothing tells what exists where they don't read.
+   */
+  resolveFile(note: string, ref: string): string {
+    const { path: n } = this.visible(note)
+    const file = fileByName(this.deps.index, n, ref)
+    if (file === null || !this.access.canReadNamed(file)) throw new NoteError('not_found', `no file ${ref} for ${n}`)
+    return file
   }
 
   /** A sync tool's conflict copy the indexer found, in a folder the person can read. */

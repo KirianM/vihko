@@ -86,10 +86,10 @@ test('vihko.yaml: history is managed with a 20 MB limit unless it says otherwise
 })
 
 test('vihko.yaml: mcp.instructions names a note of the workspace, none by default', () => {
-  assert.deepEqual(EMPTY_WORKSPACE.mcp, { instructions: null })
+  assert.deepEqual(EMPTY_WORKSPACE.mcp, { instructions: null, clientDomains: [] })
   const r = parseWorkspaceConfig('mcp:\n  instructions: Agentes/Instrucciones\n')
   assert.ok(r.ok)
-  assert.deepEqual(r.config.mcp, { instructions: 'Agentes/Instrucciones.md' })
+  assert.deepEqual(r.config.mcp, { instructions: 'Agentes/Instrucciones.md', clientDomains: [] })
   const md = parseWorkspaceConfig('mcp:\n  instructions: Guía.md\n')
   assert.ok(md.ok && md.config.mcp.instructions === 'Guía.md')
   assert.deepEqual(errors('mcp:\n  instructions: ../fuera\n'), [['invalid_path', 'mcp.instructions', 2]])
@@ -240,6 +240,15 @@ test('vihko.yaml: series patterns must name exactly one note per period', () => 
   assert.deepEqual(errors('daily:\n  d: Diario\n'), [['not_a_map', 'daily.d', 2]])
 })
 
+test('vihko.yaml: a series id never takes the prefix of a person\'s or a space\'s series', () => {
+  for (const prefix of ['me-', 'sp-', 'ME-', 'Sp-']) {
+    const id = `${prefix}${m.aWord().replace(/[^A-Za-z0-9]/g, '') || 'x'}`
+    assert.deepEqual(errors(`daily:\n  ${id}:\n    folder: D\n`), [['invalid_id', `daily.${id}`, 2]], id)
+  }
+  // Only as a prefix with its hyphen: `meetings`, `spare-x` or `x-me-y` are anyone's.
+  for (const id of ['meetings', 'sp', 'spare-x', 'x-me-y', 'me_x']) assert.deepEqual(warnings(`daily:\n  ${id}:\n    folder: D\n`), [], id)
+})
+
 test('vihko.yaml: every error is reported at once', () => {
   assert.deepEqual(errors('atachments: x\nattachments:\n  folder: ../x\ndaily:\n  d:\n    folder: D\n    name: "{MM}"\n'), [
     ['invalid_path', 'attachments.folder', 3],
@@ -267,4 +276,16 @@ test('vihko.yaml: attachments modes', () => {
   for (const bad of ['a/b', '.md', '', ' x']) {
     assert.deepEqual(errors(`attachments:\n  mode: per-note\n  suffix: "${bad}"\n`), [['invalid_path', 'attachments.suffix', 3]], bad)
   }
+})
+
+test('vihko.yaml: mcp.client_domains lists the domains OAuth apps may come from; none (any) by default', () => {
+  const [a, b] = [m.aHost(), m.aHost()]
+  const r = parseWorkspaceConfig(`mcp:\n  client_domains: [${a.toUpperCase()}, "*.${b}", ${a}]\n`)
+  assert.ok(r.ok)
+  assert.deepEqual(r.config.mcp.clientDomains, [a, b], 'lower case, a leading *. dropped, each once')
+  const one = parseWorkspaceConfig(`mcp:\n  client_domains: ${a}\n`)
+  assert.ok(one.ok && one.config.mcp.clientDomains.join() === a)
+  // Literals: the wrong values are the case under test.
+  assert.deepEqual(errors('mcp:\n  client_domains: ["https://claude.ai/x"]\n'), [['invalid_value', 'mcp.client_domains', 2]])
+  assert.deepEqual(errors('mcp:\n  client_domains: { a: 1 }\n'), [['invalid_type', 'mcp.client_domains', 2]])
 })

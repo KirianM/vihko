@@ -218,6 +218,13 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .spacer { flex-grow: 1; }
 .note { flex-grow: 1; overflow: auto; padding: 36px 56px 48px var(--space-18); }
 .note:has(.editor) { padding: 0; }
+/* A note too large to edit live: its beginning as plain text, and a download */
+.note-too-large { display: flex; flex-direction: column; gap: var(--space-3); }
+.too-large-head { display: flex; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; }
+.too-large-head .key-once { flex: 1 1 320px; }
+.note-too-large .hint { margin: 0; font-size: 13px; color: var(--muted); }
+.too-large-text { margin: 0; font-family: var(--font-mono); font-size: 13px; line-height: 20px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .note-too-large { padding: var(--space-4); } }
 
 /* Note header: save status and presence */
 .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }

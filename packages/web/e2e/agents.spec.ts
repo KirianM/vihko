@@ -8,7 +8,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, LOCKED_URL, MEMBER, SPACE_NAME, inVault, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { dismissNotices, dismissNoticesOf, signIn } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
@@ -55,7 +55,11 @@ async function resetSwitches(browser: Browser) {
   expect(r.status()).toBe(200)
   await page.context().close()
 }
-test.afterAll(async ({ browser }) => resetSwitches(browser))
+test.afterAll(async ({ browser }) => {
+  await resetSwitches(browser)
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN, MEMBER)
+})
 
 let token = ''
 
@@ -80,6 +84,38 @@ test('the admin turns on the API and the MCP server', async ({ browser }) => {
   // Applied at once and kept: after a reload, still on.
   await page.reload()
   await expect(page.getByRole('switch', { name: /Servidor MCP/ })).toBeChecked()
+  await page.context().close()
+})
+
+test('two keys in a row: the password once, then a while without asking again', async ({ browser }) => {
+  const page = await signIn(browser, ADMIN)
+  await openAgents(page)
+  const names = [m.aKeyName(), m.aKeyName()]
+  for (const [i, name] of names.entries()) {
+    await page.getByRole('button', { name: 'Nueva clave' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Nueva clave' })
+    await dialog.getByLabel('Nombre').fill(name)
+    if (i === 0) {
+      await expect(dialog.getByRole('button', { name: 'Crear la clave' })).toBeDisabled()
+      await dialog.getByLabel('Tu contraseña').fill(ADMIN.password)
+    } else {
+      // Confirmed a moment ago in this browser: nothing to type.
+      await expect(dialog.getByLabel('Tu contraseña')).toHaveCount(0)
+      await expect(dialog.getByRole('button', { name: 'Crear la clave' })).toBeEnabled()
+    }
+    await dialog.getByRole('button', { name: 'Crear la clave' }).click()
+    const shown = page.getByRole('dialog', { name: `Clave para «${name}»` })
+    await expect(shown.locator('.token')).toBeVisible()
+    await shown.getByRole('button', { name: 'Ya la he guardado' }).click()
+  }
+  // Another browser of the same person still asks.
+  const other = await signIn(browser, ADMIN)
+  await openAgents(other)
+  await other.getByRole('button', { name: 'Nueva clave' }).click()
+  await expect(other.getByRole('dialog', { name: 'Nueva clave' }).getByLabel('Tu contraseña')).toBeVisible()
+  const { keys } = await (await page.request.get('/api/keys')).json() as { keys: { id: string; name: string }[] }
+  for (const k of keys.filter((x) => names.includes(x.name))) await page.request.delete(`/api/keys/${k.id}`)
+  await other.context().close()
   await page.context().close()
 })
 
@@ -297,13 +333,22 @@ test('members: no keys until the admin allows it; their own keys while allowed; 
   await expect(card(member, MEMBER_KEY)).toContainText('Lee y escribe')
   await expect(card(member, MEMBER_KEY)).toContainText('Caduca el')
 
+  // Off again suspends the keys members have: the admin is told how many first, and may still back out.
   await flip(admin, 'Los miembros pueden crear claves')
+  const off = admin.getByRole('alertdialog', { name: '¿Que los miembros dejen de tener claves?' })
+  await expect(off).toContainText('Una clave o aplicación de un miembro queda suspendida')
+  await off.screenshot({ path: `${SHOTS}/agents-members-off.png`, animations: 'disabled' })
+  await off.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(members).toBeChecked()
+  await flip(admin, 'Los miembros pueden crear claves')
+  await off.getByRole('button', { name: 'Apagarlo' }).click()
   await expect(members).not.toBeChecked()
 
   await member.reload()
   await expect(member.getByText('El administrador no permite que los miembros creen claves', { exact: false })).toBeVisible()
   await expect(member.getByRole('button', { name: 'Nueva clave' })).toHaveCount(0)
-  // Her key still works and she may revoke it, but not change it.
+  // Her key is suspended, not gone: she may revoke it, but not change it.
+  await expect(card(member, MEMBER_KEY)).toContainText('Suspendida')
   await expect(card(member, MEMBER_KEY).getByRole('button', { name: 'Editar' })).toHaveCount(0)
   await expect(card(member, MEMBER_KEY).getByRole('button', { name: 'Revocar' })).toBeVisible()
   const refused = await member.request.post('/api/keys', { data: { confirm: MEMBER.password, name: REFUSED_KEY } })
@@ -313,6 +358,7 @@ test('members: no keys until the admin allows it; their own keys while allowed; 
   await admin.reload()
   const theirs = admin.locator('section', { has: admin.getByRole('heading', { name: 'Claves de los demás' }) })
   await expect(card(admin, MEMBER_KEY)).toContainText(`de ${MEMBER.username}`)
+  await expect(card(admin, MEMBER_KEY)).toContainText('Suspendida')
   await theirs.getByRole('button', { name: 'Revocar' }).click()
   const ask = admin.getByRole('alertdialog', { name: `¿Revocar «${MEMBER_KEY}»?` })
   await expect(ask).toContainText(`Es una clave de ${MEMBER.username}.`)
@@ -352,6 +398,8 @@ test('VIHKO_INTEGRATIONS=off: the switches are locked and say why', async ({ bro
   expect((await page.request.get('/api/tree', { headers: bearer(locked) })).status()).toBe(404)
   await shown.getByRole('button', { name: 'Ya la he guardado' }).click()
   await page.screenshot({ path: `${SHOTS}/agents-locked.png`, fullPage: true, animations: 'disabled' })
+  // The key is told to the admin on that server too: not left for the specs that sign in there later.
+  await dismissNotices(page.request)
   await ctx.close()
 })
 

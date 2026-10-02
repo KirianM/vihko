@@ -86,6 +86,31 @@ test('live preview: marks hidden outside the cursor and a resolved wikilink', as
   await expect(k.locator('.cm-wikilink-resolved a', { hasText: 'Red' })).toBeVisible()
 })
 
+test('a click on someone else\'s cursor, on its dot or on its name, is a click in the text under it', async () => {
+  // The admin's cursor in a paragraph that isn't the last one; the member clicks right on it, from the last line.
+  await k.locator('.cm-line', { hasText: BY_MEMBER }).click({ position: { x: 24, y: 8 } })
+  const caret = a.locator('.cm-ySelectionCaret')
+  await expect(caret).toHaveCount(1)
+  /** The line (its place in the editor) of a point, as the browser hits it; or of the member's cursor. */
+  const lineAt = (at: { x: number; y: number } | null) => a.evaluate((at) => {
+    const node = at ? document.elementFromPoint(at.x, at.y) : getSelection()?.anchorNode ?? null
+    const el = node instanceof Element ? node : node?.parentElement
+    const line = el?.closest('.cm-content > *')
+    return line ? [...line.parentElement!.children].indexOf(line) : -1
+  }, at)
+  for (const part of ['.cm-ySelectionCaretDot', '.cm-ySelectionInfo']) {
+    await a.keyboard.press('Control+End')
+    const end = await lineAt(null)
+    const box = (await caret.locator(part).boundingBox())!
+    const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    const under = await lineAt(at)
+    expect(under).not.toBe(-1)
+    expect(under).not.toBe(end)
+    await a.mouse.click(at.x, at.y)
+    await expect.poll(() => lineAt(null)).toBe(under)
+  }
+})
+
 test('link statuses and navigation by alias', async () => {
   await k.goto(`/?note=${encodeURIComponent(inVault('hogar/enlaces.md'))}`)
   await expect(k.locator('.cm-wikilink-missing').first()).toBeVisible()

@@ -67,6 +67,23 @@ export type SearchFilter =
     negate: boolean
   }
 
+/**
+ * The most a search may ask for: each filter is a condition on every note
+ * read, each word a term to rank, so a query of hundreds of them kept the
+ * server's only thread busy for minutes. Over any of them the search is
+ * refused (`query_too_complex`).
+ */
+export const SEARCH_LIMITS = { characters: 1000, filters: 20, words: 32 } as const
+
+/** Which limit of `SEARCH_LIMITS` a query goes over, or null. */
+export function searchQueryProblem(input: string): keyof typeof SEARCH_LIMITS | null {
+  if (input.length > SEARCH_LIMITS.characters) return 'characters'
+  const { text, filters } = parseSearchQuery(input)
+  if (filters.length > SEARCH_LIMITS.filters) return 'filters'
+  if ((text.match(/[\p{L}\p{N}_]+/gu)?.length ?? 0) > SEARCH_LIMITS.words) return 'words'
+  return null
+}
+
 export interface ParsedQuery {
   /** What is left once the filters are taken out: the full-text part. */
   text: string

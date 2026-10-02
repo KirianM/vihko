@@ -12,9 +12,9 @@
 // admins are told.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
-import { ApiError, api, type AdminSettings, type GroupInfo, type NewLink, type TwoFactorPolicy, type User, type UserInfo } from './api.ts'
+import { ApiError, api, type AdminSettings, type GroupInfo, type NewLink, type PersonalSummary, type TwoFactorPolicy, type User, type UserInfo } from './api.ts'
 import { CopyButton, Toggle } from './Agents.tsx'
-import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { AccessDialog } from './Permissions.tsx'
@@ -52,6 +52,7 @@ type Open =
   | { kind: 'renameGroup'; group: GroupInfo }
   | { kind: 'deleteGroup'; group: GroupInfo }
   | { kind: 'access'; user: UserInfo }
+  | { kind: 'rename'; user: UserInfo }
 
 const linkUrl = (l: NewLink) => l.url ?? `${location.origin}${l.path}`
 
@@ -64,21 +65,28 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [name, setName] = useState('')
   const [role, setRole] = useState<UserInfo['role']>('member')
   const [secret, setSecret] = useState('')
+  const how = useConfirmWith()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const needsSecret = role === 'admin' && !secret.trim()
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
-    if (busy || !name.trim() || needsSecret) return
+  /** Their folder is in people/ already, with notes in it (made outside vihko, or kept from a lost state.db): adopt it, or another name. */
+  const [taken, setTaken] = useState<string | null>(null)
+  const needsSecret = role === 'admin' && !confirmReady(how, secret)
+  const create = async (adopt: boolean) => {
     setBusy(true)
     setError(null)
     try {
-      const r = await api.createUser(name.trim(), role, role === 'admin' ? secret.trim() : undefined)
+      const r = await api.createUser(name.trim(), role, role === 'admin' ? secret.trim() : undefined, adopt)
       onCreated(r.user, r.link)
     } catch (err) {
-      setError(codeError(t, err))
+      if (err instanceof ApiError && err.code === 'personal_folder_exists' && !adopt) setTaken(name.trim())
+      else setError(codeError(t, err))
       setBusy(false)
     }
+  }
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy || !name.trim() || needsSecret) return
+    await create(false)
   }
   return (
     <Dialog className="dialog dialog-narrow">
@@ -103,11 +111,60 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
           </fieldset>
           {role === 'admin' && <IdentityField value={secret} onChange={setSecret} hint={t('users.newAdminHint')} />}
           <p className="dialog-text">{t('users.newBody')}</p>
+          {/* Never by default: only when the admin chooses it, for that name. */}
+          {taken !== null && taken === name.trim() && (
+            <div className="adopt" role="alert">
+              <p className="dialog-text"><b>{t('users.adoptTitle', { name: taken })}</b></p>
+              <p className="dialog-text">{t('users.adoptBody', { name: taken })}</p>
+              <Button className="btn" isDisabled={busy || needsSecret} onPress={() => void create(true)}>{t('users.adopt')}</Button>
+            </div>
+          )}
         </div>
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || needsSecret}>{t('users.create')}</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+/** A new name for someone who hasn't used their invitation yet: their folder and what's shared with them follow. */
+function RenameUserDialog({ user, onClose, onRenamed }: { user: UserInfo; onClose: () => void; onRenamed: () => void }) {
+  const t = useT()
+  const [name, setName] = useState(user.username)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy || !name.trim() || name.trim() === user.username) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.renameUser(user.id, name.trim())
+      onRenamed()
+    } catch (err) {
+      setError(errorText(t, err))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog className="dialog dialog-narrow">
+      <form onSubmit={submit}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('users.renameTitle', { user: user.username })}</Heading>
+          <p className="dialog-text">{t('users.renameBody')}</p>
+          <TextField className="field" value={name} onChange={setName} maxLength={64} isRequired autoFocus>
+            <Label>{t('field.username')}</Label>
+            <Input autoComplete="off" {...NAME_INPUT} />
+            <Text slot="description" className="hint">{t('users.nameHint')}</Text>
+          </TextField>
+        </div>
+        {error && <p className="error-text dialog-error" role="alert">{error}</p>}
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || name.trim() === user.username}>{t('users.renameConfirm')}</Button>
         </div>
       </form>
     </Dialog>
@@ -161,9 +218,10 @@ function ConfirmDialog({ title, items, confirm, danger, identity, onClose, onCon
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [secret, setSecret] = useState('')
+  const how = useConfirmWith()
   const go = async (e?: FormEvent) => {
     e?.preventDefault()
-    if (busy || (identity && !secret.trim())) return
+    if (busy || (identity && !confirmReady(how, secret))) return
     setBusy(true)
     setError(null)
     try {
@@ -184,7 +242,7 @@ function ConfirmDialog({ title, items, confirm, danger, identity, onClose, onCon
         </div>
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose} autoFocus={!identity}>{t('common.cancel')}</Button>
-          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || (!!identity && !secret.trim())}>{confirm}</Button>
+          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || (!!identity && !confirmReady(how, secret))}>{confirm}</Button>
         </div>
       </form>
     </Dialog>
@@ -300,12 +358,12 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState<Open | null>(null)
-  /** Before deleting someone: whether they have a space, and what it shares with others, as counts. */
-  const [summary, setSummary] = useState<{ id: string; exists: boolean; sharedFolders: number; people: number } | null>(null)
+  /** Before deleting someone: whether they have a space, what it shares with others (counts), and who has access to what. */
+  const [summary, setSummary] = useState<(PersonalSummary & { id: string }) | null>(null)
   useEffect(() => {
     if (open?.kind !== 'confirm' || open.action !== 'delete') return
     const id = open.user.id
-    api.personalSummary(id).then((s) => setSummary({ id, exists: s.exists, sharedFolders: s.sharedFolders, people: s.people })).catch(() => {})
+    api.personalSummary(id).then((s) => setSummary({ ...s, id })).catch(() => {})
   }, [open])
 
   const fail = (err: unknown) => {
@@ -345,6 +403,8 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
   const actions = (u: UserInfo) => {
     const items: { id: string; label: string; danger?: boolean }[] = [{ id: 'access', label: t('perm.userAccessAction') }]
     if (u.id === me.id) return items
+    // Renaming: only while their invitation is unused.
+    if (u.status === 'invited') items.push({ id: 'rename', label: t('users.actionRename') })
     if (u.status !== 'disabled') items.push({ id: 'link', label: t(u.status === 'invited' ? 'users.actionInviteLink' : 'users.actionResetLink') })
     items.push({ id: u.role === 'admin' ? 'demote' : 'promote', label: t(u.role === 'admin' ? 'users.actionDemote' : 'users.actionPromote') })
     if (u.sessions > 0) items.push({ id: 'sessions', label: t('users.actionSessions', { n: u.sessions }) })
@@ -360,6 +420,7 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     if (id === 'enable' && u.role !== 'admin') return void run(() => api.enableUser(u.id))
     if (id === 'enable') return setOpen({ kind: 'confirm', action: 'enableAdmin', user: u })
     if (id === 'access') return setOpen({ kind: 'access', user: u })
+    if (id === 'rename') return setOpen({ kind: 'rename', user: u })
     setOpen({ kind: 'confirm', action: id as Action, user: u })
   }
 
@@ -371,17 +432,18 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     switch (action) {
       case 'disable': return {
         title: t('users.disableTitle', { user }), danger: true, confirm: t('users.disableConfirm'),
-        items: [t('users.disable1'), t('users.disable2'), t('users.disable3')],
-        go: async () => { await api.disableUser(u.id); done() },
+        items: [t('users.disable1'), t('users.disable2'), t('users.disable3'), t('users.toldAdmins')], identity,
+        go: async (secret) => { await api.disableUser(u.id, secret); done() },
       }
       case 'delete': return {
         title: t('users.deleteTitle', { user }), danger: true, confirm: t('users.deleteConfirm'),
         items: [
           t('users.delete1'), t('users.delete2'), t('users.delete3'),
           ...(summary?.id === u.id && summary.sharedFolders > 0 ? [t('users.deleteShared', { folders: summary.sharedFolders, people: summary.people })] : []),
-          t('users.delete4'), t('users.delete5'),
+          t('users.delete4'), t('users.delete5'), t('users.toldAdmins'),
         ],
-        go: async () => { await api.deleteUser(u.id); done() },
+        identity,
+        go: async (secret) => { await api.deleteUser(u.id, secret); done() },
       }
       case 'enableAdmin': return {
         title: t('users.enableAdminTitle', { user }), confirm: t('users.enableAdminConfirm'),
@@ -410,12 +472,14 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
       }
       case 'link': {
         const reset = u.status !== 'invited'
+        // A new invitation for an admin makes an admin with a password of their own: confirmed too, and told to the other admins.
+        const confirmed = reset || u.role === 'admin'
         return {
           title: t(reset ? 'users.resetTitle' : 'users.relinkTitle', { user }), confirm: t('users.linkConfirm'),
-          items: reset ? [t('users.reset1'), t('users.reset2'), t('users.linkEnds'), told] : [t('users.relink1'), t('users.linkEnds')],
-          ...(reset ? { identity } : {}),
+          items: reset ? [t('users.reset1'), t('users.reset2'), t('users.linkEnds'), told] : [t('users.relink1'), t('users.linkEnds'), ...(confirmed ? [t('users.toldAdmins')] : [])],
+          ...(confirmed ? { identity } : {}),
           go: async (secret) => {
-            const r = await api.userLink(u.id, reset ? secret : undefined)
+            const r = await api.userLink(u.id, confirmed ? secret : undefined)
             setOpen({ kind: 'link', user: r.user, link: r.link, created: false })
             void load()
           },
@@ -449,6 +513,8 @@ export function UsersPage({ user: me, onUnauthorized }: { user: User; onUnauthor
     dialog = <ConfirmDialog title={t('groups.deleteTitle', { name: g.name })} danger confirm={t('groups.deleteConfirm')}
       items={[t('groups.delete1', { name: g.name }), t('groups.delete2')]} onClose={close}
       onConfirm={async () => { await api.deleteGroup(g.id); done() }} />
+  } else if (open?.kind === 'rename') {
+    dialog = <RenameUserDialog user={open.user} onClose={close} onRenamed={done} />
   } else if (open?.kind === 'access') {
     dialog = <AccessDialog who={{ user: open.user.id }} title={t('perm.userAccessTitle', { user: open.user.username })} onClose={close} onUnauthorized={onUnauthorized} />
   }

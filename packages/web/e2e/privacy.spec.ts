@@ -6,7 +6,7 @@
 import { expect, test, type Browser } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, MEMBER, inVault, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { dismissNoticesOf, signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
@@ -21,6 +21,8 @@ async function admin(browser: Browser) {
   return { page, request: page.request }
 }
 test.afterAll(async ({ browser }) => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN, MEMBER)
   const { page, request } = await admin(browser)
   for (const k of (await (await request.get('/api/keys?all=1')).json()).keys as { id: string; name: string; status: string }[]) {
     if ((k.name === KEY.admins || k.name === KEY.members) && k.status === 'active') await request.delete(`/api/keys/${k.id}`)
@@ -42,8 +44,9 @@ test('with the integrations off, nothing gets in or out; and the UI talks only t
   await expect(page.getByText('vihko no envía estadísticas ni informes de errores, y no busca actualizaciones.')).toBeVisible()
   // What an agent knows of a note hidden from it, in plain words.
   await expect(page.getByText('Solo sabe que una existe si ya tiene su nombre', { exact: false })).toBeVisible()
-  // External images are allowed on the test server, and the page says how to block them.
-  await expect(page.getByText('VIHKO_EXTERNAL_IMAGES=block')).toBeVisible()
+  // The test server is a new installation: external images wait until the reader asks, and the page says so and how to change it.
+  await expect(page.getByText('no se cargan solas', { exact: false })).toBeVisible()
+  await expect(page.getByText('VIHKO_EXTERNAL_IMAGES', { exact: true })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Privacidad')
   expect([...hosts]).toEqual([BASE_URL])

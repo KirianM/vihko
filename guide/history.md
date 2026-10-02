@@ -292,6 +292,9 @@ Afterwards:
   version.
 - The trash, and the recovery copies of open notes in the state volume,
   aren't touched.
+- **Your backups still hold it.** A copy of the state volume taken before
+  the purge has the history as it was: delete or replace those copies too,
+  or restoring one brings it all back.
 
 ### From the command line
 

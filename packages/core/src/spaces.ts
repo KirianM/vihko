@@ -101,23 +101,31 @@ export type SpaceNameProblem = 'empty' | 'too_long' | 'control_characters' | 'sp
  * The name is its folder, so besides `empty`, `too_long` (over
  * SPACE_NAME_MAX characters), `control_characters` and `spaces_around` (a
  * space at the start or the end):
- * - `invalid_characters`: `/` or `\`, which no folder's name can hold;
+ * - `invalid_characters`: `/` or `\`, which no folder's name can hold, or
+ *   `<>:"|?*`, which Windows and SMB shares can't hold (a notes folder
+ *   synced to a Windows machine, or shared over SMB);
  * - `invalid_name`: a name no space's folder can have (isSpaceFolderName):
  *   starting with `.` (hidden) or `~` (a person's space in an address),
  *   ending with `.`, `~` or `.md` (some systems drop the first, backups end
  *   in the second, a note in the third), or `people` or `spaces` in any case
- *   (its address would read as a path from the notes root).
+ *   (its address would read as a path from the notes root); or a device
+ *   name of Windows (WINDOWS_RESERVED), which can't be a folder there.
  * The caller keeps it in NFC; whether another space has it is the server's.
+ * Only for names vihko gives: a folder made on the disk is a space by the
+ * laxer isSpaceFolderName.
  */
 export function spaceNameProblem(name: string): SpaceNameProblem | null {
   if (name.length === 0) return 'empty'
   if (/[\u0000-\u001f\u007f]/.test(name)) return 'control_characters'
   if (name.trim() !== name) return 'spaces_around'
   if ([...name].length > SPACE_NAME_MAX) return 'too_long'
-  if (/[\\/]/.test(name)) return 'invalid_characters'
-  if (!isSpaceFolderName(name)) return 'invalid_name'
+  if (/[\\/<>:"|?*]/.test(name)) return 'invalid_characters'
+  if (!isSpaceFolderName(name) || WINDOWS_RESERVED.test(name)) return 'invalid_name'
   return null
 }
+
+/** Windows's device names, in any case, alone or with an extension (`CON`, `nul.txt`, `Com1.md`). */
+const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
 
 /**
  * Whether a folder under `spaces/` is a shared space, by its name (in any

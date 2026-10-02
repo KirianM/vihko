@@ -5,13 +5,15 @@
 //
 // - daily-note series: a person is offered vihko.yaml's, those of the shared
 //   spaces they belong to and their own, where they can write today's note;
-//   two that give the same path are one (the first: vihko.yaml's, then a
-//   space's, then theirs). A daily note is its path: nothing is duplicated or
-//   moved by declaring a series twice.
+//   two that give the same path are one, the closest to the person (theirs,
+//   then a space's, then vihko.yaml's), with its label and template. A daily
+//   note is its path: nothing is duplicated or moved by declaring a series
+//   twice.
 // - where new images go: a space's setting for the notes of that space,
 //   otherwise vihko.yaml's.
 // - the guide for agents: vihko.yaml's, then that of each shared space the
-//   key reaches, then the person's own (each a note the key must read).
+//   key reaches (its text, in the file: only its managers write it), then the
+//   person's own (a note of theirs the key must read).
 //
 // Nothing of someone else's settings ever applies to a person, and the files
 // are never served: `.vihko/` is hidden and reserved (core spaces.ts). Each
@@ -24,9 +26,9 @@ import { mkdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   NoteSettingsFileError, contentHash, noteSettingsPath, parseNoteSettings, personalRoot, resolveNoteSettings, seriesPattern, spaceRootOf, writeNoteSettings,
-  type AttachmentsConfig, type ConfigError, type NoteSettings, type ResolvedNoteSettings, type Series,
+  type AttachmentsConfig, type ConfigError, type NoteSettings, type NoteSettingsKind, type ResolvedNoteSettings, type Series,
 } from '@vihko/core'
-import { commitText, readText } from './fsutil.ts'
+import { commitText, followable, readText } from './fsutil.ts'
 import { NoteError } from './notes.ts'
 
 interface Cached {
@@ -52,6 +54,11 @@ export function seriesPrefix(root: string): string {
   return root.startsWith('people/') ? 'me-' : `sp-${createHash('sha1').update(root.normalize('NFC')).digest('hex').slice(0, 8)}-`
 }
 
+/** Whose settings a space's root holds: a person's own, or a shared space's. */
+export function settingsKind(root: string): NoteSettingsKind {
+  return root.startsWith('people/') ? 'personal' : 'shared'
+}
+
 export class NoteSettingsStore {
   private notesDir: string
   private cache = new Map<string, Cached>()
@@ -64,7 +71,18 @@ export class NoteSettingsStore {
     return join(this.notesDir, noteSettingsPath(root))
   }
 
+  /**
+   * Whether vihko may follow the settings file's path: never through a
+   * symbolic link (fsutil.ts followable), which would read or write another
+   * space's settings, or any file of the server. One that goes through a
+   * link isn't there for vihko.
+   */
+  private followable(root: string): boolean {
+    return followable(this.notesDir, noteSettingsPath(root))
+  }
+
   private stamp(root: string): string {
+    if (!this.followable(root)) return ''
     try {
       const s = statSync(this.file(root))
       return s.isFile() ? `${s.size}:${s.mtimeMs}` : ''
@@ -81,7 +99,7 @@ export class NoteSettingsStore {
     if (!c || c.stamp !== stamp) {
       let text: string | null = null
       try { text = stamp === '' ? null : readText(this.file(r)) } catch { text = null }
-      const { settings, errors } = parseNoteSettings(text)
+      const { settings, errors } = parseNoteSettings(text, settingsKind(r))
       c = { stamp, text, settings, errors, resolved: resolveNoteSettings(settings, r, seriesPrefix(r)) }
       this.cache.set(r, c)
       if (this.cache.size > 2000) this.cache.clear()
@@ -95,12 +113,13 @@ export class NoteSettingsStore {
    * what the file has around them (core writeNoteSettings). A file that
    * isn't YAML is fixed by hand first (NoteSettingsFileError).
    */
-  async write(root: string, next: NoteSettings, opts: { ifMatch?: string } = {}): Promise<SettingsRead> {
+  async write(root: string, next: NoteSettings, opts: { ifMatch?: string; remove?: readonly string[] } = {}): Promise<SettingsRead> {
     const r = root.normalize('NFC')
     const now = this.read(r)
     if (opts.ifMatch !== undefined && opts.ifMatch !== now.etag) throw new NoteError('precondition_failed', 'the settings have changed', now.etag)
+    if (!this.followable(r)) throw new NoteError('invalid_path', `vihko doesn't follow a symbolic link: ${noteSettingsPath(r)}`)
     const before = now.etag === contentHash('') && this.stamp(r) === '' ? null : readText(this.file(r))
-    const text = writeNoteSettings(before, next)
+    const text = writeNoteSettings(before, next, settingsKind(r), opts.remove ?? [])
     mkdirSync(dirname(this.file(r)), { recursive: true })
     const w = await commitText(this.file(r), text, before === null ? null : contentHash(before))
     if (!w.ok) throw new NoteError('precondition_failed', 'the settings have changed', this.read(r).etag)
@@ -116,36 +135,31 @@ export class NoteSettingsStore {
 
   /**
    * Daily-note series, one per path (see the header): when two give the same
-   * note, vihko.yaml's (`installation`) is kept over a space's (`spaces`), and
-   * a space's over the person's own (`own`). Listed the other way round: the
-   * person's own first, then their spaces', then the installation's, so the
-   * first is the one closest to them (the default of «Today's note» until
-   * they choose). Who is offered which is the caller's to judge.
+   * note, the person's own (`own`) is kept over a space's (`spaces`), and a
+   * space's over vihko.yaml's (`installation`): the closest, with its
+   * template. Listed in that order too, so the first is the one closest to
+   * them (the default of «Today's note» until they choose). `sameAs`: for
+   * each series left out, the id of the one kept for its path (a choice of
+   * it still means those notes). Who is offered which is the caller's to
+   * judge.
    */
-  series(installation: readonly Series[], spaces: readonly string[], own: string, username: string): Series[] {
-    const seen = new Set<string>()
+  series(installation: readonly Series[], spaces: readonly string[], own: string, username: string): { list: Series[]; sameAs: Map<string, string> } {
+    const kept = new Map<string, string>()
+    const sameAs = new Map<string, string>()
     const keep = (list: readonly Series[]) => list.filter((s) => {
       const key = seriesPattern(s).replaceAll('{user}', username).normalize('NFC').toLowerCase()
-      if (seen.has(key)) return false
-      seen.add(key)
+      const first = kept.get(key)
+      if (first !== undefined) {
+        if (first !== s.id) sameAs.set(s.id, first)
+        return false
+      }
+      kept.set(key, s.id)
       return true
     })
-    const fromInstallation = keep(installation)
-    const fromSpaces = keep(spaces.flatMap((root) => this.read(root).resolved.daily))
     const fromOwn = keep(this.read(own).resolved.daily)
-    return [...fromOwn, ...fromSpaces, ...fromInstallation]
-  }
-
-  /** The guides for agents of `spaces` and of the person's own space, as notes: [where it's from, the note]. */
-  guides(spaces: readonly string[], own: string): { root: string; note: string }[] {
-    const out: { root: string; note: string }[] = []
-    for (const root of spaces) {
-      const g = this.read(root).resolved.agents
-      if (g) out.push({ root, note: g })
-    }
-    const mine = this.read(own).resolved.agents
-    if (mine) out.push({ root: own, note: mine })
-    return out
+    const fromSpaces = keep(spaces.flatMap((root) => this.read(root).resolved.daily))
+    const fromInstallation = keep(installation)
+    return { list: [...fromOwn, ...fromSpaces, ...fromInstallation], sameAs }
   }
 
   /** A person's own space's root. */

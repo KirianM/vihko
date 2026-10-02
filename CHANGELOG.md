@@ -10,6 +10,463 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.6] - 2026-10-03
+
+Fixes from two reviews before 0.1.0: security, and flows that a family or a
+small team meets after months of use.
+
+### Added
+
+- **The `note_not_saved` alert**, for the admins: an open note vihko can't
+  save (a full disk, a folder or state volume it may not write to), with
+  why (`reason`) and where (`volume`, `space`, and `path` only to an admin
+  who reads the note).
+- **«Save my version as a copy» whenever something you typed can't reach
+  its note**: the note was moved somewhere you can't open, deleted, or
+  moved while you were offline; you can no longer edit it; your session
+  ended. The copy goes next to the note, or into your own space when you
+  can't write there any more.
+- Leaving the page while something you typed hasn't been sent asks first.
+- **Images and attachments by name, as Obsidian writes them.**
+  `![[photo.png]]` and `[[invoice.pdf]]` with no folder are found by name
+  among the files of the note's space, as note names are (the nearest wins,
+  a tie is no answer, never another space): an imported vault's images in
+  its attachments folder show again. A link to a file that isn't a note, or
+  a Markdown link to one next to the note, opens it in a new tab, where the
+  browser shows it (a PDF, an image) or downloads it; it's never offered as a
+  note to create. `GET /api/file?note=…&name=…` gets a file as a note names
+  it; links to files carry `file: true` (`GET /api/note/links`, and the MCP
+  `get_note` and `related`).
+- **OAuth apps from chosen domains only**, if you want:
+  `mcp.client_domains` in `vihko.yaml` lists the domains remote MCP apps may
+  come from (each with its subdomains). An app from elsewhere can't register
+  or be authorized, and the page names its domain. Empty or left out, any
+  app may ask, as before.
+- The authorization page shows the app's domain in large type, for one that
+  registered itself too (where it goes back to), and warns when the name an
+  app gives doesn't fit its domain.
+- **A maximum note size**, `notes.maxSize` in `vihko.yaml` (5 MB by
+  default). A larger note is listed by its name but nothing of its text is
+  indexed, and it opens as plain text with a download, never in the live
+  editor; the admins get the `notes_too_large` alert, and `GET /api/note`
+  says `tooLarge: true`. The API and MCP refuse a write that would make a
+  note larger (`413 note_too_large`). A huge note slowed every browser that
+  opened it, and the server, for everyone.
+- **A deleted shared space comes back whole.** Right after deleting one,
+  «Undo»; later, «Restore space» in the notice its managers get, and in the
+  admin's «Spaces»: its folders (empty ones too), its notes and files from
+  the trash, its members with their levels (and when each was given access),
+  as it was. Only under its own name: while another space has it, `409
+  space_name_taken`. Who managed it when it was deleted may restore it, and
+  so may the admin, who gains no access by it. `DELETE /api/spaces` answers
+  `deleted`; `GET /api/spaces/deleted` and `POST /api/spaces/restore` are
+  new. Before, the dialog promised a restore there was no way to make but
+  note by note.
+- **Notices of what is taken away**, besides those of what is given: taken
+  out of a shared space or a folder (`removed_from`, with its name and whose
+  it is as you last saw them), a shared space you're in deleted
+  (`space_deleted`) or restored (`space_restored`), or renamed («Casa is now
+  called Hogar», `space_renamed`).
+- **Renaming someone invited.** A person who hasn't used their invitation
+  yet can be renamed by the admin in «Users» (`PUT
+  /api/admin/users/:id/username`): their folder, the grants to them and their
+  link follow. Someone who signed in can't be renamed yet (`409
+  not_invited`).
+- **«Adopt their folder».** Recreating someone whose `people/<name>/` is
+  still there with their notes (after `state.db` was lost, or restored from
+  an old copy) was refused with `personal_folder_exists`, and the folder had
+  to be moved aside and back by hand. The admin can now adopt it, in «Users»
+  (`adopt: true` on `POST /api/admin/users`) or with `vihko user create
+  <name> --adopt`: it becomes theirs as it is. Never by default.
+- **«Restore previous permissions».** When the `permissions` section goes
+  from `vihko.yaml` (an example pasted over it, the file deleted), the file
+  applies, so nothing is shared, as before; now the admins get the
+  `permissions_missing` alert, and its button writes back the last section
+  that shared something, which vihko keeps in the state volume
+  (`vihko.yaml.last-permissions`), under what the file says now. Confirmed
+  at the moment. Dismissing the alert forgets it. An empty section written on
+  purpose (`permissions: {}`) raises nothing.
+
+### Changed
+
+- **A confirmation lasts 15 minutes in that browser**, as GitHub's «sudo
+  mode» does: after the current code, a recovery code, the password (without
+  a second factor) or a sign-in with a code, the actions «confirmed at the
+  moment» (keys, OAuth, recovery codes, the admin's changes to accounts and
+  spaces, retention, purges) don't ask again until it ends, and their dialogs
+  show no field for it. Only that browser session: another one, an agent key
+  or an OAuth token never skips one. Signing out, a new password, and a second
+  factor turned off or reset end it. `GET /api/account/2fa` says whether
+  confirming is needed now (`confirmNeeded`, `confirmedUntil`).
+- **Agents' substitutions while someone types.** `find_replace`,
+  `replace_section` and `set_frontmatter` (and `PUT /api/note`) with an
+  ETag the open note had in the last few minutes go in, applied to the
+  text as it is now, when nothing changed since in what they replace or
+  right next to it. Before, any keystroke made them fail.
+- A note vihko can't save turns read-only for everyone who has it open,
+  says so, and saves on its own once it can; writes to it through the API
+  or MCP answer `internal` meanwhile, and so do moving and deleting it.
+- The editor's «Offline» no longer promises that changes are sent on
+  reconnecting: it says to keep the tab open.
+- **A shared space's guide for agents is written by its managers only.** It's
+  now text in the space's «Settings…» («Guide for agents»), kept in the
+  space's settings file (`guide` in `.vihko/settings.yaml`), never a note:
+  before, any member who could edit the note changed what every member's
+  agents were told. `PUT /api/settings` takes `guide` for a shared space and
+  refuses `agents` there (`space_guide_note`). A person's own guide is still
+  a note of theirs, and `mcp.instructions` in `vihko.yaml` is unchanged.
+- **«Today's note» asks when the series you chose is gone** (removed,
+  renamed, or in a space you left), and remembers your answer, instead of
+  quietly moving to another series, perhaps a shared space's.
+  `GET/POST /api/daily` and the MCP `daily_note` without a series answer
+  `409 series_gone` then; Preferences shows no series chosen until you pick
+  one.
+- **The closest daily series wins.** When your own series (or a space's)
+  writes the same notes as one of `vihko.yaml`'s, yours is the one offered,
+  with its name and template; before, the installation's hid it. A choice or
+  a `series` naming the installation's id still works, as yours.
+- **Deleting a folder or a space takes its hidden folders too, and names
+  them first.** Another program's folders (`.obsidian/`, `.trash/`, `.git/`…)
+  and a space's own `.vihko/` no longer keep a folder from being deleted:
+  they go to the trash with it and come back with it. The delete dialogs
+  list them, and the files that aren't notes, as soon as they open, the
+  known ones by what they are («Obsidian settings (.obsidian)»). Only a
+  symbolic link still stops a deletion. `not_empty`'s `contents` has
+  `hidden`, and `DELETE /api/folder?dryRun=true` says what deleting would
+  take without deleting anything.
+- **External images wait for the reader on new installations.** A note's
+  image from another site shows «External image from example.com» with
+  **Show** (loads it, on this page) and **Save a copy** (vihko downloads it
+  into the notes folder and the note points to the copy, its text kept).
+  `VIHKO_EXTERNAL_IMAGES` takes `ask` for this; `allow` and `block` are as
+  before, and `block` also offers **Save a copy**. Unset, an installation
+  started with this version gets `ask`; one from before keeps `allow`.
+- **Travelling**: when your browser is in another time zone than the one in
+  your preferences (which decides what day «today» is), vihko offers once,
+  in that browser, to switch to it; it never switches by itself.
+- **The log keeps personal spaces' paths out.** At the default level a path
+  inside a personal space is written as «a note in a personal space» with
+  its `uid`; `VIHKO_LOG_LEVEL=debug` writes paths whole, to chase a problem.
+- Files opened on their own: images (not SVG) and PDFs are shown in the
+  browser (`Content-Disposition: inline`); an SVG, a web page or anything
+  else is downloaded.
+- **A link that starts with `/` counts from the root of its note's space**,
+  in every form: `[[/recipes/Bread]]`, `[bread](/recipes/Bread.md)` and
+  `![](/images/plan.png)`, as Obsidian counts from the root of its vault.
+  Until now a wikilink counted from the notes root (and inside a space
+  never resolved), a Markdown link from the note's folder, an image from
+  the notes root. A first folder `people` or `spaces` still counts from the
+  notes root. A vault copied into a space keeps its links written from its
+  root; a rename keeps a Markdown link or an image written so in that form;
+  `[[/…` suggests notes from the root of the space.
+- **A space's name can't hold `<>:"|?*`, nor be a device name of
+  Windows** (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, in
+  any case, with or without an extension): the name is its folder, which
+  Windows and SMB shares can't create. Creating or renaming a space with one
+  answers `400 invalid` (`invalid_characters` or `invalid_name`). A space
+  that already has such a name keeps it.
+- A series of `vihko.yaml` whose id starts with `me-` or `sp-` (in any
+  case) is `invalid_id`: those are the ids of a person's and a shared
+  space's series, and one there could take theirs.
+- **The live tree's event stream is `GET /api/live`**, no longer
+  `GET /api/events`, which answers `404`: that name is kept for a log of
+  events to come.
+- **Deleting someone no longer takes away at once what they shared.** Their
+  space closes, but the folders they shared from it stay shared, as they
+  were, until the admin decides what becomes of it (transfer it, make it a
+  shared space or delete it). The delete dialog lists who has access to what
+  (`GET /api/admin/users/:id/space` adds `shared`: each shared folder with
+  its people and levels, its path only where the admin reads it); deleting
+  the space later tells those people (`removed_from`).
+- **The admin never joins a shared space without being invited.** Only its
+  managers add people, the admin included: `POST /api/admin/spaces/join` is
+  `409 space_has_managers` for a space with any, and «Spaces» offers
+  «Join» only for one without. Its exception is a rescue: a space whose
+  managers are all disabled (or gone), which the admin may join, its
+  members being told.
+- **Taking someone out of a shared space takes their grants below it too**,
+  as leaving it does: they no longer keep a subfolder shared with them on
+  its own. The dialog says so.
+- **A grant inside a shared space to one of its members only raises them.**
+  The share dialog offers only the levels above theirs in the space, and
+  `PUT /api/permissions` refuses one at or below it with `400
+  grant_not_higher` (`subject`, `level`: theirs in the space). When a
+  member's level in the space goes up, their grants below that no longer
+  raise them go by themselves. Sharing a subfolder with someone who isn't in
+  the space is as before.
+
+### Security
+
+- The image no longer carries npm, npx or corepack: vihko never runs them,
+  and the packages bundled with npm had known vulnerabilities.
+- **Moving a folder into another space no longer brings its grants along
+  unless you manage where it goes.** With only `edit` in a shared space (or in
+  a folder someone shares from their own space), moving a folder of yours
+  there carried its grants, up to `manage` and to anyone, and so did a note's
+  folder of images in `per-note` mode: a way to share what wasn't yours to
+  share. Now such a folder takes the audience of where it lands; `ai: false`
+  still goes with it, and so do its grants for whoever manages the
+  destination, who could give them there anyway. Within a space nothing
+  changes.
+- The live tree's event stream (`GET /api/live`) ends with its session:
+  at once when the person signs out, is disabled or changes their password;
+  at the next keep-alive when the session expires. An open editor's
+  connection also ends within seconds of its session expiring, not only
+  when someone ends it.
+- Disabling or deleting someone, and a new invitation link for an admin who
+  hasn't chosen a password yet, are confirmed at the moment (the admin's
+  current code, or their password without a second factor), as the other
+  changes to someone's account already were, and the other admins are told
+  (`user_account_changed` with `disabled`, `deleted` or `invite_link`). A
+  session left open is no longer enough to lock people out, or to make an
+  admin with a password of one's own.
+- Replacing every occurrence of a word in a long note (`find_replace`), a
+  search over a note with thousands of matches, and saving a note with very
+  long paragraphs no longer keep the server busy for seconds or minutes:
+  each takes time in proportion to the text.
+- A search takes at most 1,000 characters, 20 filters and 32 words: more is
+  `400 query_too_complex`, by HTTP and MCP alike.
+- Second-factor codes have a limit of their own for each account: after 10
+  wrong ones, from any address, the waits double up to an hour (a password's
+  stop at a minute), and they're forgotten only after a day without
+  failures. A sign-in waiting for its code ends after 5 wrong ones: the
+  password again. Guessing a code over days no longer pays.
+- A note vihko can't read on the disk (no permission, an I/O error) no
+  longer stops vihko from starting, nor every later rescan: it's left as the
+  index had it, the server's log names it, and the admins get the new
+  `unreadable_notes` alert until it can be read.
+- **A deleted or renamed space's name stays taken while its trash or its
+  history holds anything.** A new space with that name inherited both: its
+  members could read and restore what the old space's members deleted, and
+  read its versions. Creating a space, renaming one, «Move to a new space» and
+  converting a deleted person's space answer `409 space_name_taken` for it,
+  as for a space that exists, until the retention or a purge empties that
+  past. A space can still change the case of its own name.
+- **Sharing a folder no longer shares its past.** Each person sees a note's
+  history, and the trash, only from when they could read it: a folder
+  shared with someone (or a space they're added to, or a group they join)
+  shows them the versions made, and the notes deleted, since then. vihko
+  keeps in `state.db` when each grant began; a grant written by hand in
+  `vihko.yaml` counts from when vihko first reads it. The same in «History»,
+  «Recent changes», versions, diffs, restore and revert, through the UI, the
+  API and the MCP `history` tool.
+- **A note with the same path as an earlier one has a history of its own**
+  when their `uid` differs: a note deleted and another made later with its
+  name no longer share their versions. Restoring a version of the earlier
+  note over the one there now is `409 uid_mismatch`, and the UI offers
+  «Restore as a new note» instead (`POST /api/history/restore` with `to`).
+- What was deleted in a folder before it moved to another space stays in the
+  trash where it was, with who could see it there, as its history does.
+- **Taking something out of a person's own space is never done behind their
+  back.** Whoever manages a folder shared from someone's space (or edits a
+  note there) may still move it to another space, and the owner gets the new
+  `moved_out` notice: what moved, who moved it, and where it went (the space,
+  and the path while they read there).
+- **A new password can shut out whatever got in with the old one.** «Change
+  password» has a box, ticked by default: «Also sign out other sessions and
+  revoke keys and authorised apps». `POST /api/auth/password` takes
+  `revokeOthers` (true by default) and answers `sessionsEnded` and
+  `keysRevoked`; with `false`, the other sessions and the keys stay.
+- **What an admin does to someone's account reaches the other admins at
+  once.** A notice now arrives on its person's open pages as it's made (the
+  live stream, `GET /api/live`, has a new `notices` event), so the other
+  admins see an admin taking someone's second factor away, or making them a
+  reset link, while it happens, not the next time they look; the server's
+  log keeps both on record.
+- **Turning off «Members can create keys» suspends the keys and apps
+  members already have**: they stop working, answering `403 key_suspended`
+  by the API and MCP alike, without being deleted, and work again when it's
+  turned back on (their status is `suspended` meanwhile). The confirmation
+  says how many (`GET /api/integrations` gives the admin `memberKeys`).
+- **A key made, or an app authorised, on your account is never unnoticed:**
+  you get the `account_key_added` notice, even when you did it yourself (a
+  session someone else took would do it unseen otherwise).
+
+### Fixed
+
+- Idle connections stay open 65 s instead of Node's 5: a reverse proxy (or
+  any client) that reuses a connection as vihko closes it no longer gets a
+  reset, which behind a proxy showed as an occasional 502.
+- A click on someone else's cursor in the editor, on its dot or on the name
+  over it, places your cursor in the text under it: the editor ignored it,
+  and your cursor stayed where it was.
+- The recently opened notes the search box offers (and «When I open vihko:
+  Last note») are each person's, and are forgotten when they sign out: on a
+  shared browser, whoever signs in next no longer sees, nor opens, the notes
+  the one before was reading.
+- Transferring a deleted person's space no longer tells the admin where
+  it landed in the recipient's space (`plan.to` is null for an admin who
+  doesn't read there): `-2` after the name said the recipient already had
+  something with it.
+- Home's «what others changed» looks only among the notes the person
+  reads: many changes elsewhere in the installation no longer push what
+  they read out of it.
+- A space's settings (`.vihko/settings.yaml`) are never read or written
+  through a symbolic link, as nothing else in the notes folder is: a link
+  made on the disk (or by a sync tool) could write another space's settings
+  or a file outside the notes folder. Saving them there is `400
+  invalid_path`.
+- Finding a note by its `uid` (the MCP `get_note` with `uid`) looks only
+  among the notes its person reads: someone copying that `uid` into a note
+  of theirs can no longer make the lookup miss, or land on their note. The
+  `uid_conflict` alert only shows to someone who reads at least two of the
+  notes that share the `uid`.
+- A JSON body that isn't an object (`null`, a number, a list) is `400
+  invalid` on every route, where some answered 500 and wrote a trace to the
+  log, the first boot's and an invitation's among them, which need no
+  session.
+- A manager the admin disables no longer counts as one: the space shows
+  without managers (the admin's directory, `GET /api/spaces`, the
+  `space_without_managers` alert), and the admin can name another. Enabled
+  again, they manage it as before.
+- vihko starting with a `vihko.yaml` that can't be used (a typo before a
+  restart, an upgrade's among them) no longer goes on with nothing
+  configured, which dropped `history.exclude` and recorded what it keeps
+  out, or turned a history that is off on: the last valid file is kept in the
+  state volume and applies, with the `config_invalid` alert
+  (`fallback: last_good`), until the file is fixed. Its permissions still
+  fail closed, as before.
+- Renaming a shared space no longer hides its notes' history from
+  everyone, and renaming a folder within its space no longer hides the
+  history from before the rename from whoever it's shared with: each version
+  is judged where the note is now, in «History», «Recent changes», restore
+  and revert. A note that came from another space keeps that part of its
+  past as before.
+- A mistake in the `permissions` of `vihko.yaml` (`grant:` for `grants:`)
+  no longer stops everyone from moving or renaming any folder or space:
+  vihko.yaml is only written when what moves has rules there. Moving a
+  folder (or a note with its folder of images) that has rules while the file
+  has a mistake answers `409 permissions_invalid`, and the UI says to ask
+  whoever runs vihko.
+- A note moved somewhere the person editing it can't open left them typing
+  into nothing, «Saving…» forever. It now closes, as when it goes to the
+  trash, and says so.
+- Text typed while offline was lost without a word when the note was moved
+  or deleted meanwhile, when the person's access was lowered, or when their
+  session ended; and so was what was typed in the moment someone else
+  moved or renamed the note, or while closing it or opening another one.
+- What an agent appends while someone types at the end of the note no
+  longer splits the word they are typing.
+- **Old `templates` keys are converted by vihko itself.** A `templates` key
+  left in `vihko.yaml` or in a person's or a space's `.vihko/settings.yaml`
+  was an «unknown key» alert that could only be fixed on the server. Now, at
+  start, vihko marks the notes of those folders as templates (as «Mark notes
+  as templates…» does), removes the key from the file, keeping the rest of
+  it, and tells whom the file belongs to how many notes it marked and which
+  folders were gone. A retired key is one entry of a small list, so the
+  next one is migrated the same way.
+- A settings alert said «in vihko.yaml» for a person's or a space's
+  settings file: it names its own file now (`~ana/.vihko/settings.yaml`),
+  with the line, and only whom the file belongs to sees it. It opens the
+  settings, where a key vihko doesn't know has **Remove** (`remove` in
+  `PUT /api/settings`).
+- A note made a template still showed among the ⌘K box's recent notes, and
+  in «On opening» › «A note» while choosing one; templates stay out of both,
+  as they stay out of search, tags and Home.
+- A new installation creates its history with SHA-1 ids whatever the
+  system's git would choose: with a git that makes SHA-256 repositories by
+  default (as git 3.0 is to), the history would record nothing. An
+  existing history is unchanged.
+- Renaming a shared space changes the ids of its series (they're made from
+  its folder), and «Today's note» of whoever had chosen one of them asked
+  them to choose again (`series_gone`): their choice now follows the new id.
+  A script or an agent that kept such an id gets `not_found` with it, as
+  before: `GET /api/workspace` lists the ids.
+- «On opening: a note» kept the note's old path when the note was renamed or
+  moved (or its folder, or its space was renamed), and vihko opened Home
+  instead: the choice now follows the note.
+
+### Documentation
+
+- Backups: what to undo by hand after restoring an older `state.db` (or
+  rolling back to a `state.db.bak-v*`), which brings back keys, sessions,
+  passwords and people revoked or changed since.
+- `SECURITY.md` describes the 0.x policy: fixes in a patch release of the
+  latest minor version, which `:0.1` picks up.
+- The reverse proxy guide and `compose.yaml` say when `172.16.0.0/12` in
+  `VIHKO_TRUSTED_PROXIES` isn't safe: the port published on every address,
+  or a Docker network shared with other containers.
+- The install guide recommends `VIHKO_SECRET_KEY_FILE`: a key in the
+  environment stays visible in `docker inspect`.
+- Purging says that backups taken before still hold what was purged.
+- The agents guide says that a key's folders are paths: whoever can edit
+  there can move notes into a key's reach.
+- Guides for going from one person to a family (moving many notes at once on
+  the disk, until the tree selects several), for someone leaving with their
+  notes (there's no export yet: they are plain files), and for what to check
+  after restoring an older `state.db`. The import guide no longer promises
+  what didn't work (images by name now do; attachments open from links).
+- Notes held after a move outside vihko are released only by whoever could
+  have made that move from vihko; the guide and the error when deleting a
+  folder with them say so.
+- The compatibility page says that version ids are opaque and change when a
+  purge or a retention run rewrites the history (a kept id then answers
+  `404 not_found`), and that vihko is served at the root of its domain, which
+  its addresses count on.
+
+### Upgrade notes
+
+- While vihko is at 0.x the image is published only as `X.Y.Z` and `X.Y`:
+  there is no `:0` or `:latest` tag (a new minor version may change
+  things). Use `:0.1`.
+- A folder (or a note's folder of images) moved into another space where you
+  only edit no longer keeps who it was shared with: it's shared as the
+  folder it lands in. Whoever manages that space can share it again.
+- A script or an agent that searches with more than 20 filters or 32 words,
+  or a query over 1,000 characters, now gets `400 query_too_complex`: split
+  the search.
+- A client of the API or MCP that took `412 precondition_failed` for
+  granted whenever someone had typed since its read now gets its write
+  applied when it touches nothing they changed. Read the `etag` in the
+  answer: it's the note's new one, with their changes.
+- **Shared spaces with a guide for agents**: the note their settings named
+  no longer reaches agents. Its managers get a `settings_invalid` alert
+  (`space_guide_note`, with the note's name); copy the note's text into the
+  space's «Settings…» → «Guide for agents» and save.
+- Scripts and agents calling `POST /api/daily` (or `daily_note`) without a
+  series may now get `409 series_gone`: pass a `series`, or set
+  `dailySeries` in the profile.
+- **External images**: nothing changes for an existing installation. Without
+  `VIHKO_EXTERNAL_IMAGES` it keeps loading them, as before (the default it had
+  is now kept in `state.db`). For the new default, set
+  `VIHKO_EXTERNAL_IMAGES: ask` in `compose.yaml`.
+- **`templates` folders, if any are left** in `vihko.yaml` or in a
+  `.vihko/settings.yaml`: the first start of this version marks their notes
+  as templates and removes the key; the admins (for `vihko.yaml`), the
+  person or the space's managers get a notice saying how many. Nothing to
+  do by hand.
+- The index (`index.db`) is rebuilt on its own the first time this version
+  starts (it now lists the files that aren't notes, to find them by name);
+  nothing to do.
+- **Links and images that start with `/`** now count from the root of the
+  note's space. A Markdown link `[t](/plan.md)` that led to a `plan.md` next
+  to the note now leads to the one at the root of the space: write it
+  without the `/` (`[t](plan.md)`) to keep it next to the note. An image
+  `![](/…)` written from the notes root (`/spaces/…`, `/people/…`) still
+  works.
+- **A series in `vihko.yaml` whose id starts with `me-` or `sp-`** makes the
+  file invalid (`config_invalid`, the last valid file applies): rename that
+  series, and whoever had chosen it chooses again in Preferences.
+- **A reverse proxy told not to buffer `/api/events`** (as the reverse proxy
+  guide said) should say `/api/live` now; otherwise the tree may update only
+  when the page is reloaded. The UI uses the new address by itself.
+- `state.db` goes to version 12 (a copy of version 11 is kept as
+  `state.db.bak-v11`): when each grant began, since when each person is in a
+  group, and the shared spaces deleted to the trash. The grants in
+  `vihko.yaml` when 0.1.0-rc.6 first starts count from the start, and so do
+  the groups' members then: nobody loses a past they could see. From then on,
+  whoever is given access sees the past only from that moment.
+- Notes larger than 5 MB (or `notes.maxSize`) stop being searchable and open
+  as plain text: raise `notes.maxSize` in `vihko.yaml` if you have such notes
+  and want them as before.
+- With «Members can create keys» off (the default of a new installation
+  since 0.1.0-rc.4), the keys and authorised apps members made while it was
+  on stop working (`403 key_suspended`) until the admin turns it on again.
+  Admins' keys aren't affected.
+- Changing your password now revokes your keys and authorised apps too,
+  unless you untick the box (or send `revokeOthers: false`): a script or an
+  app that used one needs a new key afterwards.
+
 ## [0.1.0-rc.5] - 2026-10-02
 
 Templates marked in the notes themselves, and searching by any frontmatter

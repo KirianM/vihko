@@ -7,7 +7,7 @@
 // (extension.ts), run in the order of their dependencies.
 import { lstatSync, readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
-import { classifyPath, contentHash, extract, isIgnoredDir, readFrontmatter, type Extracted, type LinkIndex } from '@vihko/core'
+import { classifyPath, contentHash, extract, isIgnoredDir, normKey, readFrontmatter, type Extracted, type LinkIndex } from '@vihko/core'
 import type { Db } from './db.ts'
 import { followable, isPlainFile } from './fsutil.ts'
 import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
@@ -36,6 +36,13 @@ export interface IndexerOptions {
   now?: () => number
   /** Moves made outside vihko, as a scan or a watcher batch detects them. */
   onMoves?: (moves: DetectedMove[]) => void
+  /**
+   * The largest note indexed (vihko.yaml `notes.maxSize`), in bytes; none by
+   * default. A larger one is kept in the index by its path and name alone:
+   * nothing of its text is read (no title from it, no links, tags or words),
+   * and it's reported (`tooLargeNotes`).
+   */
+  maxNoteBytes?: () => number
 }
 
 /** Names of the frontmatter keys vihko understands (configurable). */
@@ -83,7 +90,11 @@ export interface AppliedChanges {
 }
 
 interface Row { path: string; uid: string | null; hash: string; mtime_ms: number; size: number }
-interface Upsert { path: string; text: string; hash: string; stat: Stats }
+/** `large`: a note over the size limit, indexed by its path and name alone (its `text` is empty, never its own). */
+interface Upsert { path: string; text: string; hash: string; stat: Stats; large?: true }
+
+/** How the hash of a note indexed without its text (over the size limit) starts: never a content hash. */
+const LARGE = 'large:'
 
 export class Indexer {
   private keys: FrontmatterKeys
@@ -206,9 +217,11 @@ export class Indexer {
 
     const unreadable: string[] = []
     const dirs: string[] = []
+    const files: string[] = []
     for (const rel of walk(this.opts.notesDir, '', unreadable, dirs)) {
       const kind = classifyPath(rel)
       if (kind === 'conflict') conflicts.push(rel)
+      if (kind === 'other') files.push(rel)
       if (kind !== 'note') continue
       seen.add(rel)
       this.detect(rel, known.get(rel), upserts, touch, report)
@@ -216,6 +229,7 @@ export class Indexer {
 
     // Anything under a directory that couldn't be read is not treated as deleted.
     const underUnreadable = (p: string) => unreadable.some((d) => p.startsWith(d + '/'))
+    for (const p of this.unreadable.keys()) if (!seen.has(p) && !underUnreadable(p)) this.unreadable.delete(p)
     const gone = [...known.keys()].filter((p) => !seen.has(p) && !underUnreadable(p))
     // A note that moved (a folder renamed with another tool) is not gone: it doesn't count towards the guard.
     const moves = this.pairMoves(gone.map((p) => known.get(p)!), upserts, report)
@@ -244,6 +258,11 @@ export class Indexer {
         this.db.prepare('delete from folders').run()
         const ins = this.db.prepare('insert into folders (path) values (?)')
         for (const d of dirs) ins.run(d)
+        // Files under a folder that couldn't be read stay as they were.
+        const keep = unreadable.length ? (this.db.prepare('select path from files').all() as { path: string }[]).map((r) => r.path).filter(underUnreadable) : []
+        this.db.prepare('delete from files').run()
+        const file = this.db.prepare('insert or ignore into files (path, name) values (?, ?)')
+        for (const f of [...files, ...keep]) file.run(f, fileName(f))
       })()
       const now = new Set(dirs)
       for (const d of had) if (!now.has(d)) tree.push(d)
@@ -263,15 +282,18 @@ export class Indexer {
     const paths = [...new Set(given)]
     const ins = this.db.prepare('insert or ignore into folders (path) values (?)')
     const del = this.db.prepare("delete from folders where path = ? or path like ? escape '\\'")
+    const delFiles = this.db.prepare("delete from files where path like ? escape '\\'")
+    const insFile = this.db.prepare('insert or ignore into files (path, name) values (?, ?)')
     this.db.transaction(() => {
       for (const p of paths) {
         if (!p || classifyPath(p) === 'ignored') continue
         let dir = false
         try { dir = lstatSync(join(this.opts.notesDir, p)).isDirectory() && followable(this.opts.notesDir, p) } catch { /* gone */ }
         del.run(p, likePrefix(p))
+        delFiles.run(likePrefix(p))
         if (!dir) continue
         const sub: string[] = []
-        for (const _ of walk(this.opts.notesDir, p, [], sub)) { /* only the folders are wanted */ }
+        for (const f of walk(this.opts.notesDir, p, [], sub)) if (classifyPath(f) === 'other') insFile.run(f, fileName(f))
         for (const a of [...ancestorsOf(p), p, ...sub]) ins.run(a)
       }
     })()
@@ -295,12 +317,19 @@ export class Indexer {
     const getRow = this.db.prepare('select path, uid, hash, mtime_ms, size from notes where path = ?')
     // A path vihko doesn't follow (fsutil.ts followable: a symbolic link, another spelling) isn't there, as for the walk.
     const there = (p: string) => isPlainFile(this.opts.notesDir, p)
+    const insFile = this.db.prepare('insert or ignore into files (path, name) values (?, ?)')
+    const delFile = this.db.prepare('delete from files where path = ?')
     for (const rel of new Set(paths)) {
       const kind = classifyPath(rel)
       if (kind === 'conflict') (there(rel) ? conflictsNow : conflictsGone).push(rel)
+      if (kind === 'other') {
+        if (there(rel)) insFile.run(rel, fileName(rel))
+        else delFile.run(rel)
+      }
       if (kind !== 'note') continue
       const row = getRow.get(rel) as Row | undefined
       if (!there(rel)) {
+        this.unreadable.delete(rel)
         if (row) { report.removed.push(rel); gone.push(row) }
         continue
       }
@@ -369,7 +398,8 @@ export class Indexer {
   private applied(upserts: Upsert[], report: ScanReport) {
     if (!this.onApplied || (upserts.length === 0 && report.removed.length === 0 && report.moved.length === 0)) return
     this.onApplied({
-      upserts: upserts.map((u) => ({ path: u.path, text: u.text, mtimeMs: u.stat.mtimeMs })),
+      // A note over the size limit wasn't read: what its text is now isn't known here.
+      upserts: upserts.filter((u) => !u.large).map((u) => ({ path: u.path, text: u.text, mtimeMs: u.stat.mtimeMs })),
       removed: report.removed,
       moved: report.moved.map((m) => ({ from: m.from, to: m.to })),
     })
@@ -392,11 +422,31 @@ export class Indexer {
     } catch {
       return // disappeared between listing and stat; the next scan will catch it
     }
-    if (row && row.mtime_ms === stat.mtimeMs && row.size === stat.size) {
+    const large = stat.size > (this.opts.maxNoteBytes?.() ?? Infinity)
+    if (large) this.tooLarge.add(rel)
+    else this.tooLarge.delete(rel)
+    if (row && row.mtime_ms === stat.mtimeMs && row.size === stat.size && (row.hash.startsWith(LARGE) === large)) {
       report.unchanged++
       return
     }
-    const text = readFileSync(join(this.opts.notesDir, rel), 'utf8')
+    if (large) {
+      // Kept by its path and name: its text isn't read, nor anything taken from it.
+      this.unreadable.delete(rel)
+      upserts.push({ path: rel, text: '', hash: `${LARGE}${stat.size}:${stat.mtimeMs}`, stat, large: true })
+      ;(row ? report.changed : report.added).push(rel)
+      return
+    }
+    let text: string
+    try {
+      text = readFileSync(join(this.opts.notesDir, rel), 'utf8')
+    } catch (err) {
+      // No permission, an I/O error, too large for a string: the note is left as the index has it
+      // (neither added nor removed), and the admin is told; one such file never stops a scan.
+      this.cantRead(rel, err)
+      report.unchanged++
+      return
+    }
+    this.unreadable.delete(rel)
     const hash = contentHash(text)
     if (row && row.hash === hash) {
       touch.push({ path: rel, stat })
@@ -405,6 +455,39 @@ export class Indexer {
     }
     upserts.push({ path: rel, text, hash, stat })
     ;(row ? report.changed : report.added).push(rel)
+  }
+
+  /** Notes on the disk that couldn't be read when last looked at (permissions, I/O errors), by path. */
+  private unreadable = new Map<string, string>()
+
+  /** Notes over the size limit when last looked at (`maxNoteBytes`). */
+  private tooLarge = new Set<string>()
+
+  /** The notes over the size limit (paths from the notes root, sorted): indexed by name alone. */
+  tooLargeNotes(): string[] {
+    return [...this.tooLarge].sort()
+  }
+
+  /** Whether a note is over the size limit now (by its size on the disk; a note that isn't there, no). */
+  isTooLarge(path: string): boolean {
+    const max = this.opts.maxNoteBytes?.()
+    if (max === undefined) return false
+    try {
+      return statSync(join(this.opts.notesDir, path)).size > max
+    } catch {
+      return false
+    }
+  }
+
+  private cantRead(rel: string, err: unknown) {
+    const code = (err as NodeJS.ErrnoException | null)?.code ?? String(err)
+    if (this.unreadable.get(rel) !== code) console.warn(`index: can't read ${rel} (${code}): it is left out until it can be read`)
+    this.unreadable.set(rel, code)
+  }
+
+  /** The notes the last scans couldn't read (paths from the notes root, sorted). */
+  unreadableNotes(): string[] {
+    return [...this.unreadable.keys()].sort()
   }
 
   private apply(
@@ -427,6 +510,7 @@ export class Indexer {
         delNote.run(path)
         this.host.remove(path)
         gone.add(path)
+        this.tooLarge.delete(path)
       }
       for (const t of touch) touchStmt.run(t.stat.mtimeMs, t.stat.size, t.path)
       for (const u of upserts) {
@@ -463,6 +547,12 @@ export class Indexer {
     db.transaction(() => {
       for (const r of rows) {
         let text: string
+        // Over the size limit: indexed by its name alone, its text never read.
+        if (r.hash.startsWith(LARGE)) {
+          this.host.index(this.snapshot(r.path, '', r.hash), only)
+          indexed.add(r.path)
+          continue
+        }
         try {
           text = readFileSync(join(this.opts.notesDir, r.path), 'utf8')
         } catch {
@@ -554,6 +644,9 @@ function* walk(root: string, rel: string, unreadable: string[], dirs: string[]):
     }
   }
 }
+
+/** A file's name as the `files` table keeps it: its last segment, as links compare names. */
+const fileName = (path: string) => normKey(path.slice(path.lastIndexOf('/') + 1))
 
 /** `a/b/c.md` → `a`, `a/b`. */
 function ancestorsOf(path: string): string[] {

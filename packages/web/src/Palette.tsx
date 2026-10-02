@@ -128,7 +128,9 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
   const needle = fold(query.slice(1).trim())
   const matching = commandMode ? commands.filter((c) => (c.available?.(ctx) ?? true) && fold(t(c.label(ctx))).includes(needle)) : []
 
-  const titles = new Map((notes ?? []).map((n) => [n.path, n.title]))
+  // Recent notes as the tree has them now: a template (`template: true`, maybe since it was opened) is no
+  // note to come back to, as it isn't in search, tags or Home.
+  const titles = new Map((notes ?? []).filter((n) => !n.template).map((n) => [n.path, n.title]))
   const recent = mode === 'search' && !text ? recentNotes().filter((p) => titles.has(p) && p !== openPath) : []
   // Create shows up once the results for what was typed have arrived: this way a
   // quick ↵ opens the matching note instead of creating another with the same name.

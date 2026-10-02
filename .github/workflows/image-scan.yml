@@ -1,0 +1,94 @@
+name: Image scan
+
+# Once a week, the newest published image (ghcr.io/kirianm/vihko, the tag of
+# the newest v* release, release candidates included) is scanned for known
+# vulnerabilities with a fix available, HIGH or CRITICAL. If it has any, the
+# job fails and an issue says which (one open issue at a time: a new finding
+# adds a comment to it). A serious finding is followed by a patch release
+# (DEVELOPMENT.md, Releasing): published tags never change.
+#
+# The scanner is Trivy's own image, pinned by digest (a tag can be moved to
+# another image, a digest can't), with its release in a trailing comment.
+# Dependabot doesn't see an image run from a step: update both by hand, to a
+# release at least a week old.
+#
+# One short job a week: a few minutes of Actions.
+on:
+  schedule:
+    - cron: '17 5 * * 1' # Mondays, 05:17 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: image-scan
+  cancel-in-progress: false
+
+env:
+  TRIVY: aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 # 0.74.0
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+      issues: write
+    steps:
+      - name: The newest published version
+        id: version
+        env:
+          REPO: ${{ github.server_url }}/${{ github.repository }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The tags, newest first (a release candidate before its release: versionsort.suffix); the repository may be private.
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          tag=$(git -c "http.extraHeader=Authorization: basic $auth" -c versionsort.suffix=- ls-remote --tags --refs --sort=-v:refname "$REPO" 'v*' | head -n 1 | sed 's|.*refs/tags/v||')
+          if [ -z "$tag" ]; then echo "no release yet"; exit 1; fi
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vihko:$tag" >> "$GITHUB_OUTPUT"
+          echo "Scanning ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vihko:$tag"
+      - name: Sign in to the registry (the package may be private)
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Scan
+        id: scan
+        env:
+          IMAGE: ${{ steps.version.outputs.image }}
+        run: |
+          docker pull --quiet "$IMAGE"
+          set +e
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY" image \
+            --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --no-progress --skip-version-check \
+            --exit-code 3 --format table "$IMAGE" > report.txt
+          code=$?
+          set -e
+          cat report.txt
+          echo "found=$([ "$code" = 3 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          # 3 is what it found (Trivy exits 1 when it fails itself): anything else than 0 or 3 is the scan failing.
+          if [ "$code" != 0 ] && [ "$code" != 3 ]; then exit "$code"; fi
+      - name: Say so in an issue
+        if: steps.scan.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          IMAGE: ${{ steps.version.outputs.image }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Image scan: HIGH or CRITICAL vulnerabilities with a fix"
+          {
+            echo "The weekly scan of \`$IMAGE\` found vulnerabilities rated HIGH or CRITICAL that have a fix available ([run]($RUN))."
+            echo "A patch release follows (DEVELOPMENT.md, Releasing)."
+            echo
+            echo '```'
+            head -c 60000 report.txt
+            echo '```'
+          } > body.md
+          open=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')
+          if [ -n "$open" ]; then gh issue comment "$open" --body-file body.md
+          else gh issue create --title "$title" --body-file body.md
+          fi
+      - name: Fail when something was found
+        if: steps.scan.outputs.found == 'true'
+        run: exit 1

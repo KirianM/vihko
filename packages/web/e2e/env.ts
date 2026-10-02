@@ -46,6 +46,14 @@ export const inVault = (path: string) => `${SPACE}/${path}`
 export const personal = (user: { username: string }) => `people/${user.username}`
 
 /**
+ * On the locked server, the admin's own settings as an older vihko left them:
+ * `templates` naming a folder with a note in it, and one that's gone
+ * (serve.ts writes them before it starts; settings-migration.spec.ts sees
+ * what the start did with them).
+ */
+export const LOCKED_TEMPLATES = { folder: people.aUniqueWord(), gone: people.aUniqueWord(), note: people.aUniqueWord() }
+
+/**
  * A folder name no folder of the vault's space uses yet (neither the vault's
  * nor one already in the server's notes): for a spec that creates a folder
  * there and deletes it when it's done, which must never take a folder of the

@@ -6,7 +6,7 @@
 // mother's; files and vihko.yaml as each test writes them.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ApiKeys, Auth, Indexer, Integrations, NoteService, NoteSettingsStore, Profiles, Users, Workspace, createServer, mountMcp, openIndex, openState, toolData, type Runtime } from '@vihko/server'
+import { ApiKeys, Auth, History, Indexer, Integrations, NoteService, NoteSettingsStore, Profiles, Users, Workspace, createServer, mountMcp, openIndex, openState, toolData, type Runtime } from '@vihko/server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -22,6 +22,8 @@ export interface SpacesSetup {
   config?: string | ((names: Record<Name, string>) => string)
   /** Whether to make the group of the two members (yes by default). */
   group?: boolean
+  /** Whether to keep a managed history (no by default), on the setup's clock. */
+  history?: boolean
 }
 
 export async function setup(opts: SpacesSetup = {}) {
@@ -43,7 +45,8 @@ export async function setup(opts: SpacesSetup = {}) {
   }
   const config = typeof opts.config === 'function' ? opts.config(names) : opts.config
   if (config !== undefined) writeFileSync(join(notesDir, 'vihko.yaml'), config)
-  const users = new Users(auth)
+  const clock = { now: new Date('2026-09-30T10:00:00Z') }
+  const users = new Users(auth, { now: () => clock.now })
   const created = {} as Record<Name, { id: string; username: string; password: string }>
   for (const [role, u] of Object.entries(people) as [Name, typeof people.admin][]) {
     created[role] = { ...(await auth.createUser(u.username, u.password, u.role)), password: u.password }
@@ -55,20 +58,34 @@ export async function setup(opts: SpacesSetup = {}) {
     users.addMember(g.id, created.other.id)
   }
   const profiles = new Profiles(state)
-  const workspace = new Workspace({ notesDir })
-  const indexer = new Indexer({ notesDir, db: index })
+  mkdirSync(stateDir, { recursive: true })
+  // Without the wait for a section gone to stay gone: a test writes the file once.
+  const workspace = new Workspace({ notesDir, stateDir, settleMs: 0 })
+  // As main.ts: vihko.yaml's `notes.maxSize`.
+  const maxNoteBytes = () => Math.floor(workspace.config.notes.maxSize * 1024 * 1024)
+  const indexer = new Indexer({ notesDir, db: index, maxNoteBytes })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   runtime.rescan({})
   const keys = new ApiKeys(state)
   const integrations = new Integrations(state)
   // As main.ts: a space's note settings say where its new images go.
   const noteSettings = new NoteSettingsStore({ notesDir })
-  const notes = new NoteService({ notesDir, stateDir, indexer, db: index, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments })
-  const clock = { now: new Date('2026-09-30T10:00:00Z') }
+  // The history, on the same clock as the app: its versions say when they were made by it.
+  const history = opts.history ? new History({
+    notesDir, stateDir, config: () => workspace.config.history, quietMs: 100, maxOpenMs: 60_000, tickMs: 20, retryMs: 50, log: () => {}, now: () => clock.now.getTime(),
+  }) : undefined
+  if (history) {
+    await history.open()
+    await history.start()
+    await history.recorder.settle()
+    indexer.onApplied = (a) => history.recorder.observeIndexed(a)
+  }
+  const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history?.recorder, maxNoteBytes, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments })
   /** How many times open editors would have been checked again (the hub's `recheckAccess`). */
   const rechecks = { n: 0 }
   const { app, services } = createServer({
-    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, keys, integrations, users, permissionsModel: 'spaces', noteSettings,
+    confirmWindowMs: 0,
+    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, keys, integrations, users, permissionsModel: 'spaces', noteSettings, history,
     now: () => clock.now, onPermissionsChanged: () => { rechecks.n++ },
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },
   })
@@ -129,15 +146,22 @@ export async function setup(opts: SpacesSetup = {}) {
   /** Sets one folder's rule in vihko.yaml, as the admin would through vihko. */
   const rule = (folder: string, value: { grants?: Record<string, string> | null; ai?: false | null; name?: string | null }) =>
     services.permissionsFile.setRule(folder, { grants: (value.grants ?? null) as any, ai: value.ai ?? null, ...(value.name !== undefined ? { name: value.name } : {}) }, { actor: { kind: 'user', id: created.admin.id } })
-  const close = () => {
+  /** Everything open in the history becomes a version and reaches git. */
+  const settle = async () => {
+    if (!history) return
+    history.recorder.closeAll()
+    await history.recorder.settle()
+  }
+  const close = async () => {
+    await history?.close()
     index.close()
     state.close()
     rmSync(dir, { recursive: true, force: true })
   }
   return {
-    dir, notesDir, stateDir, state, index, app, services, auth, users, keys, indexer, notes, workspace, runtime, clock, rechecks, group, names, created,
+    dir, notesDir, stateDir, state, index, app, services, auth, users, keys, indexer, notes, workspace, runtime, clock, rechecks, group, names, created, history, settle,
     as, admin: as('admin'), member: as('member'), other: as('other'), withKey, enable, newKey, mcp, write, rule, login, close,
-    /** The session cookie of `who` (a request that streams, GET /api/events). */
+    /** The session cookie of `who` (a request that streams, GET /api/live). */
     cookie: (who: Name) => cookies[who],
     home: (who: Name) => `people/${names[who]}`,
   }

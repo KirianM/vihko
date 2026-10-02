@@ -60,6 +60,28 @@ test('with an empty query shows recents; esc closes', async () => {
   await expect(palette()).toHaveCount(0)
 })
 
+test('recents are each person\'s, and go when they sign out: the next one in the same browser never sees them', async ({ browser }) => {
+  const page = await signIn(browser, ADMIN, RED)
+  await page.goto(`/?note=${encodeURIComponent(inVault('hogar/Proxy.md'))}`)
+  await expect(page.locator('.cm-content')).toBeVisible()
+  const recents = () => page.getByRole('dialog', { name: 'Buscar o crear' }).getByRole('group', { name: 'Recientes' })
+  await page.getByRole('button', { name: 'Buscar o crear…' }).click()
+  await expect(recents().getByRole('option', { name: /Red/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+  // Signing out, and the member in the same tab: nothing of the admin's list, here or in the browser's storage.
+  await page.getByRole('button', { name: 'Cerrar sesión' }).click()
+  await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
+  await page.getByLabel('Contraseña').fill(MEMBER.password)
+  await page.getByRole('button', { name: 'Entrar' }).last().click()
+  await expect(page.getByRole('treegrid').first()).toBeVisible()
+  await page.getByRole('button', { name: 'Buscar o crear…' }).click()
+  await expect(page.getByRole('dialog', { name: 'Buscar o crear' })).toBeVisible()
+  await expect(recents()).toHaveCount(0)
+  const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('vihko.recent')).map((k) => localStorage.getItem(k)).join(''))
+  expect(stored).not.toContain('Red.md')
+  await page.context().close()
+})
+
 test('creates the note in the current folder, refreshes the tree, and opens it', async () => {
   await k.keyboard.press('Control+k')
   const name = m.aTitle()

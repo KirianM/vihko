@@ -74,7 +74,7 @@ export async function setup(opts: HistorySetup = {}) {
   await history.recorder.settle()
   indexer.onApplied = (a) => history.recorder.observeIndexed(a)
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments })
-  const app = createApp({ auth, profiles: new Profiles(state), workspace, notes, index, indexer, notesDir, runtime, history })
+  const app = createApp({ auth, profiles: new Profiles(state), workspace, notes, index, indexer, notesDir, runtime, history, confirmWindowMs: 0 })
   type Role = keyof typeof users
   const cookies = {} as Record<Role, string>
   for (const role of Object.keys(users) as Role[]) {

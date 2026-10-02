@@ -13,6 +13,11 @@
 //                                            space becomes a shared space of its own («Move to a new space»)
 //   POST   /api/spaces/rename              { path, name } → { space }: `manage` at its root; its folder becomes `spaces/<name>`
 //   DELETE /api/spaces?path=&trash=true    `manage` at its root: what it holds to the trash (with trash=true), its rules out
+//                                            → { path, deleted }: `deleted` restores it whole
+//   GET    /api/spaces/deleted             { spaces: [{id, path, name, by, deletedAt, entries}] }: those one may restore
+//                                            whole (who managed it then; the admin, every one)
+//   POST   /api/spaces/restore             { id } → { space: {path, name}, restored, missing }: a deleted space whole, with
+//                                            its members; 409 space_name_taken while another space has its name
 //   POST   /api/spaces/leave               { path } → { path }: one's own grants there and under it go;
 //                                            409 leave_via_group { group } through a group
 //   POST   /api/spaces/pin                 { path, pinned } → { path, pinned }: a folder in «Shared with me»
@@ -29,6 +34,7 @@ import type { Context, Hono } from 'hono'
 import type { Access } from '../access.ts'
 import type { User } from '../auth.ts'
 import type { SpaceService } from '../spaceService.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -41,7 +47,7 @@ export interface SpaceRoutesDeps {
 export function spaceRoutes(app: Hono<Env>, deps: SpaceRoutesDeps) {
   const { spaces } = deps
   const body = async (c: Context<Env>): Promise<Record<string, unknown>> => {
-    const b = await c.req.json<unknown>()
+    const b = await jsonBody<unknown>(c)
     return typeof b === 'object' && b !== null && !Array.isArray(b) ? b as Record<string, unknown> : {}
   }
   const access = (c: Context<Env>) => c.get('access')
@@ -67,6 +73,10 @@ export function spaceRoutes(app: Hono<Env>, deps: SpaceRoutesDeps) {
   })
 
   app.delete('/api/spaces', async (c) => c.json(await spaces.remove(access(c), c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true' })))
+
+  app.get('/api/spaces/deleted', (c) => c.json({ spaces: spaces.deletedSpaces(access(c)) }))
+
+  app.post('/api/spaces/restore', async (c) => c.json(await spaces.restoreSpace(access(c), (await body(c)).id)))
 
   app.post('/api/spaces/leave', async (c) => c.json(await spaces.leave(access(c), (await body(c)).path)))
 

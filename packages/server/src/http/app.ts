@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { NoteSettingsFileError, WORKSPACE_FILE, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
+import { NoteSettingsFileError, WORKSPACE_FILE, noteSettingsPath, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, rulesInFile, seriesPath, setRule, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type RuleValue, type Series, type WorkspaceConfig } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -26,7 +26,7 @@ import { ProfileError, isNotePath, type Profile, type Profiles } from '../profil
 import { historyFor } from '../agentHistory.ts'
 import { homeView } from '../home.ts'
 import { LiveTree } from '../liveTree.ts'
-import { NoteSettingsStore } from '../noteSettings.ts'
+import { NoteSettingsStore, settingsKind } from '../noteSettings.ts'
 import { settingsFromBody } from './settingsBody.ts'
 import { streamSSE } from 'hono/streaming'
 import type { Workspace } from '../workspace.ts'
@@ -70,8 +70,11 @@ import { VERSION } from '../version.ts'
 import type { ConfigMigrations } from '../configMigrations.ts'
 import { dismissStateMigration, stateMigrationAlerts } from '../state.ts'
 import { FolderRefs } from '../folderRefs.ts'
+import { GrantStarts } from '../grantStarts.ts'
 import { SpaceError, SpaceService } from '../spaceService.ts'
 import { spaceRoutes } from './spaces.ts'
+import { jsonBody } from './jsonBody.ts'
+import { scrub } from '../logging.ts'
 
 export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -101,9 +104,17 @@ export interface Orphans {
   orphans(): string[]
   restoreOrphan(path: string): Promise<{ etag: string }>
   discardOrphan(path: string): Promise<void>
+  /** Open notes it can't save right now (a full disk, no permission), and why. */
+  unsaved?(): { path: string; reason: 'disk_full' | 'write_denied' | 'write_failed'; volume: 'notes' | 'state' }[]
 }
 
 export interface AppDeps {
+  /**
+   * How long a confirmation at the moment lasts for its browser session
+   * (http/twoFactor.ts, CONFIRM_WINDOW_MS by default). The tests of what each
+   * route asks for set 0: every one asks.
+   */
+  confirmWindowMs?: number
   orphans?: Orphans
   auth: Auth
   /** Each person's timezone and preferences (state.db). */
@@ -195,6 +206,8 @@ export interface AppDeps {
   noteSettings?: NoteSettingsStore
   /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
   imageFetchTesting?: FetchImageOptions['testing']
+  /** The server's log (main.ts): what the admins' actions leave on record. Nothing by default. */
+  log?: (msg: string) => void
 }
 
 /**
@@ -224,12 +237,18 @@ export interface Services {
   spaces: SpaceService
 }
 
-export type ExternalImages = 'allow' | 'block'
+/**
+ * Images notes link from other sites: `allow` loads them; `ask` shows a box
+ * with the site's name until the reader presses «Show» (or saves a copy);
+ * `block` never loads them (the page's policy forbids it), and offers only
+ * to save a copy, which the server downloads.
+ */
+export type ExternalImages = 'allow' | 'ask' | 'block'
 
 // The UI only talks to its own origin: no CDNs or third parties. The one
 // exception is images linked in notes, unless the administrator blocks them.
 function uiHeaders(external: ExternalImages) {
-  const img = external === 'allow' ? "img-src 'self' data: blob: https: http:" : "img-src 'self' data: blob:"
+  const img = external === 'block' ? "img-src 'self' data: blob:" : "img-src 'self' data: blob: https: http:"
   return {
     'Content-Security-Policy': `default-src 'self'; ${img}; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     'X-Content-Type-Options': 'nosniff',
@@ -240,6 +259,11 @@ function uiHeaders(external: ExternalImages) {
 // Files from the notes folder are served inert: nothing in them runs, even
 // an SVG opened on its own (sandboxed, no scripts).
 const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
+// A PDF from the notes folder: the browser's own viewer shows it, which a
+// sandbox (or a policy on what it may load) can stop, so the policy only
+// keeps it from being framed. It is never read as a page: its type is
+// `application/pdf`, with `nosniff`.
+const PDF_CSP = "frame-ancestors 'none'"
 
 // Everything else (the API's JSON, errors, /mcp): nothing in it is a page.
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
@@ -252,7 +276,7 @@ export type ApiEnv = { Variables: { user: User; token: string; access: Access } 
 type Env = ApiEnv
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, note_too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409, series_gone: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -267,6 +291,11 @@ function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, messag
   return c.json({ error, message, ...extra }, status)
 }
 
+/** The rules a vihko.yaml's text writes (none if it isn't YAML). */
+function keptRules(text: string): Map<string, RuleValue> {
+  try { return rulesInFile(text) } catch { return new Map() }
+}
+
 /** The API alone (see `createServer` for the services under it). */
 export function createApp(deps: AppDeps) {
   return createServer(deps).app
@@ -275,6 +304,7 @@ export function createApp(deps: AppDeps) {
 /** The API and the services under it (keys, switches, access, scoped operations). */
 export function createServer(deps: AppDeps): { app: Hono<Env>; services: Services } {
   const { auth, notes, index, profiles, workspace } = deps
+  const log = deps.log ?? (() => {})
   const externalImages = deps.externalImages ?? 'allow'
   const now = deps.now ?? (() => new Date())
   // Under the spaces model, a person's series are those where they can write today's note.
@@ -283,8 +313,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const noteSettings = deps.noteSettings ?? new NoteSettingsStore({ notesDir: deps.notesDir })
   /** The shared spaces someone belongs to: whose settings add to theirs. */
   const spacesOf = (user: { id: string; username: string }) => permissions.spacesFor(user).spaces.map((s) => s.path)
-  const seriesOf = (user: User) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username)
-  const daily = new DailyNotes({ workspace, profiles, notes, now, offered, seriesOf })
+  const seriesOf = (user: User) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username).list
+  const sameSeries = (user: User, id: string) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username).sameAs.get(id) ?? null
+  const daily = new DailyNotes({ workspace, profiles, notes, now, offered, seriesOf, sameAs: sameSeries })
   const jobs = new MoveJobs()
   const moveWaitMs = deps.moveWaitMs ?? 1000
   const keys = deps.keys ?? new ApiKeys(auth.state)
@@ -299,6 +330,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }),
   })
   const permissions = policy.permissions
+  // When each grant began (grantStarts.ts): each person sees the past only from when they could read it.
+  const grantStarts = policy.starts ?? new GrantStarts(auth.state, { now })
+  if (!policy.starts) {
+    policy.starts = grantStarts
+    // Not while vihko.yaml has lost its permissions (pasted over, deleted, caught half written):
+    // giving them back mustn't start everyone's grants anew, and so hide their past from them.
+    permissions.onRules((rules) => { if (!workspace.permissionsMissing) grantStarts.sync(rules) })
+  }
   // The tree and the sidebar, live (liveTree.ts): told what changes the tree, and when who reaches what may have.
   const live = new LiveTree({
     policy,
@@ -310,7 +349,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     },
   })
   deps.indexer.onTreeChange((paths) => live.pathsChanged(paths))
-  const permissionsChanged = () => { deps.onPermissionsChanged?.(); live.viewChanged() }
+  // The rules are compiled at once: a grant starts when it's written (grantStarts.ts), not when someone next asks.
+  const permissionsChanged = () => { permissions.spaceRules(); deps.onPermissionsChanged?.(); live.viewChanged() }
   const permissionsFile = new PermissionsFile({
     notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: permissionsChanged,
     // Whoever a share or a new member reaches is told (spaceService.ts `notifyShared`).
@@ -318,28 +358,53 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const notices = deps.notices ?? new Notices(auth.state, { now })
+  // A notice for someone reaches their open pages at once (GET /api/live `notices`).
+  notices.onAdded = (userId) => live.noticeFor(userId)
   const retention = deps.retention ?? new Retention({ stateDir: notes.stateDir, settings: adminSettings, trash: () => notes.trash(), history: deps.history, notices, now: () => now().getTime() })
-  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
+  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata, clientDomains: () => workspace.config.mcp.clientDomains })
   // Keys' folders, pins and the trash follow a folder moved from vihko (folderRefs.ts).
   const refs = new FolderRefs({ state: auth.state, stateDir: notes.stateDir })
   const scopedDeps: ScopedDeps = {
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, now, links: () => deps.indexer.links,
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
     onFolderMoved: (from, to) => { refs.moved(from, to) },
+    onNoteMoved: (from, to) => { refs.noteMoved(from, to) },
+    onFolderMoving: (from, to) => { grantStarts.moving(from, to) },
+    onMovedOut: (m) => {
+      const owner = auth.state.prepare('select id from users where username = ? and deleted_at is null').get(m.owner) as { id: string } | undefined
+      if (owner) notices.add(owner.id, { code: 'moved_out', kind: m.kind, by: m.by, from: m.from, to: m.to })
+    },
   }
   // A user deleted, a group renamed or deleted: their grants in vihko.yaml
   // follow, first (if vihko.yaml can't be written, nothing changes).
   users.hooks.onUserDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(name, { actor: by }) }
+  // Someone invited renamed: the grants to them, and their folder's own rules, follow.
+  users.hooks.onUserRenamed ??= async (from, to, by) => {
+    await permissionsFile.renameSubject(from, to, { actor: by })
+    if (permissionsFile.read().text?.includes(personalRoot(from))) await permissionsFile.moveRules(personalRoot(from), personalRoot(to), { actor: by })
+  }
   users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
   // Deleting someone closes their space for everyone: open editors are checked again at once.
   users.hooks.onUserRemoved ??= () => { permissionsChanged() }
+  // The event streams open (GET /api/live), each with its session: those of a session that ends go at once,
+  // after whatever else hears it (the hub's editors).
+  const streams = new Set<{ userId: string; token: string; end: () => void }>()
+  const sessionsEnded = users.hooks.onSessionsEnded
+  users.hooks.onSessionsEnded = (userId) => {
+    sessionsEnded?.(userId)
+    for (const s of streams) if (s.userId === userId && !auth.session(s.token)) s.end()
+    // A confirmation doesn't outlive a change of who may be signed in (a new password, sessions ended).
+    tf.endConfirmations(userId)
+  }
   // So does taking someone out of a group: they stop seeing what it gave them at once.
   users.hooks.onMembersChanged ??= () => { permissionsChanged() }
   const spaces = new SpaceService({
     notesDir: deps.notesDir, state: auth.state, engine: permissions, file: permissionsFile, users, notices, settings: adminSettings, refs, notes, indexer: deps.indexer, now,
     deleteFolder: (access, path, o) => new ScopedNotes(scopedDeps, access).deleteFolder(path, o),
     moveFolder: (access, from, to, o) => new ScopedNotes(scopedDeps, access).moveFolder(from, to, o),
+    pastPaths: deps.history ? () => deps.history!.pastPaths() : undefined,
+    starts: grantStarts,
   })
   const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces, live, noteSettings }
   const app = new Hono<Env>()
@@ -361,7 +426,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, clientMessage(err))
     if (err instanceof PurgeError) return fail(c, purgeErrorStatus(err), err.code, purgeClientMessage(err))
     if (err instanceof GitError) {
-      console.error(`history: ${err.message}`)
+      console.error(scrub(`history: ${err.message}`))
       return fail(c, 503, 'history_unavailable', UNAVAILABLE_MESSAGE)
     }
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' || err.code === 'personal_folder_exists' ? 409 : 400, err.code, err.message)
@@ -373,7 +438,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof AdminSettingsError) return fail(c, 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
-    console.error(err)
+    console.error(scrub(err instanceof Error ? err.stack ?? err.message : String(err)))
     return fail(c, 500, 'internal', 'internal error')
   })
 
@@ -410,7 +475,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (!integrations.apiEnabled()) return fail(c, 404, 'not_found', 'does not exist')
     if (!route) return fail(c, 404, 'not_found', 'does not exist')
     const r = authenticateKey({ keys, integrations }, token, 'api')
-    if (!r.ok) return fail(c, r.status, r.error, r.status === 401 ? 'invalid key' : 'does not exist')
+    if (!r.ok) return fail(c, r.status, r.error, r.status === 401 ? 'invalid key' : r.status === 403 ? 'this key is suspended while the admin doesn\'t let members have keys' : 'does not exist')
     if (route === 'write' && !r.principal.key.canWrite) return fail(c, 403, 'forbidden', 'this key is read-only')
     c.set('user', r.principal.user)
     c.set('access', policy.for(r.principal))
@@ -447,7 +512,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const text = (v: unknown) => (typeof v === 'string' ? v : '')
 
   app.post('/api/setup', authBody, async (c) => {
-    const { token, username, password } = await c.req.json<{ token?: unknown; username?: unknown; password?: unknown }>()
+    const { token, username, password } = await jsonBody<{ token?: unknown; username?: unknown; password?: unknown }>(c)
     const attempt: AttemptResult = limiter.begin({ ip: ipOf(c), account: SETUP_ACCOUNT, byAddress: true })
     if (!attempt.ok) return tooMany(c, attempt.retryAfter)
     try {
@@ -490,13 +555,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // The second factor (http/twoFactor.ts): after the password, the session or the second step.
   const tf = twoFactorHttp({
     auth, users, twoFactor, settings: adminSettings, limiter, deviceCookie: DEVICE_COOKIE, ipOf, tooMany, signedIn, notices,
-    publicUrl: deps.publicUrl ?? null, now: () => now().getTime(),
+    publicUrl: deps.publicUrl ?? null, now: () => now().getTime(), confirmWindowMs: deps.confirmWindowMs, log,
   })
 
   // The password: the session, or (with a second factor) a pending sign-in
   // that its second step completes (http/twoFactor.ts).
   app.post('/api/auth/login', authBody, async (c) => {
-    const body = await c.req.json<{ username?: unknown; password?: unknown }>()
+    const body = await jsonBody<{ username?: unknown; password?: unknown }>(c)
     const username = text(body?.username)
     const device = limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username)
     const attempt = limiter.begin({ ip: ipOf(c), account: username, device })
@@ -519,7 +584,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     auth, users, settings: adminSettings, limiter, ipOf, tooMany, publicUrl: deps.publicUrl ?? null,
     deviceOf: (c, username) => limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username),
     passwordAccepted: tf.passwordAccepted, confirm: tf.confirmIdentity, notices,
-    retention, managedHistory: () => deps.history?.status().mode === 'managed',
+    retention, managedHistory: () => deps.history?.status().mode === 'managed', log, keys,
   }
   // A one-time link (an invitation or a reset): no session yet.
   app.use('/api/invite/*', authBody)
@@ -583,7 +648,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // 'resolve', thread }`. 412 if the place or the thread isn't there any more;
   // 403 to resolve someone else's thread without `edit`.
   app.post('/api/note/comment', async (c) => {
-    const body = await c.req.json<Record<string, unknown>>()
+    const body = await jsonBody<Record<string, unknown>>(c)
     const op = commentOp(body)
     if (!op || typeof body.path !== 'string') return fail(c, 400, 'invalid', 'expected a path and an operation: add, reply or resolve')
     const r = await scoped(c).comment(body.path, op)
@@ -598,11 +663,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // the trash first; otherwise 409 `not_empty` with its `contents`). A dry
   // run of a move says whose access changes (`audience`), for the UI to confirm.
   app.post('/api/folder', async (c) => {
-    const { path } = await c.req.json<{ path: string }>()
+    const { path } = await jsonBody<{ path: string }>(c)
     return c.json(await scoped(c).createFolder(path), 201)
   })
 
-  app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true' })))
+  app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true', dryRun: c.req.query('dryRun') === 'true' })))
 
   // Templates are notes marked `template: true` in their frontmatter. A
   // person marks every note of a folder (its subfolders too) at once, each
@@ -610,7 +675,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // confirm. A key writes the mark like any frontmatter key (`set_frontmatter`).
   app.post('/api/folder/templates', async (c) => {
     if (c.get('access').isAgent) return fail(c, 404, 'not_found', 'does not exist')
-    const { path, dryRun } = await c.req.json<{ path?: unknown; dryRun?: unknown }>()
+    const { path, dryRun } = await jsonBody<{ path?: unknown; dryRun?: unknown }>(c)
     if (typeof path !== 'string') return fail(c, 400, 'invalid', 'path: the folder')
     return c.json(await scoped(c).markFolderTemplates(path, { dryRun: dryRun === true }))
   })
@@ -618,7 +683,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // One note made a template (`template: true`) or not one any more (the key goes); nothing else of it changes.
   app.post('/api/note/template', async (c) => {
     if (c.get('access').isAgent) return fail(c, 404, 'not_found', 'does not exist')
-    const { path, template } = await c.req.json<{ path?: unknown; template?: unknown }>()
+    const { path, template } = await jsonBody<{ path?: unknown; template?: unknown }>(c)
     if (typeof path !== 'string' || typeof template !== 'boolean') return fail(c, 400, 'invalid', 'path, and template: true or false')
     return c.json(written(c, await scoped(c).markTemplate(path, template)))
   })
@@ -626,7 +691,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // With `background`, a move that takes long answers 202 with a job as soon
   // as the folder (or note) is in place; GET /api/move-jobs/:id follows it.
   app.post('/api/folder/move', async (c) => {
-    const { from, to, dryRun, background } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean }>()
+    const { from, to, dryRun, background } = await jsonBody<{ from: string; to: string; dryRun?: boolean; background?: boolean }>(c)
     const s = scoped(c)
     if (!background || dryRun) return c.json(await s.moveFolder(from, to, { dryRun }))
     const r = await jobs.start(c.get('user').username, 'folder', from, to, (hooks) => s.moveFolder(from, to, hooks), moveWaitMs)
@@ -638,16 +703,17 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return job ? c.json(job) : fail(c, 404, 'not_found', 'no such move job')
   })
 
+  // `tooLarge`: over vihko.yaml's `notes.maxSize`, never opened live (the UI shows it as plain text, with a download).
   app.get('/api/note', (c) => {
     const r = scoped(c).read(c.req.query('path') ?? '')
     c.header('ETag', `"${r.etag}"`)
-    return c.json(r)
+    return c.json(deps.indexer.isTooLarge(r.path) ? { ...r, tooLarge: true } : r)
   })
 
   // A new note, with the given text or from a template note (its variables
   // filled in with the person's date and name). Never overwrites.
   app.post('/api/note', async (c) => {
-    const { path, text, template, freshUid, fromLink } = await c.req.json<{ path: string; text?: string; template?: string; freshUid?: boolean; fromLink?: string }>()
+    const { path, text, template, freshUid, fromLink } = await jsonBody<{ path: string; text?: string; template?: string; freshUid?: boolean; fromLink?: string }>(c)
     if (template !== undefined && typeof template !== 'string') return fail(c, 400, 'invalid', 'template must be a note path')
     if (text !== undefined && typeof text !== 'string') return fail(c, 400, 'invalid', 'text must be text')
     // `fromLink`: the note whose broken link this creates (never one of someone else's personal space: a link there that looks broken may lead to a note this person can't read).
@@ -699,17 +765,21 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   app.put('/api/settings', async (c) => {
-    const body = await c.req.json<{ space?: unknown; settings?: unknown; ifMatch?: unknown }>()
+    const body = await jsonBody<{ space?: unknown; settings?: unknown; ifMatch?: unknown; remove?: unknown }>(c)
     const root = settingsRoot(c, body.space, true)
     if (root instanceof Response) return root
     const next = settingsFromBody(body.settings)
-    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, attachments and agents, as GET gives them')
+    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, attachments, agents and guide, as GET gives them')
     // What's wrong in them is said, with where; nothing is written.
-    const problems = parseNoteSettings(writeNoteSettings(null, next)).errors
+    const kind = settingsKind(root)
+    const problems = parseNoteSettings(writeNoteSettings(null, next, kind), kind).errors
     if (problems.length) return fail(c, 400, 'invalid', 'the settings have problems', { errors: problems })
     if (typeof body.ifMatch !== 'string') return fail(c, 428, 'precondition_required', 'ifMatch: the ETag of the settings the change was planned on')
+    // Keys vihko doesn't know, to remove from the file (their `at`, as `errors` gives them): only unknown ones are.
+    const remove = body.remove ?? []
+    if (!Array.isArray(remove) || remove.some((k) => typeof k !== 'string')) return fail(c, 400, 'invalid', 'remove: a list of the unknown keys to remove, as errors names them')
     try {
-      const r = await noteSettings.write(root, next, { ifMatch: body.ifMatch })
+      const r = await noteSettings.write(root, next, { ifMatch: body.ifMatch, remove: remove as string[] })
       return c.json(settingsView(r, true))
     } catch (err) {
       if (err instanceof NoteSettingsFileError) return fail(c, 409, 'config_invalid', err.message)
@@ -724,7 +794,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.get('/api/profile', (c) => c.json(shownProfile(profiles.get(c.get('user').id), c.get('access'))))
 
   app.put('/api/profile', async (c) => {
-    const body = await c.req.json<Record<string, unknown>>()
+    const body = await jsonBody<Record<string, unknown>>(c)
     if (typeof body !== 'object' || body === null) return fail(c, 400, 'invalid', 'expected an object')
     const patch: Partial<Profile> = {}
     for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'onOpen', 'onOpenNote', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
@@ -735,22 +805,33 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // The tree, live (liveTree.ts): a server-sent event stream that only ever
   // says «read your tree again» (`tree`), to this person, when a change
-  // concerns what they see. A comment every 25 s keeps proxies from closing it.
-  app.get('/api/events', (c) => {
+  // concerns what they see, or «read your notices again» (`notices`) when one
+  // arrives for them. A comment every 25 s keeps proxies from closing it.
+  app.get('/api/live', (c) => {
     const access = c.get('access')
     if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
     c.header('Cache-Control', 'no-store')
     c.header('X-Accel-Buffering', 'no')
+    const token = c.get('token')
     return streamSSE(c, async (stream) => {
       let wake: (() => void) | null = null
-      const stop = live.subscribe(c.get('user'), () => { void stream.writeSSE({ event: 'tree', data: '{}' }).catch(() => {}) })
+      let ended = false
+      const stop = live.subscribe(c.get('user'),
+        () => { void stream.writeSSE({ event: 'tree', data: '{}' }).catch(() => {}) },
+        // A notice arrived for them: «read your notices again», nothing of it.
+        () => { void stream.writeSSE({ event: 'notices', data: '{}' }).catch(() => {}) })
+      // Its session ending (signed out, disabled, a new password) ends it at once; one that expires, at the next keep-alive.
+      const open = { userId: c.get('user').id, token, end: () => { ended = true; wake?.() } }
+      streams.add(open)
       stream.onAbort(() => { stop(); wake?.() })
       await stream.writeSSE({ event: 'ready', data: '{}' })
-      while (!stream.aborted && !stream.closed) {
+      while (!stream.aborted && !stream.closed && !ended) {
         // Unref'd: a stream left waiting never keeps the process alive.
         await new Promise<void>((resolve) => { wake = resolve; setTimeout(resolve, 25_000).unref() })
-        if (!stream.aborted && !stream.closed) await stream.write(': keep-alive\n\n').catch(() => {})
+        if (!auth.session(token)) break
+        if (!stream.aborted && !stream.closed && !ended) await stream.write(': keep-alive\n\n').catch(() => {})
       }
+      streams.delete(open)
       stop()
     })
   })
@@ -772,7 +853,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.get('/api/daily', (c) => c.json(scoped(c).dailyToday(c.req.query('series'))))
 
   app.post('/api/daily', async (c) => {
-    const { series } = await c.req.json<{ series?: string }>().catch(() => ({ series: undefined }))
+    const { series } = await jsonBody<{ series?: string }>(c).catch(() => ({ series: undefined }))
     if (series !== undefined && series !== null && typeof series !== 'string') return fail(c, 400, 'invalid', 'series must be a series id')
     const r = await scoped(c).dailyOpen(series)
     return c.json(r, r.created ? 201 : 200)
@@ -785,7 +866,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const ifMatch = unquote(c.req.header('if-match'))
     const ifNoneMatch = c.req.header('if-none-match')?.trim()
     if (!ifMatch && ifNoneMatch !== '*') return fail(c, 428, 'precondition_required', 'missing If-Match: a note that hasn\'t been read won\'t be overwritten')
-    const { text } = await c.req.json<{ text: string }>()
+    const { text } = await jsonBody<{ text: string }>(c)
     if (typeof text !== 'string') return fail(c, 400, 'invalid', 'text must be text')
     const { created, ...r } = await scoped(c).write(c.req.query('path') ?? '', text, { ifMatch, ifNoneMatch })
     return c.json(written(c, r), created ? 201 : 200)
@@ -796,7 +877,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // substitutions, so it never overwrites what it didn't read. `dryRun`: what it would change, without writing.
   // An edit that hides the note from the agent making it answers `nowHidden`.
   app.post('/api/note/edit', async (c) => {
-    const { path, ops, ifMatch, dryRun } = await c.req.json<{ path: string; ops: EditOp[]; ifMatch?: string; dryRun?: boolean }>()
+    const { path, ops, ifMatch, dryRun } = await jsonBody<{ path: string; ops: EditOp[]; ifMatch?: string; dryRun?: boolean }>(c)
     const r = await scoped(c).editOps(path, ops, { ifMatch: unquote(ifMatch ?? c.req.header('if-match')), dryRun: dryRun === true })
     return c.json('dryRun' in r ? r : written(c, r))
   })
@@ -811,7 +892,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // `confirmAudience: true` (the person agreed), or it's 409 `audience_widens` with
   // the change; `dryRun` says it beforehand.
   app.post('/api/note/move', async (c) => {
-    const { from, to, dryRun, background, confirmAudience } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean; confirmAudience?: boolean }>()
+    const { from, to, dryRun, background, confirmAudience } = await jsonBody<{ from: string; to: string; dryRun?: boolean; background?: boolean; confirmAudience?: boolean }>(c)
     const s = scoped(c)
     const opts = { ifMatch: unquote(c.req.header('if-match')), confirmAudience: confirmAudience === true }
     if (!background || dryRun || s.access.isAgent) return c.json(written(c, await s.move(from, to, { ...opts, dryRun })))
@@ -825,7 +906,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // nearest to `at`) is rewritten to the shortest form that reaches `target`,
   // in a note the person can write, to a candidate they can see.
   app.post('/api/note/link/pin', async (c) => {
-    const { path, raw, at, target } = await c.req.json<{ path: string; raw: string; at?: number; target: string }>()
+    const { path, raw, at, target } = await jsonBody<{ path: string; raw: string; at?: number; target: string }>(c)
     if (typeof raw !== 'string' || typeof target !== 'string' || (at !== undefined && typeof at !== 'number')) return fail(c, 400, 'invalid', 'expected path, raw, target and an optional numeric at')
     const r = await scoped(c).pinLink(path, { raw, at }, target)
     c.header('ETag', `"${r.etag}"`)
@@ -837,7 +918,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // would do. With `background`, as a move job. The report names only what
   // they can see.
   app.post('/api/external-moves/:id/relink', async (c) => {
-    const { dryRun, background } = await c.req.json<{ dryRun?: boolean; background?: boolean }>().catch(() => ({}) as { dryRun?: boolean; background?: boolean })
+    const { dryRun, background } = await jsonBody<{ dryRun?: boolean; background?: boolean }>(c).catch(() => ({}) as { dryRun?: boolean; background?: boolean })
     const s = scoped(c)
     const id = c.req.param('id')
     if (dryRun || !background) return c.json(await s.relinkExternal(id, { dryRun: dryRun === true }))
@@ -885,7 +966,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Members only from public addresses, unless the admin lets them reach the
   // local network (so a member can't probe it); the vihko admin, from anywhere.
   app.post('/api/attachments/fetch', imageSlot, async (c) => {
-    const { note, url } = await c.req.json<{ note: string; url: string }>()
+    const { note, url } = await jsonBody<{ note: string; url: string }>(c)
     const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
     const r = await scoped(c).attachFromUrl(note ?? '', async () => (await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })).bytes)
     return c.json(withMarkdown(r), 201)
@@ -895,15 +976,18 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Same path rules as notes: relative, inside the root, no hidden or ignored
   // segments, and only a path vihko follows (fsutil.ts followable).
   app.get('/api/file', (c) => {
-    const path = c.req.query('path') ?? ''
+    // Or as a note names it (`note` and `name`: `![[photo.png]]`, `[[invoice.pdf]]`), by name in its space.
+    const note = c.req.query('note')
+    const named = note !== undefined
+    const path = named ? scoped(c).resolveFile(note, c.req.query('name') ?? '') : c.req.query('path') ?? ''
     const norm = posix.normalize(path)
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
     // vihko.yaml isn't content: once it holds permissions (M4), it's not for every reader.
     if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
     // Through a symbolic link, or spelled otherwise than on the disk (a case-insensitive filesystem): not there.
     if (!followable(deps.notesDir, norm)) return fail(c, 404, 'not_found', `does not exist: ${path}`)
-    // An agent: only in its folders, and only a file a note it can read uses.
-    scoped(c).assertFile(norm)
+    // An agent: only in its folders, and only a file a note it can read uses (one named by a note it reads: resolveFile checked).
+    if (!named) scoped(c).assertFile(norm)
     const file = join(deps.notesDir, norm)
     let st: ReturnType<typeof statSync>
     try {
@@ -920,7 +1004,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     c.header('Cache-Control', 'private, no-cache')
     c.header('X-Content-Type-Options', 'nosniff')
     c.header('Content-Security-Policy', FILE_CSP)
-    if (!type.startsWith('image/')) c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
+    // Shown in the browser: images (in a page; opened alone, an SVG, which can hold scripts, is downloaded) and PDFs; the rest is downloaded.
+    const inline = (type.startsWith('image/') && type !== 'image/svg+xml') || type === 'application/pdf'
+    c.header('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
+    // A PDF can't be shown in a sandboxed document (Chromium's viewer refuses it): no sandbox for it, and nothing else allowed.
+    if (type === 'application/pdf') c.header('Content-Security-Policy', PDF_CSP)
     if (c.req.header('if-none-match')?.split(',').map((t) => t.trim()).includes(etag)) return c.body(null, 304)
     c.header('Content-Type', type)
     return c.body(readFileSync(file))
@@ -936,7 +1024,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // now, and restores with `edit` where it goes.
   app.get('/api/trash', (c) => c.json({ entries: scoped(c).trash() }))
   app.post('/api/trash/:id/restore', async (c) => {
-    const { to } = await c.req.json<{ to?: string }>().catch(() => ({ to: undefined }))
+    const { to } = await jsonBody<{ to?: string }>(c).catch(() => ({ to: undefined }))
     return c.json(await scoped(c).restoreTrash(c.req.param('id'), to))
   })
 
@@ -957,8 +1045,29 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     } else if (scan?.aborted === 'root_unavailable') {
       alerts.push({ code: 'scan_aborted_root_unavailable', actions: admin ? ['rescan'] : [] })
     }
+    // Notes vihko can't read on the disk: the admin fixes them there. A path they don't read, only by its space.
+    const unreadableNotes = admin ? deps.indexer.unreadableNotes() : []
+    if (unreadableNotes.length) {
+      const paths = unreadableNotes.filter((p) => access.canRead(p))
+      const elsewhere = [...new Set(unreadableNotes.filter((p) => !access.canRead(p)).map((p) => spaceRootOf(p) ?? p.split('/')[0]!))].sort()
+      alerts.push({ code: 'unreadable_notes', paths, elsewhere, actions: [] })
+    }
+    // Notes over vihko.yaml's `notes.maxSize`: shown as plain text, never indexed nor edited live. The same naming.
+    const tooLarge = admin ? deps.indexer.tooLargeNotes() : []
+    if (tooLarge.length) {
+      const paths = tooLarge.filter((p) => access.canRead(p))
+      const elsewhere = [...new Set(tooLarge.filter((p) => !access.canRead(p)).map((p) => spaceRootOf(p) ?? p.split('/')[0]!))].sort()
+      alerts.push({ code: 'notes_too_large', paths, elsewhere, limitMb: workspace.config.notes.maxSize, actions: [] })
+    }
     for (const path of deps.orphans?.orphans() ?? []) {
       if (access.canRead(path)) alerts.push({ code: 'orphaned_note', path, actions: access.canWrite(path) ? ['keep_copy', 'discard_copy'] : [] })
+    }
+    // Notes vihko can't save (a full disk, a folder it may not write to): to the admins, who can fix the
+    // volume. The note's path only to one who reads it; its space to all of them.
+    if (admin) {
+      for (const u of deps.orphans?.unsaved?.() ?? []) {
+        alerts.push({ code: 'note_not_saved', path: access.canRead(u.path) ? u.path : null, space: spaceRootOf(u.path), reason: u.reason, volume: u.volume, actions: [] })
+      }
     }
     for (const m of s.externalMoves()) {
       const mine = m.moves.some((x) => access.canWrite(x.to) && access.canWrite(x.from))
@@ -966,7 +1075,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }
     for (const u of deps.indexer.uidConflicts()) {
       const paths = u.paths.filter((p) => access.canRead(p))
-      if (paths.length) alerts.push({ code: 'uid_conflict', uid: u.uid, paths, actions: [] })
+      // Only where they see two of them: one alone would say that a note they can't read has its uid.
+      if (paths.length >= 2) alerts.push({ code: 'uid_conflict', uid: u.uid, paths, actions: [] })
     }
     const noteExists = index.prepare('select 1 from notes where path = ?')
     const ws = workspace.status
@@ -982,6 +1092,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       const warnings = [...ws.warnings, ...permissions.unknownSubjects(), ...outsideSpaces(workspace.config)].map((w) => redactPermissionsWarning(w, access))
       if (warnings.length) alerts.push({ code: 'config_warnings', file: WORKSPACE_FILE, warnings, actions: [] })
       if (workspace.permissionsFallback) alerts.push({ code: 'permissions_rejected', fallback: workspace.permissionsFallback, actions: [] })
+      // The section gone from the file: nothing is shared, and the last one that shared something can be put back.
+      const kept = workspace.permissionsMissing ? workspace.lastPermissions() : null
+      if (kept !== null) alerts.push({ code: 'permissions_missing', file: WORKSPACE_FILE, folders: keptRules(kept).size, actions: ['restore_permissions', 'dismiss'] })
       for (const sr of workspace.config.daily) {
         if (sr.template && !noteExists.get(sr.template)) alerts.push({ code: 'config_template_missing', series: sr.id, template: sr.template, actions: [] })
       }
@@ -1021,20 +1134,19 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const unreadable = admin ? twoFactor.unreadable() : []
     if (unreadable.length) alerts.push({ code: 'two_factor_unreadable', users: unreadable.map(nameOf).sort(), actions: [] })
     // Notices addressed to this person (notices.ts), last: what others did to their account or their writing.
-    if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf, (root) => permissions.spaceName(root)))
+    if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf, (root) => permissions.spaceName(root), (id) => spaces.mayRestoreId(c.get('user'), id)))
     // Note settings written by hand with something wrong (noteSettings.ts): to whom they belong, the person or a space's managers.
     if (!access.isAgent) {
       const me = c.get('user')
       const own = noteSettings.read(personalRoot(me.username))
-      if (own.errors.length) alerts.push({ code: 'settings_invalid', space: null, errors: own.errors, actions: [] })
+      if (own.errors.length) alerts.push({ code: 'settings_invalid', space: null, file: noteSettingsPath(own.root), errors: own.errors, actions: [] })
       const ownGuide = guideMissing(own)
       if (ownGuide !== null) alerts.push({ code: 'settings_guide_missing', space: null, note: ownGuide, actions: [] })
       for (const s of permissions.spacesFor(me).spaces) {
         if (!access.canManage(s.path)) continue
         const r = noteSettings.read(s.path)
-        if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, errors: r.errors, actions: [] })
-        const guide = guideMissing(r)
-        if (guide !== null) alerts.push({ code: 'settings_guide_missing', space: { path: s.path, name: s.name }, note: guide, actions: [] })
+        // (A space's guide is text in its settings, never a note: nothing to be missing.)
+        if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, file: noteSettingsPath(r.root), errors: r.errors, actions: [] })
       }
     }
     return c.json({ alerts })
@@ -1048,7 +1160,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Note deleted from outside with an open copy: keep it or treat it as
   // deleted (`edit` where it was).
   app.post('/api/note/orphan', async (c) => {
-    const { path, action } = await c.req.json<{ path: string; action: 'restore' | 'discard' }>()
+    const { path, action } = await jsonBody<{ path: string; action: 'restore' | 'discard' }>(c)
     if (action !== 'restore' && action !== 'discard') return fail(c, 400, 'invalid', 'action must be restore or discard')
     return c.json(await scoped(c).orphan(path, action))
   })
@@ -1056,7 +1168,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // `confirmRemoval`: the number of notes the alert said would be removed.
   // The mass deletion is only accepted if that number still matches (Indexer.scan).
   app.post('/api/admin/rescan', adminOnly, async (c) => {
-    const body = await c.req.json<{ force?: boolean; confirmRemoval?: number }>().catch(() => ({}) as { force?: boolean; confirmRemoval?: number })
+    const body = await jsonBody<{ force?: boolean; confirmRemoval?: number }>(c).catch(() => ({}) as { force?: boolean; confirmRemoval?: number })
     const confirmRemoval = Number.isInteger(body.confirmRemoval) ? body.confirmRemoval : undefined
     const r = deps.runtime.rescan({ force: body.force === true, confirmRemoval })
     // Numbers, never paths: what changed may be in anyone's space, which the admin doesn't read.
@@ -1066,6 +1178,33 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // The alert of a rewrite of vihko.yaml at start, dismissed (for every admin).
   app.delete('/api/admin/config-migrations/:id', adminOnly, (c) => {
     if (!deps.configMigrations?.dismiss(c.req.param('id') ?? '')) return fail(c, 404, 'not_found', 'no such alert')
+    return c.json({ ok: true })
+  })
+
+  // The permissions gone from vihko.yaml: the last ones that shared something,
+  // written back (each folder's rule, the rest of the file as it is), as any
+  // change to them is; confirmed at the moment, as it gives access to people.
+  // Or the alert dismissed: they're forgotten.
+  app.post('/api/admin/permissions/restore', adminOnly, async (c) => {
+    const { confirm } = await jsonBody<{ confirm?: unknown }>(c).catch(() => ({ confirm: undefined }))
+    const kept = workspace.permissionsMissing ? workspace.lastPermissions() : null
+    if (kept === null) return fail(c, 404, 'not_found', 'no permissions to restore')
+    const refused = await tf.confirmIdentity(c, confirm)
+    if (refused) return refused
+    await permissionsFile.update((t) => {
+      let out = t
+      for (const [folder, value] of keptRules(kept)) out = setRule(out, folder, value)
+      return out
+    }, { actor: c.get('access').actor })
+    log(`${WORKSPACE_FILE}: the last permissions were restored by ${c.get('user').username}`)
+    return c.json({ ok: true, folders: keptRules(kept).size })
+  })
+
+  app.delete('/api/admin/permissions/restore', adminOnly, (c) => {
+    if (!workspace.permissionsMissing) return fail(c, 404, 'not_found', 'no such alert')
+    workspace.forgetLastPermissions()
+    // Kept as the file says now: the grants it no longer has are gone.
+    grantStarts.sync(permissions.spaceRules().rules)
     return c.json({ ok: true })
   })
 
@@ -1083,7 +1222,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), notices, confirm: tf.confirmIdentity })
 
   // Creating a key, and approving an OAuth client, confirm who is there: a session left open isn't enough.
-  keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity })
+  keyRoutes(app, {
+    keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity,
+    onKeyAdded: (userId, name) => { notices.add(userId, { code: 'account_key_added', kind: 'key', name }) },
+  })
 
   permissionRoutes(app, { engine: permissions, file: permissionsFile, index, keys, policy, holds: deps.holds })
 
@@ -1091,7 +1233,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   spaceRoutes(app, { spaces, confirm: tf.confirmIdentity })
 
   // OAuth for the MCP server: its addresses for clients, and the consent page's (session).
-  oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf, confirm: tf.confirmIdentity })
+  oauthRoutes(app, {
+    oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf, confirm: tf.confirmIdentity,
+    onAppAuthorized: (userId, name) => { notices.add(userId, { code: 'account_key_added', kind: 'app', name }) },
+  })
 
   app.all('/api/*', (c) => fail(c, 404, 'not_found', 'does not exist'))
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env -S node --no-experimental-webstorage
 // vihko serve | vihko                 starts the server
-// vihko user create <name> [--admin]  creates a user; the password is read from stdin
-//                                     (--admin before or after the name)
+// vihko user create <name> [--admin] [--adopt]
+//                                     creates a user; the password is read from stdin
+//                                     (the options before or after the name; --adopt: their
+//                                     folder already in people/, with something in it, is theirs)
 // vihko user reset-link <name>        a one-time link for them to choose a password
 //                                     (7 days; the way back for an admin who lost theirs)
 // vihko user reset-2fa <name>         takes their second factor away (with reset-link,
@@ -30,7 +32,7 @@ import { StartupError, checkVolumes, prepareStateDir } from './volumes.ts'
 import { Workspace } from './workspace.ts'
 import { VERSION } from './version.ts'
 
-const USAGE = 'usage: vihko serve | vihko user create <name> [--admin] | vihko user reset-link <name> | vihko user reset-2fa <name> | vihko history purge <path> [--version <id>] [--dry-run] | vihko version'
+const USAGE = 'usage: vihko serve | vihko user create <name> [--admin] [--adopt] | vihko user reset-link <name> | vihko user reset-2fa <name> | vihko history purge <path> [--version <id>] [--dry-run] | vihko version'
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
@@ -64,8 +66,8 @@ async function main(argv: string[]) {
       // With their personal folder (people/<name>), and the product's two folders if this is the first thing that runs.
       const auth = new Auth(state, { notesDir: config.notesDir })
       auth.personalFolders?.ensureLayout()
-      const user = await auth.createUser(args.name, await readStdin(), args.admin ? 'admin' : 'member')
-      console.log(`user created: ${user.username} (${user.role})`)
+      const user = await auth.createUser(args.name, await readStdin(), args.admin ? 'admin' : 'member', { adopt: args.adopt })
+      console.log(`user created: ${user.username} (${user.role})${args.adopt ? `, with the folder already at people/${user.username} as theirs` : ''}`)
     } finally {
       state.close()
     }
@@ -112,7 +114,7 @@ async function main(argv: string[]) {
     const args = parsePurge(rest)
     if (!args) return usage()
     // vihko.yaml says the mode (never the user's own repository) and what is excluded.
-    const { history } = new Workspace({ notesDir: config.notesDir }).config
+    const { history } = new Workspace({ notesDir: config.notesDir, stateDir: config.stateDir }).config
     const report = await purgeHistory({
       stateDir: config.stateDir, notesDir: config.notesDir, path: args.path, version: args.version, dryRun: args.dryRun,
       mode: history.mode, excluded: pathMatcher(history.exclude), git: config.history.git,
@@ -129,14 +131,14 @@ function usage() {
 }
 
 /**
- * `<name> [--admin]`, `--admin` before or after the name. Anything else (no
- * name, two, another option) is not understood: never a user named after an
- * option.
+ * `<name> [--admin] [--adopt]`, the options before or after the name.
+ * Anything else (no name, two, another option) is not understood: never a
+ * user named after an option.
  */
-function parseCreate(args: string[]): { name: string; admin: boolean } | null {
-  const names = args.filter((a) => a !== '--admin')
+function parseCreate(args: string[]): { name: string; admin: boolean; adopt: boolean } | null {
+  const names = args.filter((a) => a !== '--admin' && a !== '--adopt')
   if (names.length !== 1 || names[0]!.startsWith('-') || names[0] === '') return null
-  return { name: names[0]!, admin: args.includes('--admin') }
+  return { name: names[0]!, admin: args.includes('--admin'), adopt: args.includes('--adopt') }
 }
 
 function parsePurge(args: string[]): { path: string; version?: string; dryRun: boolean } | null {

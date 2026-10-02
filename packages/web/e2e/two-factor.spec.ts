@@ -10,7 +10,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, E2E_DIR, PUBLIC_URL, specMother } from './env.ts'
-import { literally, newUser, signIn, usePermissions } from './helpers.ts'
+import { dismissNoticesOf, literally, newUser, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
@@ -36,13 +36,15 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test.afterAll(async () => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN)
   const admin = keeper
   await admin.request.put('/api/admin/settings', { data: { twoFactor: 'optional', confirm: ADMIN.password } })
   await admin.request.put('/api/admin/integrations', { data: { membersCanCreateKeys: false } })
   for (const u of (await (await admin.request.get('/api/admin/users')).json()).users as { id: string; username: string }[]) {
     if (u.username !== PERSON.username && u.username !== INVITED.username) continue
-    await admin.request.post(`/api/admin/users/${u.id}/disable`)
-    await admin.request.delete(`/api/admin/users/${u.id}`)
+    await admin.request.post(`/api/admin/users/${u.id}/disable`, { data: { confirm: ADMIN.password } })
+    await admin.request.delete(`/api/admin/users/${u.id}`, { data: { confirm: ADMIN.password } })
   }
   await admin.context().close()
   await usePermissions()
@@ -219,20 +221,15 @@ test('signing in: the password, then the app\'s code, which works once; or a rec
   await again.context().close()
 })
 
-test('a new key asks for the app\'s current code, even with a session; the password is not enough', async () => {
+test('right after signing in with a code, a new key asks nothing: the sign-in confirmed it', async () => {
   const page = session
   await openSettings(page, 'Agentes y API', 'agents')
   await page.getByRole('button', { name: 'Nueva clave' }).click()
   const dialog = page.getByRole('dialog', { name: 'Nueva clave' })
   const keyName = m.aKeyName()
   await dialog.getByLabel('Nombre').fill(keyName)
-  const confirm = dialog.getByLabel('Código de tu app de autenticación')
-  await expect(dialog.getByText('Una clave da acceso a tus notas: confirma que eres tú, aunque ya hayas entrado.')).toBeVisible()
-  await confirm.fill(PERSON.password)
-  await dialog.getByRole('button', { name: 'Crear la clave' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('El código no es correcto')
-  await confirm.fill(await app.next())
-  await page.screenshot({ path: `${SHOTS}/twofa-key-confirm-light.png`, animations: 'disabled' })
+  await expect(dialog.getByLabel('Código de tu app de autenticación')).toHaveCount(0)
+  await page.screenshot({ path: `${SHOTS}/twofa-key-confirmed-light.png`, animations: 'disabled' })
   await dialog.getByRole('button', { name: 'Crear la clave' }).click()
   const shown = page.getByRole('dialog', { name: `Clave para «${keyName}»` })
   await expect(shown.locator('.token')).toBeVisible()
@@ -250,15 +247,10 @@ test('new recovery codes and another app ask for a code of the second factor, ne
   await openSettings(page, 'Cuenta', 'account')
   const section = page.getByRole('region', { name: 'Verificación en dos pasos' })
 
-  // New recovery codes: the password doesn't do; a recovery code does.
+  // New recovery codes: the sign-in with a recovery code confirmed it a moment ago, in this browser: nothing to type.
   await section.getByRole('button', { name: 'Nuevos códigos de recuperación' }).click()
   const ask = page.getByRole('dialog')
-  const field = ask.getByLabel('Código de la app o de recuperación')
-  await expect(ask).toContainText('Sin el móvil a mano, uno de tus códigos de recuperación')
-  await field.fill(PERSON.password)
-  await ask.getByRole('button', { name: 'Crear códigos nuevos' }).click()
-  await expect(ask.getByRole('alert')).toContainText('El código no es correcto')
-  await field.fill(recovery[2]!)
+  await expect(ask.getByLabel('Código de la app o de recuperación')).toHaveCount(0)
   await ask.getByRole('button', { name: 'Crear códigos nuevos' }).click()
   const fresh = page.getByRole('dialog', { name: 'Guarda tus códigos de recuperación' })
   await expect(fresh.getByRole('list', { name: 'Códigos de recuperación' }).getByRole('listitem')).toHaveCount(10)
@@ -338,12 +330,13 @@ test('required: an invited member sets it up before getting in; the admin sees w
   await expect(confirm.getByRole('heading')).toHaveText(`¿Restablecer la verificación en dos pasos de ${INVITED.username}?`)
   await expect(confirm).toContainText('Como es obligatoria, la configurará de nuevo la próxima vez que entre.')
   await expect(confirm).toContainText(`${INVITED.username} verá un aviso al entrar, y los demás administradores también.`)
-  await confirm.getByLabel('Tu contraseña').fill(ADMIN.password)
+  // The policy was confirmed a moment ago in this browser: neither this nor the policy back asks again.
+  await expect(confirm.getByLabel('Tu contraseña')).toHaveCount(0)
   await confirm.getByRole('button', { name: 'Restablecer' }).click()
   await expect(row(admin, INVITED.username)).toContainText('Al entrar')
 
   await admin.getByRole('radio', { name: /Opcional/ }).click()
-  await admin.getByRole('alertdialog').getByLabel('Tu contraseña').fill(ADMIN.password)
+  await expect(admin.getByRole('alertdialog').getByLabel('Tu contraseña')).toHaveCount(0)
   await admin.getByRole('alertdialog').getByRole('button', { name: 'Cambiar' }).click()
   await expect(row(admin, ADMIN.username)).not.toContainText('Al entrar')
   await admin.context().close()

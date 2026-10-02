@@ -98,7 +98,7 @@ test.afterAll(async () => {
     if (n.path.startsWith(`${DIR}/`) || n.path.startsWith(`${TEMPLATES}/`)) await k.request.delete(`/api/note?path=${encodeURIComponent(n.path)}`)
   }
   await k.context().close()
-  for (const d of [DIR, TEMPLATES, OWN]) rmSync(`${NOTES}/${d}`, { recursive: true, force: true })
+  for (const d of [DIR, TEMPLATES, OWN]) rmSync(`${NOTES}/${d}`, { recursive: true, force: true, maxRetries: 10 })
 })
 
 const list = (page: Page) => page.locator('.vihko-complete')
@@ -165,6 +165,17 @@ test('[[note# suggests its headings; [[note| its title and aliases', async () =>
   await expect.poll(() => disk()).toContain(`[[${DEST}|${ALIAS}]]`)
 })
 
+test('[[/ suggests notes by their path from the root of the space, and their headings from there', async () => {
+  await typeAtEnd(k, ` [[/${fold(NAME)}/${fold(DEST)}`)
+  await accept(k, starts(DEST))
+  await expect.poll(() => disk()).toContain(`[[${DEST}]]`)
+  await k.keyboard.type(` [[/${NAME}/${DEST}#`)
+  await expect(option(k, H1)).toBeVisible()
+  await expect(option(k, H2)).toBeVisible()
+  await option(k, H1).click()
+  await expect.poll(() => disk()).toContain(`[[/${NAME}/${DEST}#${H1}]]`)
+})
+
 test('an alias finds the note and becomes the visible text', async () => {
   await typeAtEnd(k, ` [[${fold(ALIAS)}`)
   await accept(k, starts(ALIAS), 'Tab')
@@ -223,7 +234,8 @@ test('a broken link offers to create the note in this folder; the link then reso
   await k.keyboard.press('Enter')
   await k.keyboard.type(`${m.aWord()}: [[${missing}]] y [md](${markdownDest(missingMd)}.md).`)
   await k.locator('.cm-h1').first().click()
-  const broken = k.locator('.cm-wikilink-missing', { hasText: missing })
+  // By its start: another link of the note may hold the same word («[[note#… basado]]»).
+  const broken = k.locator('.cm-wikilink-missing', { hasText: starts(missing) })
   await expect(broken.locator('.cm-wikilink-badge')).toHaveText('no existe · crear')
   await expect(broken.getByRole('button', { name: 'crear' })).toHaveAttribute('title', `Crear «${missing}» en ${SHOWN}`)
   await k.screenshot({ path: `${SHOTS}/create-link-light.png`, animations: 'disabled' })
@@ -238,7 +250,7 @@ test('a broken link offers to create the note in this folder; the link then reso
 
   await k.goBack().catch(() => {})
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
-  await expect(k.locator('.cm-wikilink-resolved', { hasText: missing })).toBeVisible()
+  await expect(k.locator('.cm-wikilink-resolved', { hasText: new RegExp(`^${literally(missing)}$`, 'u') })).toBeVisible()
   const links = await (await k.request.get(`/api/note/links?path=${encodeURIComponent(SOURCE)}`)).json() as { outgoing: { raw: string; status: string; dstPath: string }[] }
   expect(links.outgoing.find((l) => l.raw === `[[${missing}]]`)).toMatchObject({ status: 'resolved', dstPath: `${DIR}/${missing}.md` })
 
@@ -256,7 +268,7 @@ test('never overwrites: if the note appeared meanwhile and the link leads there,
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
   await typeAtEnd(k, ` [[${late}]]`)
   await k.locator('.cm-h1').first().click()
-  const broken = k.locator('.cm-wikilink-missing', { hasText: late })
+  const broken = k.locator('.cm-wikilink-missing', { hasText: starts(late) })
   await expect(broken.getByRole('button', { name: 'crear' })).toBeVisible()
   // Someone else creates it first, with other text.
   expect((await k.request.post('/api/note', { data: { path: `${DIR}/${late}.md`, text: `# ${late}\n\n${theirs}\n` } })).status()).toBe(201)
@@ -279,7 +291,7 @@ test('with templates to offer, «create» asks which one', async () => {
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
   await typeAtEnd(k, ` [[${fresh}]]`)
   await k.locator('.cm-h1').first().click()
-  const create = k.locator('.cm-wikilink-missing', { hasText: fresh }).getByRole('button', { name: 'crear' })
+  const create = k.locator('.cm-wikilink-missing', { hasText: starts(fresh) }).getByRole('button', { name: 'crear' })
   const menu = k.getByRole('menu')
   // Dark first (the theme button would close the menu), then light, where it's used.
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()

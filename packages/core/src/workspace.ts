@@ -42,16 +42,31 @@ export interface WorkspaceConfig {
   history: HistoryConfig
   /** The MCP server (M3): what it tells the agents that connect. */
   mcp: McpConfig
+  /**
+   * Notes (`notes` in vihko.yaml): `maxSize`, in MB, the largest note vihko
+   * indexes and opens in the live editor; a larger one shows as plain text
+   * (with a download), and the API and MCP refuse writes that would make a
+   * note larger.
+   */
+  notes: { maxSize: number }
 }
+
+/** The largest note vihko indexes and edits live by default, in MB. */
+export const DEFAULT_NOTE_MAX_MB = 5
 
 /**
  * The MCP server (`mcp` in vihko.yaml):
  * - `instructions`: a note of the workspace served to agents as the server's
  *   instructions (how this workspace is organised, what to write where), to
  *   an agent that can read it. Null: only vihko's own.
+ * - `client_domains`: the domains OAuth apps may come from (`claude.ai`, and
+ *   its subdomains with it): the host of a client's metadata document, or of
+ *   every redirect URI of one that registers itself. Empty (the default):
+ *   any, as before, with the domain shown on the authorization page.
  */
 export interface McpConfig {
   instructions: string | null
+  clientDomains: string[]
 }
 
 /**
@@ -97,7 +112,8 @@ export const DEFAULT_ATTACHMENTS_SUFFIX = '.assets'
 export const EMPTY_WORKSPACE: WorkspaceConfig = {
   daily: [], attachments: { folder: null }, links: { aliases: true },
   history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
-  mcp: { instructions: null },
+  mcp: { instructions: null, clientDomains: [] },
+  notes: { maxSize: DEFAULT_NOTE_MAX_MB },
 }
 
 /**
@@ -111,7 +127,8 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
  * - `not_boolean`: a switch that isn't `true` or `false`.
  * - `invalid_path`: a folder or note path that isn't relative to the notes
  *   root, climbs out of it or goes through a hidden folder.
- * - `invalid_id`: a series key that isn't letters, digits, `-` or `_`.
+ * - `invalid_id`: a series key that isn't letters, digits, `-` or `_`, or
+ *   starts with `me-` or `sp-` (in any case), the ids of the spaces' series.
  * - `pattern_token`: an unknown `{token}` in a series pattern (`detail`).
  * - `pattern_period`: a series pattern that doesn't name one note per day,
  *   ISO week, month or year.
@@ -149,6 +166,7 @@ export type ConfigErrorCode =
   | 'invalid_value' | 'invalid_pattern'
   | 'unknown_key' | 'newer_version' | 'not_supported' | 'section_rejected'
   | 'ignored_value' | 'unknown_subject' | 'missing_folder' | 'outside_spaces'
+  | 'space_guide_note'
 
 export interface ConfigError {
   code: ConfigErrorCode
@@ -208,15 +226,20 @@ export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS_SECTION as
 
 // No `templates`: a template is a note marked `template: true` in its
 // frontmatter, wherever it is; an old `templates` key is an unknown one.
-const TOP_KEYS = ['version', 'daily', 'attachments', 'links', 'history', 'mcp']
+const TOP_KEYS = ['version', 'daily', 'attachments', 'links', 'history', 'mcp', 'notes']
 const LINKS_KEYS = ['aliases']
+const NOTES_KEYS = ['maxSize']
 const HISTORY_KEYS = ['mode', 'maxFileSize', 'exclude']
-const MCP_KEYS = ['instructions']
+const MCP_KEYS = ['instructions', 'client_domains']
+/** A domain name as `client_domains` takes it (`claude.ai`, `localhost`), or an IP address. */
+const DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$|^\d{1,3}(?:\.\d{1,3}){3}$/
 const SERIES_KEYS = ['folder', 'name', 'template', 'label']
 const ATTACHMENT_KEYS = ['mode', 'folder', 'suffix']
 const ATTACHMENT_MODES = ['next-to-note', 'folder', 'per-note']
 const DEFAULT_NAME = '{YYYY}-{MM}-{DD}'
 const SERIES_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+/** The prefixes of the ids of a person's and a shared space's series (the server's seriesPrefix), in any case: never one of this file's. */
+const SPACE_SERIES_ID = /^(?:me|sp)-/i
 
 /** A folder relative to the notes root: no leading or trailing `/`, no `.`/`..`, nothing hidden. */
 function isFolder(path: string): boolean {
@@ -247,7 +270,8 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
   const config: WorkspaceConfig = {
     daily: [], attachments: { folder: null }, links: { aliases: true },
     history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
-    mcp: { instructions: null },
+    mcp: { instructions: null, clientDomains: [] },
+    notes: { maxSize: DEFAULT_NOTE_MAX_MB },
   }
   const strictKeys = new Set(strict.map((s) => s.key))
   for (const key of Object.keys(data)) if (!TOP_KEYS.includes(key) && !strictKeys.has(key)) warn('unknown_key', [key])
@@ -332,6 +356,18 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
     }
   }
 
+  if (data.notes !== undefined && data.notes !== null) {
+    if (!isRecord(data.notes)) fail('not_a_map', ['notes'])
+    else {
+      for (const k of Object.keys(data.notes)) if (!NOTES_KEYS.includes(k)) warn('unknown_key', ['notes', k])
+      const s = data.notes.maxSize
+      if (s !== undefined && s !== null) {
+        if (typeof s === 'number' && Number.isFinite(s) && s > 0) config.notes.maxSize = s
+        else fail('invalid_value', ['notes', 'maxSize'], 'MB > 0')
+      }
+    }
+  }
+
   if (data.mcp !== undefined && data.mcp !== null) {
     if (!isRecord(data.mcp)) fail('not_a_map', ['mcp'])
     else {
@@ -341,6 +377,17 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
         if (typeof i !== 'string') fail('invalid_type', ['mcp', 'instructions'], 'string')
         else config.mcp.instructions = notePath(i, ['mcp', 'instructions'], fail)
       }
+      const d = data.mcp.client_domains
+      if (d !== undefined && d !== null) {
+        const list = typeof d === 'string' ? [d] : d
+        if (!Array.isArray(list) || list.some((x) => typeof x !== 'string')) fail('invalid_type', ['mcp', 'client_domains'], 'list')
+        else {
+          const domains = list.map((x: string) => x.trim().toLowerCase().replace(/^\*\./, '').replace(/\.$/, ''))
+          const bad = domains.find((x) => !DOMAIN.test(x))
+          if (bad !== undefined) fail('invalid_value', ['mcp', 'client_domains'], bad)
+          else config.mcp.clientDomains = [...new Set(domains)]
+        }
+      }
     }
   }
 
@@ -348,7 +395,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
     if (!isRecord(data.daily)) fail('not_a_map', ['daily'])
     else for (const [id, raw] of Object.entries(data.daily)) {
       const at = ['daily', id]
-      if (!SERIES_ID.test(id)) { fail('invalid_id', at); continue }
+      if (!SERIES_ID.test(id) || SPACE_SERIES_ID.test(id)) { fail('invalid_id', at); continue }
       if (!isRecord(raw)) { fail('not_a_map', at); continue }
       for (const k of Object.keys(raw)) if (!SERIES_KEYS.includes(k)) warn('unknown_key', [...at, k])
       const s = parseSeries(id, raw, at, fail)

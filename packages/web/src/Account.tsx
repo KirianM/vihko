@@ -34,21 +34,23 @@ function PasswordForm({ onUnauthorized }: { onUnauthorized: () => void }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState(false)
+  const [done, setDone] = useState<string | null>(null)
+  // Ticked by default: a new password after a stolen one shuts out whatever got in with it.
+  const [revokeOthers, setRevokeOthers] = useState(true)
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const form = e.currentTarget
     const f = new FormData(form)
     const password = String(f.get('password'))
-    setDone(false)
+    setDone(null)
     if (password !== String(f.get('repeat'))) return setError(t('invite.mismatch'))
     setBusy(true)
     setError(null)
     try {
-      await api.changePassword(String(f.get('current')), password)
+      const r = await api.changePassword(String(f.get('current')), password, revokeOthers)
       form.reset()
-      setDone(true)
+      setDone(revokeOthers ? t('account.changedRevoked', { sessions: r.sessionsEnded, keys: r.keysRevoked }) : t('account.changed'))
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return onUnauthorized()
       setError(errorText(t, err))
@@ -74,8 +76,12 @@ function PasswordForm({ onUnauthorized }: { onUnauthorized: () => void }) {
         <Input />
         <FieldError className="error-text" />
       </TextField>
+      <label className="check">
+        <input type="checkbox" name="revokeOthers" checked={revokeOthers} onChange={(e) => setRevokeOthers(e.target.checked)} />
+        <span className="check-text">{t('account.revokeOthers')}</span>
+      </label>
       {error && <p className="error-text" role="alert">{error}</p>}
-      {done && <p className="account-done" role="status">{t('account.changed')}</p>}
+      {done && <p className="account-done" role="status">{done}</p>}
       <div className="account-actions">
         <Button type="submit" className="btn btn-primary" isDisabled={busy}>{t('account.change')}</Button>
         <span className="hint">{t('account.changeHint')}</span>
@@ -145,12 +151,14 @@ function SetupDialog({ replacing, onClose, onDone }: { replacing: boolean; onClo
 }
 
 /** A dialog that asks for one secret (the app's code or a recovery code, or the password) and then does something. */
-function AskDialog({ title, text, label, hint, recovery, confirm, danger, onClose, onConfirm }: {
+function AskDialog({ title, text, label, hint, recovery, confirm, danger, confirmed, onClose, onConfirm }: {
   title: string
   text: string
   label: string
   hint?: string
   recovery?: boolean
+  /** Confirmed a moment ago in this browser session: nothing to ask. */
+  confirmed?: boolean
   confirm: string
   danger?: boolean
   onClose: () => void
@@ -177,7 +185,7 @@ function AskDialog({ title, text, label, hint, recovery, confirm, danger, onClos
         <div className="dialog-fields">
           <Heading slot="title" className="dialog-title">{title}</Heading>
           <p className="dialog-text">{text}</p>
-          {recovery
+          {confirmed ? null : recovery
             ? <CodeField recovery label={label} hint={hint} value={value} onChange={setValue} autoFocus />
             : (
               <TextField className="field" type="password" isRequired value={value} onChange={setValue} autoComplete="current-password" autoFocus>
@@ -190,7 +198,7 @@ function AskDialog({ title, text, label, hint, recovery, confirm, danger, onClos
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || !value.trim()}>{confirm}</Button>
+          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || (!confirmed && !value.trim())}>{confirm}</Button>
         </div>
       </form>
     </Dialog>
@@ -229,6 +237,7 @@ function TwoFactorSection({ onUnauthorized }: { onUnauthorized: () => void }) {
     )
   } else if (open === 'recovery') {
     dialog = <AskDialog title={t('twofa.newCodesTitle')} text={t('twofa.newCodesBody')} label={t('twofa.codeOrRecovery')} hint={t('twofa.codeOrRecoveryHint')} recovery
+      confirmed={!info.confirmNeeded && info.confirmedUntil !== null && Date.parse(info.confirmedUntil) - 30_000 > Date.now()}
       confirm={t('twofa.newCodesConfirm')} onClose={close} onConfirm={async (v) => setCodes(await api.newRecoveryCodes(v))} />
   } else if (open === 'disable') {
     dialog = <AskDialog title={t('twofa.disableTitle')} text={t('twofa.disableBody')} label={t('twofa.codeOrRecovery')} recovery danger

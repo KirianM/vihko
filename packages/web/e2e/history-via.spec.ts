@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, inVault, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { dismissNoticesOf, signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
@@ -45,6 +45,8 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test.afterAll(async () => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN)
   if (keyId) await k.request.delete(`/api/keys/${keyId}`)
   await k.request.put('/api/admin/integrations', { data: { api: false, mcp: false } })
   await k.context().close()

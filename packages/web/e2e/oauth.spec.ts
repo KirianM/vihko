@@ -10,7 +10,7 @@ import { expect, test, type APIRequestContext, type Browser, type Page } from '@
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, MEMBER, PUBLIC_URL, SPACE_NAME, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { dismissNoticesOf, signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
@@ -44,6 +44,8 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test.afterAll(async ({ browser }) => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN, MEMBER)
   const page = await admin(browser)
   for (const k of (await (await page.request.get('/api/keys?all=1')).json()).keys as { id: string; name: string; status: string }[]) {
     if (k.name === NAME && k.status === 'active') await page.request.delete(`/api/keys/${k.id}`)
@@ -148,8 +150,10 @@ test('a client asks: the person signs in, sees who asks, and approves it read-on
   const who = page.locator('.consent-who')
   await expect(who).toContainText(NAME)
   await expect(who).toContainText(CALLBACK)
-  // It registered itself: its name is only what it says, and it goes back to this computer.
-  await expect(who).toContainText('Sin comprobar: la aplicación se registró sola')
+  // It registered itself: its domain is where it goes back to (this computer), and its name is only what it says.
+  await expect(who.locator('.consent-domain')).toHaveText(new URL(CALLBACK).hostname)
+  await expect(who).toContainText('La aplicación se registró sola, y el nombre es el que ella dice')
+  await expect(page.getByText('el nombre lo pone ella')).toHaveCount(0)
   await expect(page.getByRole('note').filter({ hasText: 'Volverá a un programa de este mismo ordenador' })).toBeVisible()
   // As a new key: read-only, every folder.
   await expect(page.getByRole('checkbox', { name: /Puede escribir/ })).not.toBeChecked()
@@ -257,24 +261,40 @@ test('on a phone, in dark mode: the question fits and works', async ({ browser, 
   await ctx.close()
 })
 
-test('a client named by its metadata document: the page shows the domain that describes it', async ({ browser }) => {
+test('a client named by its metadata document: the page shows the domain that describes it, and warns when its name doesn\'t fit it', async ({ browser }) => {
   const page = await signIn(browser, ADMIN)
   const host = m.aHost()
   const client = m.aKeyName()
   const id = `https://${host}/oauth/client.json`
   // What the server answers once it fetched the document (the fetch itself is tested on the server, against a local HTTPS site).
+  // Whether a name fits its domain is the server's to say (oauth.test.ts): here it doesn't.
   await page.route((url) => url.pathname === '/api/oauth/authorize', (route) => route.request().method() === 'GET'
-    ? route.fulfill({ json: { client: { id, name: client, redirectUri: `https://${host}/api/mcp/auth_callback`, host }, canAuthorize: true } })
+    ? route.fulfill({ json: { client: { id, name: client, redirectUri: `https://${host}/api/mcp/auth_callback`, host, domain: host, nameMatchesDomain: false }, canAuthorize: true } })
     : route.continue())
   await page.goto(authorizePath(id, pkce().challenge, aState()))
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`«${client}» quiere acceder a tus notas`)
   const who = page.locator('.consent-who')
   await expect(who.locator('dt', { hasText: 'Dominio' })).toBeVisible()
-  await expect(who).toContainText(host)
+  await expect(who.locator('.consent-domain')).toHaveText(host)
   await expect(who).toContainText('vihko ha leído la descripción de la aplicación en este dominio')
-  await expect(who).not.toContainText('Sin comprobar')
+  await expect(page.getByRole('alert')).toHaveText(`La aplicación se llama «${client}», pero viene de ${host}: el nombre lo pone ella. Autorízala solo si sabes que ${host} es de quien dice ser.`)
   await expect(page.getByText('Volverá a un programa de este mismo ordenador')).toHaveCount(0)
   await page.screenshot({ path: `${SHOTS}/consent-cimd-light.png`, fullPage: true, animations: 'disabled' })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.screenshot({ path: `${SHOTS}/consent-cimd-dark.png`, fullPage: true, animations: 'disabled' })
+  await page.context().close()
+})
+
+test('an app from a domain vihko.yaml doesn\'t list: the page says so, names the domain, and sends the browser nowhere', async ({ browser }) => {
+  const page = await signIn(browser, ADMIN)
+  const host = m.aHost()
+  // What the server answers when `mcp.client_domains` leaves it out (oauth.test.ts checks the server).
+  await page.route((url) => url.pathname === '/api/oauth/authorize', (route) => route.fulfill({ status: 400, json: { error: 'client_not_allowed', message: 'not a valid authorization request', host } }))
+  await page.goto(authorizePath(`https://${host}/oauth/client.json`, pkce().challenge, aState()))
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('No se puede autorizar esta aplicación')
+  await expect(page.getByRole('alert')).toHaveText(`Este vihko solo admite aplicaciones de los dominios que su administrador ha elegido, y ${host} no es uno de ellos. Si debería, pídele que lo añada.`)
+  await expect(page).toHaveURL(/\/oauth\/authorize\?/)
+  await page.screenshot({ path: `${SHOTS}/consent-not-allowed-light.png`, fullPage: true, animations: 'disabled' })
   await page.context().close()
 })
 

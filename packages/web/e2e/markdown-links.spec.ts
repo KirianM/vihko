@@ -12,14 +12,16 @@ const DIR = inVault(freshFolder(() => m.aFolder()))
 const TITLE = m.aTitle()
 const NOTE = `${DIR}/${TITLE}.md`
 /** The links' texts: words nothing else on the page has. */
-const [TO_NOTE, OUT, IN_TABLE, BROKEN, SCRIPT] = [m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord()]
+const [TO_NOTE, OUT, IN_TABLE, BROKEN, SCRIPT, FROM_ROOT, WIKI_ROOT] = [m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord(), m.aUniqueWord()]
 const EXTERNAL = `https://${m.aHost()}/${m.aWord()}`
 /** As the browser asks for it: a word with «ñ» or an accent is percent-encoded. */
 const OPENED = new URL(EXTERNAL).href
 /** A note that doesn't exist, next to this one. */
 const MISSING = `${m.aTitle()}.md`
-// Markdown links are relative to the note: hogar/Red.md is testdata/vault's.
+// Markdown links are relative to the note, or with `/` to the root of its space: hogar/Red.md is testdata/vault's.
 const TEXT = `# ${TITLE}
+
+[${FROM_ROOT}](/hogar/Red.md) ${m.aWord()} [[/hogar/Red|${WIKI_ROOT}]]
 
 ${m.aWord()} [${TO_NOTE}](../hogar/Red.md) ${m.aWord()} [${OUT}](${EXTERNAL}) ${m.aWord()}
 
@@ -35,7 +37,7 @@ test.beforeAll(() => {
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   writeFileSync(`${NOTES}/${NOTE}`, TEXT)
 })
-test.afterAll(() => rmSync(`${NOTES}/${DIR}`, { recursive: true, force: true }))
+test.afterAll(() => rmSync(`${NOTES}/${DIR}`, { recursive: true, force: true, maxRetries: 10 }))
 
 const link = (page: Page, text: string) => page.locator('.cm-content .cm-link', { hasText: text })
 /** Opens the note and waits until its links have resolved (the one to a note shows as such). */
@@ -65,6 +67,19 @@ test('an http(s) link opens in a new tab, which gets no hold on the app; the app
   expect(await tab.evaluate(() => window.opener)).toBeNull()
   await expect(k.locator('.crumbs b')).toHaveText(TITLE)
   expect(openPath(k)).toBe(NOTE)
+  await k.context().close()
+})
+
+test('a link that starts with `/` counts from the root of the note\'s space, Markdown or wikilink', async ({ browser }) => {
+  const k = await signIn(browser, ADMIN, NOTE)
+  await openNote(k)
+  await expect(link(k, FROM_ROOT)).toHaveClass(/cm-link-resolved/)
+  await expect(k.locator('.cm-wikilink', { hasText: WIKI_ROOT })).toHaveClass(/cm-wikilink-resolved/)
+  await link(k, FROM_ROOT).click()
+  await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / hogar / Red`)
+  await openNote(k)
+  await k.locator('.cm-wikilink', { hasText: WIKI_ROOT }).locator('a').click()
+  await expect(k.locator('.crumbs')).toHaveText(`${SPACE_NAME} / hogar / Red`)
   await k.context().close()
 })
 

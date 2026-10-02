@@ -15,6 +15,7 @@ consistent, and how to restore it.
 | **Editor states** | `state/collab/` | For each note opened in the editor, its saved editor state (`.ystate`): the note as its last editor left it, so that a browser that was offline merges its typing into the same note instead of adding a second copy. And, for a note open when vihko stopped, its recovery log (`.ylog`): typing not yet written to the file. It holds one `.ystate` for every note ever opened, so it's rarely empty. Back it up with the rest of the state volume. |
 | **Retention's progress** | `state/retention.json` | What [retention](operations.md#retention) still has to finish after a run cut short, and its last run's counts. Small. |
 | **`vihko.yaml` copies** | `state/config-backups/` | The file as it was before an upgrade rewrote it. See [Upgrading](upgrading.md#what-happens-at-start). |
+| **The last good `vihko.yaml`** | `state/vihko.yaml.last-valid` and `state/vihko.yaml.last-permissions` | The last file vihko could use, which applies if it starts with one it can't; and the last one whose `permissions` shared something, which «Restore previous permissions» writes back if the section disappears. Small. |
 | **The second-factor key** | Wherever you keep `VIHKO_SECRET_KEY` or its file | Only if you use it. **Back it up apart from the state volume**, in a password manager for example: whoever has both can compute people's second-factor codes. See [The second-factor key](install.md#the-second-factor-key). |
 
 In short: the whole notes folder and the whole state volume, plus the key if
@@ -127,6 +128,36 @@ there for an instant and you can leave them out.
    Without `index.db`, the first scan indexes every note:
    `index ready: 1250 added, …`.
 
+### After restoring an older `state.db`
+
+`state.db` holds people, their passwords and second factors, sessions, agent
+keys and OAuth authorizations. A copy from before brings back **everything
+that was revoked or changed since**: keys and authorizations you revoked,
+passwords changed after a scare, people you disabled or deleted, second
+factors you took away and their old recovery codes, sessions that were
+signed out, and links that were never used. The same goes for [rolling
+back](upgrading.md#rolling-back) to a `state.db.bak-v*`. Restores often
+follow an incident, so before you open vihko to everyone again, undo those
+by hand, as the admin, with what vihko has today:
+
+1. **Sign everyone out.** In «Users and groups», each person's actions have
+   «Sign out their sessions»: do it for everyone else, and end your own
+   other sessions from «Account».
+2. **Revoke again** the agent keys and OAuth authorizations revoked since
+   the copy: «Agents» lists everyone's for the admin, each with «Revoke».
+3. **Disable or delete again** the people disabled or deleted since the
+   copy.
+4. **Passwords and second factors changed since the copy**: give those
+   people a «Password reset link», and «Reset two-step verification» (or
+   `vihko user reset-2fa <name>`) for anyone whose phone or recovery codes
+   were the reason; they set up a new one at their next sign-in.
+5. **Invitation and reset links** made before the copy work again until
+   they expire (7 days): make a new one for anyone still invited, which
+   ends the old one.
+
+If nothing happened between the copy and the restore (a disk failure, say),
+there's nothing to undo.
+
 ### Restoring only part of it
 
 - **Only the notes folder**, from an older copy: vihko notices the difference
@@ -135,6 +166,40 @@ there for an instant and you can leave them out.
   still in the history, so you can bring any note back from there.
 - **Only the state volume**: people, keys and settings go back to the time of
   the copy; the notes don't.
+- **No state volume at all** (lost, with the notes folder intact): vihko
+  starts as new. Recreate each person with **Adopt their folder** in «Users»
+  (or `vihko user create <name> --adopt`): their `people/<name>/` becomes
+  theirs again, as it is. Without it, a folder with something in it keeps its
+  name from a new user.
+
+### After restoring an older `state.db`
+
+An older `state.db` brings back what was true when the copy was taken, also
+what you undid since for safety: keys and apps revoked since work again,
+sessions signed out since are valid again, passwords changed since (after a
+leak, say) are the old ones again, a second factor reset since is the old
+one, and people deleted or disabled since are back. An older `notes` folder
+brings back its `vihko.yaml`, with the permissions of then: someone you took
+out of a space is in it again. vihko can't tell on its own (that is the
+copy's content), so, before letting people back in:
+
+1. **Permissions.** Compare `vihko.yaml`'s `permissions` with what you
+   expect (the members of each space, the folders shared). If you restored
+   the notes from an older copy, take it from the newest copy you trust, or
+   fix it by hand.
+2. **People.** In Preferences → Users and groups: disable or delete again
+   whoever had left; check the roles.
+3. **Keys and apps.** In Agents and API (the admin sees everyone's, under «Everyone else's keys»):
+   revoke again any key or OAuth app that had been revoked, and any you
+   don't recognise.
+4. **Passwords and second factors.** Whoever changed their password, or had
+   their second factor reset, since the copy: make them a reset link, or
+   reset it again.
+5. **Sessions.** Have everyone sign out their other sessions (Preferences →
+   Account), or, for all of them at once, disable and enable each person:
+   that ends their sessions.
+6. **Read the alerts**: a migration of `state.db`, folders whose grants no
+   longer have a folder, and anything else vihko noticed.
 
 ### Retention and backups
 

@@ -7,8 +7,8 @@
 // bar stays `\|`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LinkIndex, extract } from '@vihko/core'
-import { applyReplacements, planLinks, planRelinks } from '@vihko/server'
+import { LinkIndex, extract, markdownDest } from '@vihko/core'
+import { applyReplacements, planImageRelinks, planLinks, planRelinks } from '@vihko/server'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -103,6 +103,32 @@ test('renaming a note: links in its space follow it, by name or path; a link fro
   assert.deepEqual(leads(ix.after, s.inMine, out), [to, to, to])
   const elsewhere = `[[${oldRoot}|${s.name}]]\n`
   assert.equal(relinked(elsewhere, s.inShared, s.inShared, ix), elsewhere)
+})
+
+test('links from the root of the space (`/…`): moving the note that has them changes nothing; renaming their note rewrites them from the root still', () => {
+  const s = scene()
+  const image = `${m.aFolder()}/${m.aWord()}.png`
+  const md = `[${m.aWord()}](/${encodeURI(s.plan)}.md)`
+  const text = `[[/${s.plan}]] ${md} ![](/${encodeURI(image)}) ![[/${image}]]\n`
+  // The note goes deeper in its space: `/` is still the root of that space.
+  const deeper = `${s.mine}/${m.aFolder()}/${m.aFolder()}/${s.name}.md`
+  const moved = indexes(s.notes, s.note, deeper, s.heading)
+  assert.equal(relinked(text, s.note, deeper, moved), text)
+  assert.deepEqual(leads(moved.after, deeper, text), [s.planPath, s.planPath])
+  assert.deepEqual(planImageRelinks(text, s.note, deeper, (p) => p), [])
+  // The note they lead to is renamed into a folder: the Markdown link keeps its `/` form.
+  const folder = m.aFolder()
+  const newName = m.aTitle()
+  const to = `${s.mine}/${folder}/${newName}.md`
+  const renamed = indexes(s.notes, s.planPath, to, s.heading)
+  const out = relinked(text, s.note, s.note, renamed)
+  assert.deepEqual(extract(out).links.map((l) => l.target), [newName, `/${folder}/${newName}.md`])
+  assert.deepEqual(leads(renamed.after, s.note, out), [to, to])
+  // An image moved inside the space: rewritten from the root of the space too, both forms.
+  const placed = `${s.mine}/${m.aFolder()}/${image.split('/').pop()}`
+  const reps = planImageRelinks(text, s.note, s.note, (p) => (p === `${s.mine}/${image}` ? placed : p))
+  const inner = placed.slice(s.mine.length)
+  assert.deepEqual(reps.map((r) => r.text), [markdownDest(inner), inner])
 })
 
 test('in a table, a link rewritten inside its space keeps its visible text after `\\|`, which vihko and Obsidian read as the bar', () => {

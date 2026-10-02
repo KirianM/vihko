@@ -10,7 +10,8 @@
 //   GET    /api/account/sessions               own sessions, `current` marked
 //   DELETE /api/account/sessions               ends every other session of one's own
 //   DELETE /api/account/sessions/:id           ends one
-//   POST   /api/auth/password                  { current, password }: other sessions end
+//   POST   /api/auth/password                  { current, password, revokeOthers? } → { ok, sessionsEnded, keysRevoked }:
+//                                               with revokeOthers (true by default), other sessions end and keys and apps are revoked
 //   DELETE /api/account/notices/:id            one of one's own notices (notices.ts), dismissed
 // The vihko admin:
 //   GET    /api/admin/users                    everyone (state, role, groups, pending link, sessions)
@@ -19,6 +20,7 @@
 //   POST   /api/admin/users/:id/link           a new link (an invitation, or a reset if they have a password) → { link };
 //                                               a reset, with `confirm`
 //   PUT    /api/admin/users/:id/role           { role, confirm }
+//   PUT    /api/admin/users/:id/username       { username } → { user }: only while their invitation is unused
 //   POST   /api/admin/users/:id/disable | enable
 //   DELETE /api/admin/users/:id                only someone disabled (or, deleting them, their space settled at once: http/spaces.ts)
 //   DELETE /api/admin/users/:id/sessions       ends all their sessions
@@ -52,6 +54,8 @@ import type { AttemptResult, LoginLimiter } from '../loginLimit.ts'
 import { UsersError, type NewLink, type Users } from '../users.ts'
 import type { Notices } from '../notices.ts'
 import { POLICIES, type TwoFactorPolicy } from '../twoFactor.ts'
+import type { ApiKeys } from '../keys.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -80,6 +84,10 @@ export interface UserRoutesDeps {
   retention?: Retention
   /** Whether the history is vihko's own (managed): only that one is thinned. */
   managedHistory?: () => boolean
+  /** The server's log: what the admins do to accounts stays on record there too. */
+  log?: (msg: string) => void
+  /** Agent keys and authorized apps: a new password revokes them (with `revokeOthers`). */
+  keys?: ApiKeys
 }
 
 const fail = (c: Context, status: 400 | 403 | 404, error: string, message: string) => c.json({ error, message }, status)
@@ -105,7 +113,7 @@ export function inviteRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   })
 
   app.post('/api/invite/:token', async (c) => {
-    const { password } = await c.req.json<{ password?: unknown }>()
+    const { password } = await jsonBody<{ password?: unknown }>(c)
     const a = attempt(c)
     if (!a.ok) return deps.tooMany(c, a.retryAfter)
     const token = c.req.param('token')
@@ -120,12 +128,13 @@ export function inviteRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 /** The routes with a session (after the session middleware). */
 export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   const { auth, users, settings, notices } = deps
+  const log = deps.log ?? (() => {})
   const admin = async (c: Context<Env>, next: () => Promise<void>) => {
     if (c.get('access').isAgent || c.get('user').role !== 'admin') return fail(c, 403, 'forbidden', 'admins only')
     await next()
   }
   const body = async (c: Context<Env>, optional = false) => {
-    const b = optional ? await c.req.json<unknown>().catch(() => ({})) : await c.req.json<unknown>()
+    const b = optional ? await jsonBody<unknown>(c).catch(() => ({})) : await jsonBody<unknown>(c)
     if (typeof b !== 'object' || b === null || Array.isArray(b)) throw new UsersError('invalid', 'expected an object')
     return b as Record<string, unknown>
   }
@@ -163,7 +172,10 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   })
 
   // A new password: the current one is asked for (a session left open is not
-  // enough), and every other session ends. Wrong guesses count as failed logins.
+  // enough). With `revokeOthers` (the default), every other session ends and
+  // every key and authorized app of theirs is revoked: a new password after a
+  // stolen one shuts out whatever was got in with it. Wrong guesses count as
+  // failed logins.
   app.post('/api/auth/password', async (c) => {
     const b = await body(c)
     const user = c.get('user')
@@ -175,11 +187,21 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     }
     a.passed()
     if (typeof b.password !== 'string') throw new AuthError('weak_password', 'password must be text')
+    if (b.revokeOthers !== undefined && typeof b.revokeOthers !== 'boolean') throw new UsersError('invalid', 'revokeOthers must be true or false')
     await auth.setPassword(user.id, b.password)
-    const keep = current(c)
-    auth.endSessions(user.id, keep)
+    let sessions = 0
+    let keys = 0
+    if (b.revokeOthers !== false) {
+      sessions = auth.endSessions(user.id, current(c))
+      for (const k of deps.keys?.list(user.id) ?? []) {
+        if (k.status !== 'active') continue
+        deps.keys!.revoke(k.id)
+        keys++
+      }
+    }
+    // A confirmation of before doesn't outlive the old password, whatever else stays.
     users.hooks.onSessionsEnded?.(user.id)
-    return c.json({ ok: true })
+    return c.json({ ok: true, sessionsEnded: sessions, keysRevoked: keys })
   })
 
   app.delete('/api/account/notices/:id', (c) => {
@@ -198,29 +220,50 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   app.post('/api/admin/users', admin, async (c) => {
     const b = await body(c)
     if (b.password !== undefined) throw new UsersError('invalid', 'a new user chooses their password with their link (the CLI sets one: vihko user create)')
+    // `adopt`: their folder in people/, made outside vihko with something in it (a state.db lost), becomes theirs. Never by default.
+    if (b.adopt !== undefined && typeof b.adopt !== 'boolean') throw new UsersError('invalid', 'adopt must be true or false')
+    const adopt = b.adopt === true
     if (b.role === 'admin') {
-      auth.newUsername(String(b.username ?? ''))
+      auth.newUsername(String(b.username ?? ''), { adopt })
       const refused = await deps.confirm(c, b.confirm)
       if (refused) return refused
     }
-    const r = await users.create(String(b.username ?? ''), b.role ?? 'member')
+    const r = await users.create(String(b.username ?? ''), b.role ?? 'member', { adopt })
+    if (adopt) log(`${c.get('user').username} created ${r.user.username}, adopting the folder already at people/${r.user.username}`)
     // The other admins are told, as when someone is made admin.
     if (r.user.role === 'admin') notices.toOtherAdmins(r.user.id, c.get('user').id, 'role_changed', 'admin')
     return c.json({ user: r.user, link: link(r.link) }, 201)
   })
 
-  // An invitation (they never chose a password) needs nothing more; a reset
-  // lets whoever holds the link into their account: confirmed, and told.
+  // A member's invitation (they never chose a password) needs nothing more; a
+  // reset lets whoever holds the link into their account, and an admin's
+  // invitation makes an admin with a password of their own: both confirmed,
+  // and told (the other admins, for an invitation; the person too, for a reset).
   app.post('/api/admin/users/:id/link', admin, async (c) => {
     const id = param(c, 'id')
     const kind = users.nextLinkKind(id)
-    if (kind === 'reset') {
+    const invitedAdmin = kind !== 'reset' && users.get(id)?.role === 'admin'
+    if (kind === 'reset' || invitedAdmin) {
       const refused = await deps.confirm(c, (await body(c, true)).confirm)
       if (refused) return refused
     }
     const l = link(users.newLink(id))
-    if (kind === 'reset') notices.accountChanged(id, c.get('user').id, 'reset_link')
+    if (kind === 'reset') {
+      // The person and every other admin are told at once (their open pages hear of it), and it's on record.
+      notices.accountChanged(id, c.get('user').id, 'reset_link')
+      log(`${c.get('user').username} made a password reset link for ${users.get(id)?.username ?? id}`)
+    } else if (invitedAdmin) notices.toOtherAdmins(id, c.get('user').id, 'invite_link', 'admin')
     return c.json({ link: l, user: users.get(id) })
+  })
+
+  // A new name for someone who hasn't used their invitation yet (409 not_invited otherwise).
+  app.put('/api/admin/users/:id/username', admin, async (c) => {
+    const b = await body(c)
+    if (typeof b.username !== 'string') throw new UsersError('invalid', 'username must be text')
+    const before = users.get(param(c, 'id'))
+    const user = await users.rename(param(c, 'id'), b.username, c.get('access').actor)
+    if (before && before.username !== user.username) log(`${c.get('user').username} renamed the invited ${before.username} to ${user.username}`)
+    return c.json({ user })
   })
 
   app.put('/api/admin/users/:id/role', admin, async (c) => {
@@ -237,7 +280,18 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     return c.json({ user })
   })
 
-  app.post('/api/admin/users/:id/disable', admin, (c) => c.json({ user: users.disable(param(c, 'id')) }))
+  // Disabling and deleting someone are confirmed at the moment, as the other
+  // changes to someone's account are, and the other admins are told.
+  app.post('/api/admin/users/:id/disable', admin, async (c) => {
+    const id = param(c, 'id')
+    // What would refuse it, first: a code isn't spent on it.
+    users.checkDisable(id)
+    const refused = await deps.confirm(c, (await body(c, true)).confirm)
+    if (refused) return refused
+    const user = users.disable(id)
+    notices.toOtherAdmins(id, c.get('user').id, 'disabled')
+    return c.json({ user })
+  })
 
   // Bringing a disabled admin back is as good as making one: confirmed at the
   // moment, so a session left open can't revive an admin account.
@@ -254,7 +308,12 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   })
 
   app.delete('/api/admin/users/:id', admin, async (c) => {
-    await users.remove(param(c, 'id'), c.get('access').actor)
+    const id = param(c, 'id')
+    users.checkRemove(id)
+    const refused = await deps.confirm(c, (await body(c, true)).confirm)
+    if (refused) return refused
+    await users.remove(id, c.get('access').actor)
+    notices.toOtherAdmins(id, c.get('user').id, 'deleted')
     return c.json({ ok: true })
   })
 
@@ -335,5 +394,5 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
 /** HTTP status for each users error code. */
 export function usersErrorStatus(e: UsersError) {
-  return ({ not_found: 404, last_admin: 409, not_disabled: 409, user_disabled: 409, invalid_link: 404, group_exists: 409, invalid_group_name: 400, invalid: 400 } as const)[e.code]
+  return ({ not_found: 404, not_invited: 409, last_admin: 409, not_disabled: 409, user_disabled: 409, invalid_link: 404, group_exists: 409, invalid_group_name: 400, invalid: 400 } as const)[e.code]
 }

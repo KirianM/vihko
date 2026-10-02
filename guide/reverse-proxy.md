@@ -32,7 +32,7 @@ that network is an alternative to a public address.
 - **Pass WebSocket upgrades.** The live editor connects to `/collab` with a
   WebSocket and keeps it open. Without it, the editor stays offline: notes
   don't save and don't show other people's changes.
-- **Don't buffer `/api/events`.** The sidebar keeps a server-sent event
+- **Don't buffer `/api/live`.** The sidebar keeps a server-sent event
   stream open there to update the tree live. vihko answers it with
   `X-Accel-Buffering: no`, which nginx follows; a proxy that buffers it
   anyway only delays the tree's updates until a reload.
@@ -143,7 +143,17 @@ Then `docker compose up -d`.
   Trust only addresses nobody else can connect from: whoever reaches vihko
   from a trusted address can write any client address in `X-Forwarded-For`.
   A range is safe in the first two rows because only the proxy can connect
-  from it: the port is bound to `127.0.0.1`, or not published at all.
+  from it: the port is bound to `127.0.0.1`, or not published at all. It
+  isn't in two cases, where the proxy's address alone (or a fixed address you
+  give its container) is the value:
+
+  - **The port is published on every address** (`8080:8080`, the line
+    `compose.yaml` has uncommented, rather than `127.0.0.1:8080:8080`) with
+    the proxy on the same host: a device on your network that connects to
+    the port directly can arrive from Docker's gateway too.
+  - **vihko's Docker network is shared with other containers** (an
+    `external` network several compose files join, say): each of them
+    connects from `172.16.0.0/12` as well.
 
   **A proxy on another machine is one address, never a range.** The number
   after a `/` is how many leading bits of the address count, and the rest is

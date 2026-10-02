@@ -9,7 +9,8 @@ interface ImageRow { ord: number; kind: ImageLink['kind']; raw: string; path: st
 
 export const images: Extension<ImageRow[]> = {
   name: 'images',
-  version: 1,
+  // 2: a leading `/` is the root of the note's space, not of the notes folder.
+  version: 2,
   tables: {
     images: `create table images (
       src_path  text not null,

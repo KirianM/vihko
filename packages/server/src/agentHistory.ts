@@ -45,23 +45,34 @@ class PrincipalHistory implements HistoryReader {
     return this.access.canHistory(path) && (classifyPath(path) === 'note' || this.access.canRead(path))
   }
 
+  /**
+   * Whether a version (or its text) is for it: judged where the reader says
+   * (`judgedPath`), at its own path otherwise; and made since its person
+   * could read there (access.ts `sawAt`: sharing doesn't share the past).
+   */
+  private reachesVersion(v: { path: string; judgedPath?: string; at: string }): boolean {
+    const judged = v.judgedPath ?? v.path
+    return this.reaches(judged) && this.access.sawAt(folderOf(judged), v.at)
+  }
+
   async versions(path: string, page: { cursor?: string | null; limit: number }) {
     const r = await this.inner.versions(path, page)
     const versions: RawVersion[] = []
     for (const v of r.versions) {
-      if (!this.reaches(v.path)) continue
+      if (!this.reachesVersion(v)) continue
       // A person's history is judged by paths alone; an agent's, by each version's text too.
-      if (!this.access.isAgent) { versions.push({ ...this.masked(v, null, null), reason: maskedReason(v.reason, this.access) }); continue }
+      if (!this.access.isAgent) { versions.push(unjudged({ ...this.masked(v, null, null), reason: maskedReason(v.reason, this.access) })); continue }
       const t = await this.inner.version(path, v.id)
       const shown = this.shown(t)
       if (!shown) continue
-      versions.push({ ...this.masked(v, t, shown), reason: maskedReason(v.reason, this.access) })
+      versions.push(unjudged({ ...this.masked(v, t, shown), reason: maskedReason(v.reason, this.access) }))
     }
     return { versions, next: r.next }
   }
 
   async version(path: string, id: string): Promise<VersionText | null> {
-    return this.shown(await this.inner.version(path, id))
+    const t = this.shown(await this.inner.version(path, id))
+    return t && unjudged(t)
   }
 
   async file(id: string, path: string): Promise<Uint8Array | null> {
@@ -73,8 +84,8 @@ class PrincipalHistory implements HistoryReader {
     return bytes
   }
 
-  async changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string) => boolean }) {
-    const r = await this.inner.changes({ ...page, canRead: (p) => page.canRead(p) && this.reaches(p) })
+  async changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string, at: string) => boolean }) {
+    const r = await this.inner.changes({ ...page, canRead: (p, at) => page.canRead(p, at) && this.reaches(p) && this.access.sawAt(folderOf(p), at) })
     const changes: RawChange[] = []
     for (const c of r.changes) {
       const files: RawChange['files'] = []
@@ -104,7 +115,7 @@ class PrincipalHistory implements HistoryReader {
 
   /** The version as the principal may see it, or null if it may not. */
   private shown(t: VersionText | null): VersionText | null {
-    if (!t || !this.reaches(t.path)) return null
+    if (!t || !this.reachesVersion(t)) return null
     if (t.text === null) return t.before === null || this.access.hides(t.before) ? null : t
     if (this.access.hides(t.text)) return null
     return t.before !== null && this.access.hides(t.before) ? { ...t, before: null } : t
@@ -115,17 +126,23 @@ class PrincipalHistory implements HistoryReader {
    * (an agent's), it becomes the note's creation; where it came from is only
    * said if that's within reach.
    */
-  private masked<T extends { change: RawVersion['change']; from?: string; added: number; removed: number }>(v: T, t: VersionText | null, shown: VersionText | null): T {
+  private masked<T extends { change: RawVersion['change']; from?: string; fromJudgedPath?: string; added: number; removed: number }>(v: T, t: VersionText | null, shown: VersionText | null): T {
     if (t && shown && t.before !== null && shown.before === null) {
       const { from: _from, ...rest } = v
       return { ...rest, change: 'created', ...wordStats('', t.text ?? '') } as T
     }
-    if (v.from !== undefined && !this.reaches(v.from)) {
+    if (v.from !== undefined && !this.reaches(v.fromJudgedPath ?? v.from)) {
       const { from: _from, ...rest } = v
       return rest as T
     }
     return v
   }
+}
+
+/** A version without where it was judged: that is the reader's and this filter's, never a client's. */
+function unjudged<T extends { judgedPath?: string; fromJudgedPath?: string }>(v: T): Omit<T, 'judgedPath' | 'fromJudgedPath'> {
+  const { judgedPath: _j, fromJudgedPath: _f, ...rest } = v
+  return rest
 }
 
 /**

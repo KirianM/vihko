@@ -467,8 +467,10 @@ export class Recorder {
     if (this.ready) return true
     try {
       // `git init` writes HEAD before it creates `objects/`: one cut short in between is finished by running it again.
+      // The format is set, not git's default: version ids are 40 hex digits here, whatever a later git
+      // (3.0 moves to SHA-256) would pick. An existing repository keeps its own.
       if (!['HEAD', 'objects', 'refs'].every((f) => existsSync(join(this.git.gitDir, f)))) {
-        await this.git.run(['init', '--bare', '-q', '--initial-branch=main', this.git.gitDir], { bare: true })
+        await this.git.run(['init', '--bare', '-q', '--initial-branch=main', '--object-format=sha1', this.git.gitDir], { bare: true })
       }
       await this.reload()
       if (this.inflight) {
@@ -1909,6 +1911,7 @@ function subjectOf(q: QCommit, ops: FastOp[], created: Set<string>): string {
     case 'history_resumed': return 'Resume history'
     case 'recovered': return `Recover ${target}`
     case 'space_renamed': return `Rename shared space ${s('from')} to ${s('to')}`
+    case 'templates_marked': return one && one.op !== 'R' && one.path === s('file') ? `Remove the templates folders from ${s('file')}` : `Mark ${target} as a template (templates folder ${s('folder')})`
   }
   const who = q.authors[0] === 'external' ? 'External change: ' : ''
   if (!one) return `${who}change ${ops.length} files`.replace(/^./, (c) => c.toUpperCase())

@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseSearchQuery } from '@vihko/core'
+import { SEARCH_LIMITS, parseSearchQuery } from '@vihko/core'
+import { HIGHLIGHT_END, HIGHLIGHT_START, snippetOf } from '@vihko/server'
 import { setup } from './_app.ts'
 import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -108,4 +109,50 @@ test('the tree lists folders, the empty ones too; folders are created, moved and
   assert.equal((await admin('DELETE', folder(infra))).body.error, 'not_empty')
   assert.equal((await admin('DELETE', folder(empty))).status, 200)
   assert.ok(!(await admin('GET', '/api/tree')).body.folders.includes(empty))
+})
+
+test('a note with thousands of matches is searched, with its snippet, in time in proportion to it', async () => {
+  const { notesDir, admin } = await setup()
+  // A word of the mother's that the vault doesn't have, as the tokenizer splits it.
+  const word = `${m.aWord().normalize('NFD').replace(/[^a-z]/gi, '').toLowerCase()}zq`
+  const path = m.aNotePath(inShared(''))
+  // 200 KB of one word: FTS5's snippet() scored every window against every match.
+  writeFileSync(join(notesDir, path), `# ${m.aSentence()}\n\n${`${word} `.repeat(Math.ceil(200_000 / (word.length + 1)))}\n`)
+  await admin('POST', '/api/admin/rescan', {})
+  const start = performance.now()
+  const r = await admin('GET', `/api/search?q=${encodeURIComponent(word)}`)
+  const ms = performance.now() - start
+  assert.equal(r.status, 200)
+  assert.ok(ms < 1500, `${Math.round(ms)} ms`)
+  const hit = r.body.results.find((x: { path: string }) => x.path === path)
+  assert.ok(hit, 'the note is found')
+  const { start: hs, end: he } = r.body.highlight
+  assert.ok(hit.snippet.includes(`${hs}${word}${he}`), hit.snippet)
+  assert.ok(hit.snippet.endsWith('…'))
+})
+
+test('a snippet: the window with the most words of the query, each highlighted, and … where text is left out', () => {
+  const S = HIGHLIGHT_START
+  const E = HIGHLIGHT_END
+  // The literals are the case: words, diacritics, a prefix, the window.
+  assert.equal(snippetOf('one two three four five six seven eight nine ten eleven twelve thirteen fourteen', 'nine'), `…three four five six seven eight ${S}nine${E} ten eleven twelve thirteen fourteen`)
+  assert.equal(snippetOf('one two three four five six seven eight nine ten eleven twelve thirteen fourteen', 'three'), `…${S}three${E} four five six seven eight nine ten eleven twelve thirteen fourteen`)
+  assert.equal(snippetOf('one two three four five six seven eight nine ten eleven twelve thirteen fourteen', 'two'), `…${S}two${E} three four five six seven eight nine ten eleven twelve thirteen…`)
+  assert.equal(snippetOf('Un café en la Cafetería, y otro café.', 'cafe'), `Un ${S}café${E} en la ${S}Cafetería${E}, y otro ${S}café${E}.`)
+  assert.equal(snippetOf('alpha beta gamma. ' + 'x '.repeat(30) + 'beta gamma delta', 'gamma delta'), `…x x x x x x x x x beta ${S}gamma${E} ${S}delta${E}`)
+  assert.equal(snippetOf('no match here at all', 'zzz'), 'no match here at all')
+  assert.equal(snippetOf('', 'a'), '')
+})
+
+test('a search over its limits is refused, for every caller alike', async () => {
+  const { admin } = await setup()
+  const q = (s: string) => admin('GET', `/api/search?q=${encodeURIComponent(s)}`)
+  const filters = (n: number) => Array.from({ length: n }, () => `tag:${m.aTag()}`).join(' ')
+  assert.equal((await q(filters(SEARCH_LIMITS.filters))).status, 200)
+  const words = Array.from({ length: SEARCH_LIMITS.words + 1 }, (_, i) => `w${i}`).join(' ')
+  for (const over of [filters(SEARCH_LIMITS.filters + 1), words, 'a'.repeat(SEARCH_LIMITS.characters + 1)]) {
+    const r = await q(over)
+    assert.equal(r.status, 400)
+    assert.equal(r.body.error, 'query_too_complex')
+  }
 })

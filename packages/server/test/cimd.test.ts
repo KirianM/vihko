@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:https'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import { CIMD_MAX_BYTES, CIMD_MAX_TTL_MS, CIMD_DEFAULT_TTL_MS, CimdError, ClientMetadataFetcher, cacheTtlMs, checkClientIdUrl, isPublicAddress, type Resolver } from '@vihko/server'
+import { CIMD_MAX_BYTES, CIMD_MAX_TTL_MS, CIMD_DEFAULT_TTL_MS, CimdError, ClientMetadataFetcher, cacheTtlMs, checkClientIdUrl, isPublicAddress, nameFitsDomain, type Resolver } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -263,7 +263,7 @@ test('OAuth with a client named by its metadata document: advertised, fetched on
     // The consent page asks, with the session: fetched now; the domain is the document's host.
     const asked = await h.admin('GET', `/api/oauth/authorize?${q}`)
     assert.equal(asked.status, 200, asked.text)
-    assert.deepEqual(asked.body.client, { id: clientId, name: CLIENT, redirectUri: CALLBACK, host: HOST })
+    assert.deepEqual(asked.body.client, { id: clientId, name: CLIENT, redirectUri: CALLBACK, host: HOST, domain: HOST, nameMatchesDomain: nameFitsDomain(CLIENT, HOST) })
     assert.equal(site.hits['/client.json'], 1)
     // A client that registered itself (once the admin lets them) has no host to show.
     assert.equal((await h.admin('PUT', '/api/admin/integrations', { oauthRegistration: true })).status, 200)
@@ -351,7 +351,7 @@ test('a document like claude.ai\'s: other grants it lists are ignored; its token
     const query = (id: string) => new URLSearchParams({ response_type: 'code', client_id: id, redirect_uri: CLAUDE_CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state: m.aSecret(12), resource: RESOURCE }).toString()
     const asked = await h.admin('GET', `/api/oauth/authorize?${query(clientId)}`)
     assert.equal(asked.status, 200, asked.text)
-    assert.deepEqual(asked.body.client, { id: clientId, name: 'Claude', redirectUri: CLAUDE_CALLBACK, host: HOST })
+    assert.deepEqual(asked.body.client, { id: clientId, name: 'Claude', redirectUri: CLAUDE_CALLBACK, host: HOST, domain: HOST, nameMatchesDomain: false })
     // A document without the code flow among its grants is still refused.
     const noCode = await h.admin('GET', `/api/oauth/authorize?${query(`${site.base}/no-code.json`)}`)
     assert.deepEqual([noCode.status, noCode.body.reason], [400, 'invalid_client_metadata'])

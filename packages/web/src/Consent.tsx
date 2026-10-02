@@ -12,7 +12,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from 'react-aria-components'
 import { ApiError, api, type OAuthRequest, type User } from './api.ts'
 import { FolderPicker, allFolders } from './Agents.tsx'
-import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { Brand, Icon, ThemeToggle } from './ui.tsx'
 import './actions.css'
@@ -26,6 +26,7 @@ const PROBLEMS: Record<string, MessageKey> = {
   invalid_client: 'consent.invalidClient',
   invalid_redirect_uri: 'consent.invalidRedirect',
   invalid_client_metadata: 'consent.clientMetadata',
+  client_not_allowed: 'consent.notAllowed',
   not_found: 'consent.unavailable',
   invalid: 'consent.invalidRequest',
 }
@@ -72,7 +73,8 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
     api.oauthRequest(query()).then((r) => { if (live) setReq(r) }, (err: unknown) => {
       if (!live) return
       const code = err instanceof ApiError ? err.code : 'internal'
-      setProblem(code in PROBLEMS ? t(PROBLEMS[code]!, { host: clientIdHost() }) : errorText(t, err))
+      const host = err instanceof ApiError && typeof err.data?.host === 'string' ? err.data.host : clientIdHost()
+      setProblem(code in PROBLEMS ? t(PROBLEMS[code]!, { host }) : errorText(t, err))
     })
     api.tree().then((r) => { if (live) setAll(allFolders(r.notes, r.folders)) }, () => { if (live) setAll([]) })
     return () => { live = false }
@@ -112,11 +114,12 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
       <p>{t('consent.intro', { user: user.username })}</p>
       <dl className="consent-who">
         <div><dt>{t('consent.client')}</dt><dd>{req.client.name}</dd></div>
-        {req.client.host
-          ? <div><dt>{t('consent.domain')}</dt><dd><b className="mono">{req.client.host}</b><span className="hint">{t('consent.domainHint')}</span></dd></div>
-          : <div><dt>{t('consent.domain')}</dt><dd><span className="hint">{t('consent.selfRegistered')}</span></dd></div>}
+        <div><dt>{t('consent.domain')}</dt><dd><b className="mono consent-domain">{req.client.domain}</b><span className="hint">{t(req.client.host ? 'consent.domainHint' : 'consent.selfRegistered')}</span></dd></div>
         <div><dt>{t('consent.returnsTo')}</dt><dd className="mono">{req.client.redirectUri}</dd></div>
       </dl>
+      {!req.client.nameMatchesDomain && (
+        <p className="key-locked" role="alert">{Icon.alert}<span>{t('consent.nameMismatch', { client: req.client.name, domain: req.client.domain })}</span></p>
+      )}
       {toLoopback(req.client.redirectUri) && <p className="hint" role="note">{t('consent.loopback')}</p>}
       {!req.canAuthorize ? (
         <>
@@ -154,7 +157,7 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
           {noneChosen && <p className="hint">{t('keys.foldersNeeded')}</p>}
           <div className="consent-actions">
             <Button className="btn btn-xl" onPress={() => void decide(false)} isDisabled={busy}>{t('consent.deny')}</Button>
-            <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy || noneChosen || !confirm.trim()}>{t('consent.approve')}</Button>
+            <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy || noneChosen || !confirmReady(confirmWith, confirm)}>{t('consent.approve')}</Button>
           </div>
         </form>
       )}

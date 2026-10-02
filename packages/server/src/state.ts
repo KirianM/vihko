@@ -177,6 +177,30 @@ const MIGRATIONS: string[] = [
   `alter table profiles add column on_open text;
    alter table profiles add column on_open_note text;
    update profiles set on_open = 'daily' where open_daily = 1;`,
+  // What each person may see of the past (grantStarts.ts): when each grant
+  // of vihko.yaml began, by folder and subject (null: from the start), and
+  // since when someone is in a group (null: from before this was kept). And
+  // the shared spaces deleted to the trash (spaceService.ts), so that they
+  // can be restored whole: their root, their rules and empty folders, the
+  // trash entries that hold their notes and files, who managed them, who
+  // deleted them and when. Never anything of a note's content.
+  `create table grant_starts (
+     folder  text not null,
+     subject text not null,
+     since   text,
+     primary key (folder, subject)
+   );
+   alter table group_members add column added_at text;
+   create table deleted_spaces (
+     id         text primary key,
+     root       text not null,
+     rules      text not null,
+     folders    text not null,
+     entries    text not null,
+     managers   text not null,
+     by_user    text not null,
+     deleted_at text not null
+   );`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length
@@ -238,7 +262,22 @@ export function openState(file: string, opts: OpenStateOptions = {}): Db {
     })()
     if (upgrade) opts.log?.(`state.db migrated from version ${current} to ${MIGRATIONS.length}; the previous one is in ${join(dirname(file), backup)}`)
   }
+  // External images when VIHKO_EXTERNAL_IMAGES isn't set, decided once: a new
+  // installation asks before showing them (`ask`); one from before that
+  // default keeps showing them (`allow`), as it did.
+  if (!db.prepare('select 1 from settings where key = ?').get(EXTERNAL_IMAGES_KEY)) {
+    db.prepare('insert into settings (key, value) values (?, ?)').run(EXTERNAL_IMAGES_KEY, existed && current > 0 ? 'allow' : 'ask')
+  }
   return db
+}
+
+/** Where state.db keeps the installation's default for external images (see openState). */
+const EXTERNAL_IMAGES_KEY = 'install.externalImages'
+
+/** The installation's default for external images, when VIHKO_EXTERNAL_IMAGES doesn't say: `ask` for a new one, `allow` for one from before. */
+export function externalImagesDefault(db: Db): 'allow' | 'ask' | 'block' {
+  const v = (db.prepare('select value from settings where key = ?').get(EXTERNAL_IMAGES_KEY) as { value: string } | undefined)?.value
+  return v === 'allow' || v === 'block' ? v : 'ask'
 }
 
 /** The migrations of this state.db the admins haven't dismissed, oldest first. */

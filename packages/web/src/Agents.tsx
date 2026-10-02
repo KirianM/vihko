@@ -20,7 +20,7 @@ import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { AccessDialog } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
-import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import { BackButton, Diamond, Icon, MenuButton, ThemeToggle } from './ui.tsx'
 import { usePathLabels } from './spaces.tsx'
 import { typedSegments } from './typedPath.ts'
@@ -147,7 +147,7 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
   const asks = !edit || keyWidens(edit, input())
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (busy || !name.trim() || noneChosen || (asks && !confirm.trim())) return
+    if (busy || !name.trim() || noneChosen || (asks && !confirmReady(confirmWith, confirm))) return
     setBusy(true)
     setError(null)
     try {
@@ -206,7 +206,7 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
         <div className="dialog-actions">
           {noneChosen && <span className="hint key-need">{t('keys.foldersNeeded')}</span>}
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || noneChosen || (asks && !confirm.trim())}>{t(edit ? 'keys.save' : 'keys.create')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || noneChosen || (asks && !confirmReady(confirmWith, confirm))}>{t(edit ? 'keys.save' : 'keys.create')}</Button>
         </div>
       </form>
     </Dialog>
@@ -361,7 +361,7 @@ function RotateDialog({ keyInfo, onClose, onRotated }: { keyInfo: KeyInfo; onClo
   const [confirm, setConfirm] = useState('')
   const rotate = async (e: FormEvent) => {
     e.preventDefault()
-    if (busy || !confirm.trim()) return
+    if (busy || !confirmReady(confirmWith, confirm)) return
     setBusy(true)
     setError(null)
     try {
@@ -384,7 +384,7 @@ function RotateDialog({ keyInfo, onClose, onRotated }: { keyInfo: KeyInfo; onClo
         </div>
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={busy || !confirm.trim()}>{t('keys.rotateConfirm')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !confirmReady(confirmWith, confirm)}>{t('keys.rotateConfirm')}</Button>
         </div>
       </form>
     </Dialog>
@@ -406,7 +406,7 @@ function KeyCard({ k, owner, actions }: { k: KeyInfo; owner?: string; actions: R
         <h3 className="key-name">{k.name}</h3>
         {owner && <span className="key-owner">{t('keys.of', { user: owner })}</span>}
         {k.client && <span className="key-badge" title={t('keys.oauthBadgeHint')}>{t('keys.oauthBadge')}</span>}
-        <span className={`key-status key-status-${k.status}`}>{t(k.status === 'active' ? 'keys.active' : k.status === 'expired' ? 'keys.statusExpired' : 'keys.revoked')}</span>
+        <span className={`key-status key-status-${k.status}`}>{t(k.status === 'active' ? 'keys.active' : k.status === 'expired' ? 'keys.statusExpired' : k.status === 'suspended' ? 'keys.statusSuspended' : 'keys.revoked')}</span>
       </div>
       <dl className="key-meta">
         {row('keys.permissions', t(k.canWrite ? 'keys.readWrite' : 'keys.readOnly'))}
@@ -446,6 +446,24 @@ type Open =
   | { kind: 'revoke'; key: KeyInfo; owner: string | null }
   | { kind: 'rotate'; key: KeyInfo }
   | { kind: 'access'; key: KeyInfo }
+  | { kind: 'membersOff' }
+
+/** Turning off «Members can create keys»: their keys and apps are suspended (never deleted), and how many. */
+function MembersOffDialog({ n, onClose, onConfirm }: { n: number; onClose: () => void; onConfirm: () => void }) {
+  const t = useT()
+  return (
+    <Dialog className="dialog dialog-narrow" role="alertdialog">
+      <div className="dialog-fields">
+        <Heading slot="title" className="dialog-title">{t('agents.membersOffTitle')}</Heading>
+        <p className="dialog-text">{n > 1 ? t('agents.membersOffBody', { n }) : n === 1 ? t('agents.membersOffBodyOne') : t('agents.membersOffBodyNone')}</p>
+      </div>
+      <div className="dialog-actions">
+        <Button className="btn" onPress={onClose} autoFocus>{t('common.cancel')}</Button>
+        <Button className={n > 0 ? 'btn btn-danger' : 'btn btn-primary'} onPress={onConfirm}>{t('agents.membersOffConfirm')}</Button>
+      </div>
+    </Dialog>
+  )
+}
 
 export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; onUnauthorized: () => void; onPrivacy: () => void }) {
   const t = useT()
@@ -531,7 +549,9 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
                 {integ.publicUrl && (
                   <Toggle label={t('agents.oauthRegistration')} hint={t('agents.oauthRegistrationHint')} value={integ.oauthRegistration} disabled={saving} onChange={(v) => void change({ oauthRegistration: v })} />
                 )}
-                <Toggle label={t('agents.members')} hint={t('agents.membersHint')} value={integ.membersCanCreateKeys} disabled={saving} onChange={(v) => void change({ membersCanCreateKeys: v })} />
+                {/* Off suspends the keys and apps members have: said, with how many, first. */}
+                <Toggle label={t('agents.members')} hint={t('agents.membersHint')} value={integ.membersCanCreateKeys} disabled={saving}
+                  onChange={(v) => (v ? void change({ membersCanCreateKeys: true }) : void api.integrations().then(setInteg, () => {}).then(() => setOpen({ kind: 'membersOff' })))} />
               </div>
             ) : (
               <p className="settings-state">
@@ -596,6 +616,9 @@ export function AgentsPage({ user, onUnauthorized, onPrivacy }: { user: User; on
           {open?.kind === 'token' && <TokenDialog keyInfo={open.key} token={open.token} integrations={integ} onClose={close} />}
           {open?.kind === 'revoke' && <RevokeDialog keyInfo={open.key} owner={open.owner} onClose={close} onRevoked={done} />}
           {open?.kind === 'access' && <AccessDialog who={{ key: open.key.id }} title={t('perm.keyAccessTitle', { name: open.key.name })} onClose={close} onUnauthorized={onUnauthorized} />}
+          {open?.kind === 'membersOff' && (
+            <MembersOffDialog n={integ?.memberKeys ?? 0} onClose={close} onConfirm={() => { close(); void change({ membersCanCreateKeys: false }).then(() => load()) }} />
+          )}
           {open?.kind === 'rotate' &&<RotateDialog keyInfo={open.key} onClose={close} onRotated={(key, token) => { setOpen({ kind: 'token', key, token }); void load() }} />}
         </Modal>
       </ModalOverlay>

@@ -124,6 +124,17 @@ vihko never overwrites text you haven't seen:
   (`find_replace`, `replace_section`, `set_frontmatter`) need the ETag, as
   `ifMatch` in the body or as `If-Match`. Appends don't: they apply to the text
   as it is, which is how you add to a note someone is typing in.
+- **A note someone has open**: its ETag changes on every keystroke. A write
+  with an ETag the note had in the last few minutes (vihko keeps the texts it
+  handed out for about ten minutes while the note is open) still goes in,
+  applied to the text as it is now, when nothing changed since in what it
+  replaces or right next to it; for a whole note (`PUT`), from the first
+  character it changes to the last. When something did, `412
+  precondition_failed`. The answer's `etag` is the note's new one, with the
+  others' changes in it.
+- **A note vihko can't save right now** (a full disk, a folder it may not
+  write to) refuses writes with `500 internal` until it can; the admins see
+  the `note_not_saved` alert.
 - **Moving and deleting** take `If-Match` too, optionally.
 
 Both quoted (`"sha256:…"`) and bare ETags are accepted.
@@ -278,7 +289,8 @@ To see what's around a note:
   can't. A link to a note the person can't read is `missing`, exactly like a
   link to a note that doesn't exist. A link to the note itself adds
   `self: true`. How links resolve is in [Notes and Markdown](notes.md#links):
-  by name inside the note's space, with a path from the root to another.
+  by name or by path, only inside the note's space (a leading `/` is the
+  root of that space).
 - `GET /api/note/headings?path=` gives `headings`, each with its `level` and
   `text`.
 - `GET /api/note/comments?path=` gives the note's comment `threads`, each with
@@ -502,7 +514,11 @@ it would break the link, and the image would count as unused.
 note. A key gets it only if it's in the key's folders, a note the key can read
 uses it (links to it), and no note hidden from agents does: an image you just
 uploaded is `404` to the key until a note links it. Notes themselves are read
-with `GET /api/note`.
+with `GET /api/note`. `GET /api/file?note=<note>&name=<name>` gets the file as
+that note names it (`![[photo.png]]`, `[[invoice.pdf]]`): relative to the
+note, or by name in its space; `404` alike for a note you can't read and a
+name that leads nowhere. Images and PDFs come with `Content-Disposition:
+inline`; anything else (an SVG or a web page included) as an attachment.
 
 ### History
 

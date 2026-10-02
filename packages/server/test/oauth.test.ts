@@ -7,7 +7,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
-import { OAuthServer, REGISTRATIONS_PER_HOUR, REGISTRATION_ADDRESSES, WindowLimit, publicUrlFrom, sameRedirect } from '@vihko/server'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { OAuthServer, REGISTRATIONS_PER_HOUR, REGISTRATION_ADDRESSES, WindowLimit, nameFitsDomain, publicUrlFrom, sameRedirect } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -205,11 +207,14 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     // Without a session, the page asks to sign in first (its API needs one).
     assert.equal((await raw(h, 'GET', `/api/oauth/authorize?${query}`)).status, 401)
     const asked = await h.admin('GET', `/api/oauth/authorize?${query}`)
-    assert.deepEqual(asked.body, { client: { id: client.client_id, name: CLIENT, redirectUri: REDIRECT, host: null }, canAuthorize: true })
+    assert.deepEqual(asked.body, { client: { id: client.client_id, name: CLIENT, redirectUri: REDIRECT, host: null, domain: new URL(REDIRECT).hostname, nameMatchesDomain: nameFitsDomain(CLIENT, new URL(REDIRECT).hostname) }, canAuthorize: true })
 
     // Approved as it comes: read-only, every folder.
     const ok = await consent(h, query)
     assert.equal(ok.status, 200, ok.text)
+    // Its person is told an app was authorized on their account, by its name.
+    const told = (await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'account_key_added')
+    assert.deepEqual(told.map((a: any) => [a.kind, a.name]), [['app', CLIENT]])
     const back = new URL(ok.body.redirect)
     const code = back.searchParams.get('code')!
     assert.ok(code)
@@ -659,5 +664,58 @@ test('revocation by the client (RFC 7009): a refresh token takes its chain; anot
     // The refresh token isn't a bearer token for /mcp either.
     const u = await authorize(h, a.client_id)
     assert.equal((await mcpPost(h, u.refresh_token)).status, 401)
+  } finally { await h.close() }
+})
+
+test('an app\'s name and its domain: they fit when the name holds the domain\'s own label; a program on this computer has no domain', () => {
+  // Literals: each pair is the case under test.
+  for (const [name, host, fits] of [
+    ['Claude', 'claude.ai', true], ['Claude Desktop', 'claude.ai', true], ['Example Notes', 'app.example.com', true], ['Ejemplo', 'ejemplo.co.uk', true],
+    ['Claude', 'claude-phish.example', false], ['Claude', 'evil.example.com', false], ['Notion', 'claude.ai', false],
+    ['MCP CLI', 'localhost', true], ['Anything', '127.0.0.1', true],
+  ] as const) assert.equal(nameFitsDomain(name, host), fits, `${name} @ ${host}`)
+})
+
+test('client domains in vihko.yaml: with none, any app, and the page gets its domain and whether its name fits; listed, others can neither register nor be authorized', async () => {
+  const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
+  try {
+    await h.enableMcp()
+    await openRegistration(h)
+    const domain = new URL(REDIRECT).hostname
+    const label = domain.split('.')[0]!
+    // A name that doesn't hold the domain's label (nor is held by it).
+    let other = m.aKeyName()
+    while (other.toLowerCase().replace(/[^a-z0-9]/g, '').includes(label) || label.includes(other.toLowerCase().replace(/[^a-z0-9]/g, ''))) other = m.aKeyName()
+    const elsewhere = `https://${m.aHost()}/callback`
+    const before = await register(h, { client_name: other, redirect_uris: [elsewhere] })
+    const { challenge } = pkce()
+
+    // None listed: anyone, with the domain the page shows, and a warning when the name doesn't fit it.
+    const fitting = await register(h, { client_name: `${m.aWord()} ${label}` })
+    const ask = async (id: string, redirect = REDIRECT) => h.admin('GET', `/api/oauth/authorize?${authorizeQuery(id, challenge, { redirect_uri: redirect })}`)
+    const good = await ask(fitting.client_id)
+    assert.deepEqual([good.status, good.body.client.domain, good.body.client.nameMatchesDomain], [200, domain, true], good.text)
+    const odd = await ask(before.client_id, elsewhere)
+    assert.deepEqual([odd.status, odd.body.client.domain, odd.body.client.nameMatchesDomain], [200, new URL(elsewhere).hostname, false], odd.text)
+
+    // Listed: the apps of those domains (and their subdomains) only.
+    appendFileSync(join(h.notesDir, 'vihko.yaml'), `\nmcp:\n  client_domains: [${domain}]\n`)
+    h.workspace.reload()
+    assert.deepEqual(h.workspace.config.mcp.clientDomains, [domain])
+    const refused = await json(h, 'POST', '/oauth/register', { client_name: CLIENT, redirect_uris: [elsewhere], token_endpoint_auth_method: 'none' })
+    assert.deepEqual([refused.status, refused.body.error], [400, 'invalid_redirect_uri'])
+    const sub = `https://${m.aWord().toLowerCase().replace(/[^a-z]/g, '') || 'app'}.${domain}/cb`
+    assert.equal((await json(h, 'POST', '/oauth/register', { client_name: CLIENT, redirect_uris: [sub], token_endpoint_auth_method: 'none' })).status, 201)
+    // One that registered before the list: not authorized now, and the page is told which domain.
+    const blocked = await ask(before.client_id, elsewhere)
+    assert.deepEqual([blocked.status, blocked.body.error, blocked.body.host], [400, 'client_not_allowed', new URL(elsewhere).hostname])
+    assert.equal((await consent(h, authorizeQuery(before.client_id, challenge, { redirect_uri: elsewhere }))).body.error, 'client_not_allowed')
+    // A client named by its metadata document's URL elsewhere: refused before anything is fetched.
+    const cimd = `https://${m.aHost()}/oauth/client.json`
+    const byUrl = await h.admin('GET', `/api/oauth/authorize?${authorizeQuery(cimd, challenge)}`)
+    assert.deepEqual([byUrl.status, byUrl.body.error, byUrl.body.host], [400, 'client_not_allowed', new URL(cimd).hostname])
+    // The listed domain's app goes on; listed, its name needs no warning.
+    const ok = await ask(fitting.client_id)
+    assert.deepEqual([ok.status, ok.body.client.nameMatchesDomain], [200, true])
   } finally { await h.close() }
 })

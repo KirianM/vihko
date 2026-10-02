@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, inVault, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { dismissNoticesOf, signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
@@ -99,4 +99,9 @@ test('on a phone, in dark mode: the icon alone, and a press says why', async ({ 
   await expect(page.getByRole('dialog', { name: 'Oculta a los agentes' })).toContainText('ninguna clave')
   await page.screenshot({ path: `${SHOTS}/ai-hidden-mobile-dark.png`, animations: 'disabled' })
   await ctx.close()
+})
+
+test.afterAll(async () => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN)
 })

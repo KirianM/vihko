@@ -92,8 +92,19 @@ test('spaces: a shared space name, which is its folder', () => {
   const name = m.aSpaceName()
   for (const bad of [`${name}/${m.aWord()}`, `${name}\\${m.aWord()}`]) assert.equal(spaceNameProblem(bad), 'invalid_characters', bad)
   for (const bad of [`.${name}`, `~${name}`, `${name}.`, `${name}~`, `${name}.md`, 'people', 'SPACES']) assert.equal(spaceNameProblem(bad), 'invalid_name', bad)
+  // What Windows and SMB shares can't hold in a folder's name, anywhere in it.
+  for (const c of '<>:"|?*') {
+    for (const bad of [`${name}${c}`, `${c}${name}`, `${name} ${c} ${m.aWord()}`]) assert.equal(spaceNameProblem(bad), 'invalid_characters', bad)
+  }
+  // Windows's device names, in any case, alone or with an extension; a name that only starts with one is fine.
+  for (const device of ['CON', 'prn', 'Aux', 'nul', 'COM1', 'com9', 'LPT1', 'lpt9']) {
+    for (const bad of [device, `${device}.${m.aWord()}`, `${device}.tar.gz`]) assert.equal(spaceNameProblem(bad), 'invalid_name', bad)
+  }
+  for (const good of ['Conference', 'COM10', 'LPT0', 'Auxiliar', `Nul ${m.aWord()}`, 'CONSOLE.txt']) assert.equal(spaceNameProblem(good), null, good)
   // What a space's name may have that a username can't.
-  for (const good of [`${name} & ${m.aWord()}`, `${name}: ${m.aWord()}?`, `${name} (${m.aWord()})`, '家族', `${name}.md.bak`, `${name}-7k2q9x`]) assert.equal(spaceNameProblem(good), null, good)
+  for (const good of [`${name} & ${m.aWord()}`, `${name} (${m.aWord()})`, `${name}, ${m.aWord()}!`, '家族', `${name}.md.bak`, `${name}-7k2q9x`]) assert.equal(spaceNameProblem(good), null, good)
+  // A folder made on the disk with any of those is a space still (it's there): only the names vihko gives are checked.
+  for (const folder of [`${name}: ${m.aWord()}?`, 'CON']) assert.ok(isSpaceFolderName(folder), folder)
 })
 
 test('spaces: the folders of 0.1.0-rc.1 and rc.2', () => {

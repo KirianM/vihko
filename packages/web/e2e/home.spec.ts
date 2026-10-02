@@ -118,6 +118,8 @@ test('«On opening»: the last note, a chosen one, today\'s only if it exists, a
   await prefs.getByRole('button', { name: 'Guardar' }).click()
   await u.goto(`/?note=${q(mine(last))}`)
   await expect(crumbsName(u)).toHaveText(last)
+  // Remembered once it has loaded (its editor shows), not when its name does.
+  await expect(u.locator('.cm-content')).toBeVisible()
   await u.goto('/')
   await expect(crumbsName(u)).toHaveText(last)
 

@@ -389,7 +389,7 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
     const cookie = await login(srv)
     const a = await connect(srv, cookie, NOTE)
     const b = await connect(srv, cookie, NOTE)
-    const moved: { from: string; to: string }[] = []
+    const moved: { from: string; to: string; text?: string }[] = []
     for (const c of [a, b]) c.provider.on('stateless', ({ payload }: { payload: string }) => { const m = JSON.parse(payload); if (m.type === 'vihko:moved') moved.push(m) })
     typeLine(a, MARK.unflushed) // still in the debounce: the move flushes it first
     await waitFor(() => a.provider.unsyncedChanges === 0, 'sent to the server')
@@ -400,7 +400,8 @@ test('renaming an open note: editors are told, nothing is lost and the old path 
     assert.equal(r.status, 200)
     assert.deepEqual(r.body.relinked.map((x: { path: string }) => x.path), preview.body.relinked.map((x: { path: string }) => x.path))
     await waitFor(() => moved.length === 2, 'both editors told')
-    assert.deepEqual(moved[0], { type: 'vihko:moved', from: NOTE, to: TO })
+    // With the text the hub had when it closed the note there: what lands at the new path.
+    assert.deepEqual(moved[0], { type: 'vihko:moved', from: NOTE, to: TO, text: readFileSync(join(notes, TO), 'utf8') })
     assert.ok(!existsSync(join(notes, NOTE)))
     assert.ok(readFileSync(join(notes, TO), 'utf8').includes(`${MARK.unflushed}\n`))
     assert.ok(readFileSync(join(notes, inShared('hogar/enlaces.md')), 'utf8').includes(`[[${name}#Red]]`))
@@ -812,5 +813,26 @@ test("an agent's edit next to someone typing doesn't interleave the two texts", 
       const at = lines.indexOf(MARK.agentMark)
       assert.deepEqual(lines.slice(at, at + 3), [MARK.agentMark, `T${i}-AGENT`, `T${i}-typed.`], `client id ${clientID}`)
     }
+  } finally { closeAll(); await srv.stop() }
+})
+
+// Each splice was an operation of the open document, whose cost grows with
+// those before it: a word replaced everywhere in a long note took minutes.
+test('an open note takes a word replaced in tens of thousands of places at once', async () => {
+  const { env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const n = 50_000
+    const word = MARK.after
+    assert.equal((await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: `${`${word} `.repeat(n)}\n` }] })).status, 200)
+    const a = await connect(srv, cookie, NOTE)
+    await waitFor(() => a.text().includes(word), 'the editor has the text')
+    const start = performance.now()
+    const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'find_replace', find: word, replace: `${word}Z`, expectedCount: n }] })
+    const ms = performance.now() - start
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.ok(ms < 5000, `${Math.round(ms)} ms`)
+    await waitFor(() => a.text().split(`${word}Z `).length === n + 1, 'every occurrence reaches the editor')
   } finally { closeAll(); await srv.stop() }
 })

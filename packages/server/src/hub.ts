@@ -30,11 +30,14 @@ import * as Y from 'yjs'
 import { baseHue, contentHash, isPersonHue, newUid, readFrontmatter, setFrontmatterKey } from '@vihko/core'
 import { sessionIdOf, type Auth, type User } from './auth.ts'
 import { followable, readStable, readText, replaceText } from './fsutil.ts'
+import { shownPath } from './logging.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 import type { Via } from './actor.ts'
+import { coalesceSplices } from './edits.ts'
 import type { Access, AccessPolicy } from './access.ts'
 import { sameHost } from './http/origin.ts'
+import { rebase } from './rebase.ts'
 
 export const TEXT = 'md'
 /** Map in the document with the hub's metadata: `generation` (see `load`). */
@@ -80,6 +83,19 @@ interface Hot {
   /** Agents writing to it now, by key: their presence (see `agentWriting`). */
   agents: Map<string, AgentPresence>
   /**
+   * vihko can't save it right now (the notes folder or the state volume
+   * refused a write): its editors are read-only and were told, and the hub
+   * tries again every `saveRetryMs` (`next`). Null while saving works.
+   */
+  failing: SaveFailing | null
+  /**
+   * Texts the note had that someone was given with their ETag (a read, a
+   * write's answer, a flush), newest last, for `recentMs`: a write planned on
+   * one of them still goes in where the text it changes wasn't touched since
+   * (`edit`).
+   */
+  recent: Map<string, { text: string; at: number }>
+  /**
    * Its editors were told it was deleted and it's listed for a decision. Not
    * at once: the file may have been moved, and the indexer needs a moment to
    * see where it went (see `followMove`).
@@ -115,12 +131,46 @@ interface AgentPresence {
   timer: NodeJS.Timeout | null
 }
 
-/** A Yjs client id nobody in the document has used or announced. */
-function freshClientId(doc: Document): number {
+/** Why a write failed, as its editors and the admin are told. */
+export type SaveFailure = 'disk_full' | 'write_denied' | 'write_failed'
+
+interface SaveFailing {
+  reason: SaveFailure
+  /** Where the write was refused: the note's file (`notes`) or its recovery log (`state`). */
+  volume: 'notes' | 'state'
+  /** When to try again. */
+  next: number
+}
+
+/** A note vihko can't save right now (`CollabHub.unsaved`). */
+export interface UnsavedNote { path: string; reason: SaveFailure; volume: 'notes' | 'state' }
+
+/** What a failed write means for whoever has to fix it: a full disk (or quota), no permission, or anything else. */
+export function saveFailureOf(err: unknown): SaveFailure {
+  const code = (err as NodeJS.ErrnoException | null)?.code
+  if (code === 'ENOSPC' || code === 'EDQUOT') return 'disk_full'
+  if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') return 'write_denied'
+  return 'write_failed'
+}
+
+/** Whether an error is the filesystem refusing a write (an errno), not a bug. */
+const isFsError = (err: unknown) => typeof (err as NodeJS.ErrnoException | null)?.code === 'string' && /^E[A-Z]+$/.test((err as NodeJS.ErrnoException).code!)
+
+/**
+ * The lowest Yjs client id the hub gives its own writers (agents, the
+ * document's own writes): above almost every id a browser draws at random.
+ * Two insertions made at the same place at the same time are ordered by
+ * client id, the lower first; so what an agent appends while someone types
+ * at the end of the note goes after their word, never into it.
+ */
+const SERVER_CLIENT_IDS = 2 ** 32 - 2 ** 16
+
+/** A Yjs client id for the hub's own writes that nobody in the document has used or announced. */
+function freshClientId(doc: Y.Doc, awareness?: Awareness): number {
   const used = Y.encodeStateVector(doc)
-  const known = new Set([...Y.decodeStateVector(used).keys(), ...doc.awareness.getStates().keys(), doc.clientID])
+  const known = new Set([...Y.decodeStateVector(used).keys(), ...(awareness?.getStates().keys() ?? []), doc.clientID])
   for (;;) {
-    const id = Math.floor(Math.random() * 0xffffffff)
+    const id = SERVER_CLIENT_IDS + Math.floor(Math.random() * (2 ** 32 - 1 - SERVER_CLIENT_IDS))
     if (!known.has(id)) return id
   }
 }
@@ -131,7 +181,10 @@ export const ORPHAN_MESSAGE = 'vihko:deleted-externally'
 export const SAVED_MESSAGE = 'vihko:saved'
 /**
  * The note was moved or renamed: editors reopen it at `to`. `external`: it
- * was moved outside vihko, and the hub followed it (`followMove`).
+ * was moved outside vihko, and the hub followed it (`followMove`). `text`:
+ * the note's text as the hub had it when it closed it here, so an editor
+ * can tell what it typed that never arrived and write it at `to`. To an
+ * editor who can't read it there, `to` is null and there is no `text`.
  */
 export const MOVED_MESSAGE = 'vihko:moved'
 /** The note was moved to the trash from vihko: `id` is the entry, to restore it. */
@@ -145,8 +198,19 @@ export const STALE_MESSAGE = 'vihko:stale-generation'
  * To an editor whose access to the note changed while it was open:
  * `access` is what they have now (`none`, `read`, `comment` or `edit`); the
  * connection is closed right after, and they reopen it with that, if any.
+ * Also to an editor that reconnects claiming another level than it has now
+ * (its token's `level`: the access changed while it was offline), before
+ * anything is synced.
  */
 export const ACCESS_MESSAGE = 'vihko:access'
+/**
+ * To a note's editors: vihko can't save it (`reason`: `disk_full`,
+ * `write_denied` or `write_failed`). It's read-only for everyone until it
+ * can: what they see may not be on the disk. Also to whoever opens it meanwhile.
+ */
+export const SAVE_FAILED_MESSAGE = 'vihko:save-failed'
+/** To a note's editors: vihko can save it again; whoever may edit it, can again. */
+export const SAVE_RESUMED_MESSAGE = 'vihko:save-resumed'
 /** An orphan's copy was kept (`restore`) or discarded. */
 export const ORPHAN_RESOLVED_MESSAGE = 'vihko:orphan-resolved'
 /**
@@ -187,10 +251,12 @@ export const HUB_MESSAGES = {
     [SAVED_MESSAGE]: 'the note\'s editors: its ETag',
     [ORPHAN_MESSAGE]: 'the note\'s editors: its own path',
     [ORPHAN_RESOLVED_MESSAGE]: 'the note\'s editors: its own path',
-    [MOVED_MESSAGE]: 'the note\'s editors: where it went, only to those who can read it there (null otherwise)',
+    [MOVED_MESSAGE]: 'the note\'s editors: where it went and its text, only to those who can read it there (null and no text otherwise)',
     [TRASHED_MESSAGE]: 'the note\'s editors: the trash entry and who deleted it',
     [STALE_MESSAGE]: 'one editor, before anything is synced: its own path',
     [ACCESS_MESSAGE]: 'one editor whose access changed: its own path and level',
+    [SAVE_FAILED_MESSAGE]: 'the note\'s editors: its own path and why it can\'t be saved (a code)',
+    [SAVE_RESUMED_MESSAGE]: 'the note\'s editors: its own path',
     [SESSION_ENDED_MESSAGE]: 'the editors of a session that ended: nothing but the type',
   },
 } as const
@@ -200,6 +266,8 @@ export interface HubOptions {
   stateDir: string
   indexer: Indexer
   auth: Auth
+  /** Whether a note is over vihko.yaml's `notes.maxSize` (indexer.ts `isTooLarge`): never opened live. */
+  tooLarge?: (path: string) => boolean
   debounceMs?: number
   /** How often hot notes' files are checked. */
   checkMs?: number
@@ -225,6 +293,14 @@ export interface HubOptions {
   policy?: AccessPolicy
   /** How often every open connection's access is checked again, besides each change vihko makes (5 s). */
   accessCheckMs?: number
+  /** How often a note vihko couldn't save is tried again (5 s). */
+  saveRetryMs?: number
+  /**
+   * How long the texts a note was read at are kept, for a write planned on
+   * one of them (`edit`; 10 minutes), and how many of each open note (32).
+   */
+  recentMs?: number
+  recentTexts?: number
 }
 
 /**
@@ -252,9 +328,16 @@ export interface HubHistory {
 /**
  * `generation`: the one the editor's copy belongs to (null: an empty copy, it
  * claims none). `level`: what the person had in the note when they connected.
- * `session`: its session's public id (auth.ts `sessionIdOf`).
+ * `claimed`: the level the editor says it has (its token's; null: it says
+ * none). `session`: its session's public id (auth.ts `sessionIdOf`).
  */
-type Ctx = { user?: User; session?: string; system?: Actor; generation?: string | null; level?: string }
+type Ctx = { user?: User; session?: string; system?: Actor; generation?: string | null; level?: string; claimed?: string | null }
+
+/** Levels an editor may claim in its token: what it shows the note as. */
+const LEVELS = new Set(['read', 'comment', 'edit'])
+
+/** The most characters the texts kept for writes planned on them (`Hot.recent`) add up to, per note. */
+const RECENT_CHARS = 4 * 1024 * 1024
 
 // --- Utilities ---------------------------------------------------------------
 
@@ -369,8 +452,15 @@ function replaceLog(file: string, records: Buffer[], crashAt: string | null = nu
   const tmp = file + '.tmp'
   const { O_WRONLY, O_CREAT, O_TRUNC, O_APPEND } = constants
   const fd = openSync(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND)
-  for (const r of records) writeSync(fd, r)
-  fsyncSync(fd)
+  try {
+    for (const r of records) writeSync(fd, r)
+    fsyncSync(fd)
+  } catch (err) {
+    // A full volume: the old log stays as it was, whole.
+    closeSync(fd)
+    rmSync(tmp, { force: true })
+    throw err
+  }
   if (crashAt) crashPoint(crashAt)
   renameSync(tmp, file)
   return fd
@@ -498,25 +588,41 @@ export class CollabHub implements HotDocuments {
         if (level === 'none') throw new NoteError('not_found', `does not exist: ${documentName}`)
         // With `read` or `comment`, every change it sends is dropped (hocuspocus answers it wasn't applied):
         // a comment comes over HTTP (commenting.ts).
-        connectionConfig.readOnly = level !== 'edit'
+        // While the note can't be saved, nobody writes in it (it's told once connected).
+        connectionConfig.readOnly = level !== 'edit' || !!this.hot.get(documentName)?.failing
         context.level = level
         // A note deleted or moved from vihko is not reopened: a reconnecting editor cannot resurrect it.
         if (this.hot.get(documentName)?.discarded) throw new NoteError('not_found', `does not exist: ${documentName}`)
         if (!this.hot.has(documentName) && readText(this.file(documentName)) === null) {
           throw new NoteError('not_found', `does not exist: ${documentName}`)
         }
+        // Over vihko.yaml's `notes.maxSize`: never opened live (the UI shows it as plain text).
+        if (!this.hot.has(documentName) && this.opts.tooLarge?.(documentName)) throw new NoteError('note_too_large', `too large to edit live: ${documentName}`)
       },
       // The session was checked on the upgrade; the token only says which
-      // generation the editor's copy belongs to. It's sent on every reconnection.
-      onAuthenticate: async ({ token }) => ({ generation: parseGeneration(token) }),
-      // Before anything is synced, in both directions: a copy of another
-      // generation would add its whole text a second time.
+      // generation the editor's copy belongs to, and the level it shows the
+      // note at. It's sent on every reconnection.
+      onAuthenticate: async ({ token }) => parseToken(token),
+      connected: async ({ documentName, connection }) => {
+        const h = this.hot.get(documentName)
+        if (h?.failing) connection.sendStateless(JSON.stringify({ type: SAVE_FAILED_MESSAGE, path: documentName, reason: h.failing.reason }))
+      },
+      // Before anything is synced, in both directions.
       beforeSync: async ({ context, document, documentName, connection }) => {
+        // An editor that shows the note at another level than the person has
+        // now (it changed while it was offline): what it sends would be
+        // dropped, or it would show as writable what isn't. Told what it has, it reopens.
+        if (context.claimed && context.claimed !== context.level) {
+          connection.sendStateless(JSON.stringify({ type: ACCESS_MESSAGE, path: documentName, access: context.level }))
+          this.log(`${documentName}: an editor reconnected as ${context.claimed} with ${context.level}; told to reopen`)
+          throw { code: 4403, reason: ACCESS_MESSAGE }
+        }
+        // A copy of another generation would add its whole text a second time.
         if (!context.generation) return
         const current = generationOf(document)
         if (context.generation === current) return
         connection.sendStateless(JSON.stringify({ type: STALE_MESSAGE, path: documentName }))
-        this.log(`${documentName}: an editor's copy from another generation was refused`)
+        this.log(`${shownPath(documentName)}: an editor's copy from another generation was refused`)
         // Without `message`, so the hook chain doesn't log it again. Hocuspocus closes the connection.
         throw { code: 4409, reason: STALE_MESSAGE }
       },
@@ -526,7 +632,11 @@ export class CollabHub implements HotDocuments {
       },
       onLoadDocument: async ({ documentName, document }) => { await this.load(documentName, document) },
       onStoreDocument: async ({ documentName }) => { await this.flush(documentName) },
-      beforeUnloadDocument: async ({ documentName }) => { await this.flush(documentName) },
+      beforeUnloadDocument: async ({ documentName }) => {
+        await this.flush(documentName)
+        // What can't be saved stays in memory (hocuspocus keeps a document whose hook throws) until it can.
+        if (this.hot.get(documentName)?.failing) throw new Error(`${documentName} can't be saved yet: kept open`)
+      },
       afterUnloadDocument: async ({ documentName }) => { await this.unload(documentName) },
     })
   }
@@ -576,10 +686,18 @@ export class CollabHub implements HotDocuments {
       }
     })
     this.checkTimer = setInterval(() => {
-      for (const path of this.hot.keys()) this.checkExternal(path).catch((e) => this.log(`check of ${path}: ${e}`))
+      const now = Date.now()
+      for (const [path, h] of this.hot) {
+        if (h.failing) {
+          if (now >= h.failing.next) this.retrySave(path).catch((e) => this.log(`saving ${shownPath(path)} again: ${e}`))
+          continue
+        }
+        this.checkExternal(path).catch((e) => this.log(`check of ${shownPath(path)}: ${e}`))
+      }
     }, this.opts.checkMs ?? 1000)
     // Groups and users change outside what vihko writes: looked at again now and then.
-    if (this.opts.policy) this.accessTimer = setInterval(() => this.recheckAccess(), this.opts.accessCheckMs ?? 5000)
+    // So do sessions, which also end by themselves when they expire: their connections end too.
+    if (this.opts.policy) this.accessTimer = setInterval(() => { this.recheckAccess(); this.endExpiredSessions() }, this.opts.accessCheckMs ?? 5000)
   }
 
   /**
@@ -657,9 +775,10 @@ export class CollabHub implements HotDocuments {
         const level = user ? this.levelOf(user, path, accesses) : 'none'
         if (level === ctx.level) continue
         conn.readOnly = true
+        doc.flush() // what others wrote reaches it before the notice, as it closes right after
         conn.sendStateless(JSON.stringify({ type: ACCESS_MESSAGE, path, access: level }))
         conn.close({ code: 4403, reason: ACCESS_MESSAGE })
-        this.log(`${path}: an editor's access changed (${ctx.level} → ${level}); closed for it to reopen`)
+        this.log(`${shownPath(path)}: an editor's access changed (${ctx.level} → ${level}); closed for it to reopen`)
       }
     }
   }
@@ -709,6 +828,9 @@ export class CollabHub implements HotDocuments {
   private tellEach(path: string, message: (user: User | undefined) => Record<string, unknown> | null) {
     const doc = this.hocuspocus.documents.get(path)
     if (!doc) return
+    // Changes waiting for the next turn to go out (hocuspocus batches them) go first: the message comes
+    // after everything the document had, and its connections may close right after it.
+    doc.flush()
     for (const conn of doc.getConnections()) {
       const m = message((conn.context as Ctx).user)
       if (m) conn.sendStateless(JSON.stringify(m))
@@ -737,6 +859,12 @@ export class CollabHub implements HotDocuments {
     }
   }
 
+  /** The connections of sessions no longer in force, however they ended (expired too): ended as `checkSessions` ends them. */
+  endExpiredSessions() {
+    const users = new Set([...this.sockets].filter((s) => !this.opts.auth.session(s.token)).map((s) => s.userId))
+    for (const id of users) this.checkSessions(id)
+  }
+
   async close() {
     if (this.checkTimer) clearInterval(this.checkTimer)
     if (this.accessTimer) clearInterval(this.accessTimer)
@@ -755,33 +883,80 @@ export class CollabHub implements HotDocuments {
     return !!h && !h.discarded
   }
 
-  /** The text its editors have now; null if it isn't open, or its file is gone (a copy pending a decision isn't the note). */
+  /**
+   * The text its editors have now; null if it isn't open, or its file is
+   * gone (a copy pending a decision isn't the note). Whoever asks gets it with
+   * its ETag: it's kept for a while for a write planned on it (`edit`).
+   */
   text(path: string): string | null {
     const h = this.hot.get(path)
-    return h && !h.discarded && !h.orphaned ? h.doc.getText(TEXT).toString() : null
+    if (!h || h.discarded || h.orphaned) return null
+    const text = h.doc.getText(TEXT).toString()
+    this.keepRecent(h, text)
+    return text
+  }
+
+  /** Keeps `text` as one the note had and someone was given, newest last, within `recentTexts` and RECENT_CHARS. */
+  private keepRecent(h: Hot, text: string, hash = contentHash(text)) {
+    const now = Date.now()
+    h.recent.delete(hash)
+    h.recent.set(hash, { text, at: now })
+    const max = this.opts.recentTexts ?? 32
+    const ttl = this.opts.recentMs ?? 600_000
+    let chars = 0
+    for (const r of h.recent.values()) chars += r.text.length
+    for (const [k, r] of h.recent) {
+      if (h.recent.size <= 1) break
+      if (h.recent.size > max || chars > RECENT_CHARS || now - r.at > ttl) { h.recent.delete(k); chars -= r.text.length } else break
+    }
+  }
+
+  /** A text the note had with ETag `hash`, if it was given out within `recentMs` or written to the file lately; null otherwise. */
+  private recentText(h: Hot, hash: string): string | null {
+    const r = h.recent.get(hash)
+    if (r && Date.now() - r.at <= (this.opts.recentMs ?? 600_000)) return r.text
+    return h.history.findLast((b) => b.hash === hash)?.text ?? null
   }
 
   /**
    * Edit of a hot note: the change is applied as Yjs operations and reaches
    * the open editors. An agent's change is made by its own Yjs client, which
    * its presence names (`AgentPresenceState`), announced first.
+   *
+   * With `ifMatch`, the change is planned on the text with that ETag. When
+   * that isn't the text now (someone typed since), but it's one the note had
+   * lately (`recentText`) and nothing changed since where the change goes,
+   * it's applied there, in the text as it is now (`rebased`); if anything
+   * changed in what it replaces or right next to it, `precondition_failed`.
    */
-  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
+  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string; rebased?: boolean }> {
+    const failing = this.hot.get(path)?.failing
+    if (failing) throw new Error(`${path} can't be saved right now (${failing.reason}): not changed`)
     const conn = await this.hocuspocus.openDirectConnection(path, { system: opts.actor })
-    let result: { etag: string } | NoteError = { etag: '' }
+    let result: { etag: string; rebased?: boolean } | NoteError = { etag: '' }
     try {
       await conn.transact((doc) => {
         const ytext = doc.getText(TEXT)
         const cur = ytext.toString()
         const hash = contentHash(cur)
+        let change: Change
+        let rebased = false
         if (opts.ifMatch !== undefined && opts.ifMatch !== hash) {
-          result = new NoteError('precondition_failed', `the note has changed: ${path}`, hash)
-          return
-        }
-        const change = fn(cur)
+          const h = this.hot.get(path)
+          const base = h ? this.recentText(h, opts.ifMatch) : null
+          const moved = base === null ? null : rebase(base, fn(base), cur)
+          if (moved === null) {
+            result = new NoteError('precondition_failed', `the note has changed: ${path}`, hash)
+            return
+          }
+          change = moved
+          rebased = true
+        } else change = fn(cur)
+        // Thousands of splices are joined into a few: each is an operation of the document (edits.ts).
+        const splices = typeof change === 'string' ? [] : coalesceSplices(cur, change)
         const apply = (t: Y.Text) => {
           if (typeof change === 'string') applyTextDiff(t, cur, change)
-          else for (const s of change) {
+          else for (const s of splices) {
             if (s.remove) t.delete(s.at, s.remove)
             if (s.insert) t.insert(s.at, s.insert)
           }
@@ -803,7 +978,10 @@ export class CollabHub implements HotDocuments {
         }
         const after = ytext.toString()
         if (after !== cur) this.opts.history?.write(path, { typed: cur, after, actor: opts.actor })
-        result = { etag: contentHash(after) }
+        const etag = contentHash(after)
+        const h = this.hot.get(path)
+        if (h) this.keepRecent(h, after, etag)
+        result = rebased ? { etag, rebased } : { etag }
       })
     } finally {
       await conn.disconnect()
@@ -824,7 +1002,7 @@ export class CollabHub implements HotDocuments {
     let p = h?.agents.get(actor.id)
     if (!p) {
       const presence = new Y.Doc()
-      presence.clientID = freshClientId(doc)
+      presence.clientID = freshClientId(doc, doc.awareness)
       const awareness = new Awareness(presence)
       // Only its state travels: the timer that renews it isn't needed (it ends within seconds).
       clearInterval((awareness as unknown as { _checkInterval: NodeJS.Timeout })._checkInterval)
@@ -868,7 +1046,8 @@ export class CollabHub implements HotDocuments {
     await withLock(path, async () => {
       const h = this.hot.get(path)
       if (!h) { await opts.run?.(); return }
-      await this.flushNow(path, h)
+      // What its editors wrote isn't on the disk: deleting it now would lose it.
+      if (!(await this.flushNow(path, h))) throw new Error(`${path} can't be saved right now (${h.failing?.reason}): not deleted`)
       if (opts.ifMatch !== undefined && !h.orphaned && opts.ifMatch !== h.flushedHash) {
         throw new NoteError('precondition_failed', `the note has changed: ${path}`, h.flushedHash)
       }
@@ -885,7 +1064,7 @@ export class CollabHub implements HotDocuments {
       }
       if (opts.trash) {
         const msg = { type: TRASHED_MESSAGE, path, id: opts.trash.id, by: this.actorName(opts.trash.actor) }
-        this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify(msg))
+        this.hocuspocus.documents.get(path)?.flush().broadcastStateless(JSON.stringify(msg))
       }
     })
     this.hocuspocus.closeConnections(path)
@@ -904,7 +1083,7 @@ export class CollabHub implements HotDocuments {
     const result = await withLock(from, async () => {
       const h = this.hot.get(from)
       if (!h || h.discarded) return (await run()).result // closed meanwhile: plain move
-      await this.flushNow(from, h)
+      if (!(await this.flushNow(from, h))) throw new Error(`${from} can't be saved right now (${h.failing?.reason}): not moved`)
       if (h.orphaned) throw new NoteError('not_found', `does not exist: ${from}`)
       const base = Y.encodeStateAsUpdate(h.doc)
       const text = h.doc.getText(TEXT).toString()
@@ -924,11 +1103,13 @@ export class CollabHub implements HotDocuments {
         fork.transact(() => applyTextDiff(fork.getText(TEXT), text, r.written!))
         Y.applyUpdate(h.doc, Y.encodeStateAsUpdate(fork, sv), 'move')
       }
-      this.tellMoved(from, to, false)
-      this.hocuspocus.closeConnections(from)
+      // Its text goes with the notice: nothing arrives between the two (same turn), so an editor
+      // can tell what it typed that never got here, and write it where the note went.
       const final = h.doc.getText(TEXT).toString()
+      this.tellMoved(from, to, false, final)
+      this.hocuspocus.closeConnections(from)
       if (r.written !== null && final !== r.written) late = { text: final, base: r.written }
-      this.log(`${from} moved to ${to} while open`)
+      this.log(`${shownPath(from)} moved to ${shownPath(to)} while open`)
       return r.result
     })
     if (late) {
@@ -936,7 +1117,7 @@ export class CollabHub implements HotDocuments {
       this.opts.history?.flushing(to, text)
       const w = await replaceText(this.file(to), text, contentHash(base))
       if (w.replaced) this.opts.indexer.indexPaths([to])
-      else this.log(`${to}: could not write what was typed during the move (the file changed)`)
+      else this.log(`${shownPath(to)}: could not write what was typed during the move (the file changed)`)
     }
     return result
   }
@@ -998,7 +1179,7 @@ export class CollabHub implements HotDocuments {
         this.carrySaved([{ from, to }])
         continue
       }
-      this.followMove(from, to).catch((e) => this.log(`${from}: could not follow its move to ${to}: ${e instanceof Error ? e.message : String(e)}`))
+      this.followMove(from, to).catch((e) => this.log(`${shownPath(from)}: could not follow its move to ${shownPath(to)}: ${e instanceof Error ? e.message : String(e)}`))
     }
   }
 
@@ -1023,7 +1204,7 @@ export class CollabHub implements HotDocuments {
         const target = this.file(to)
         const found = await readStable(target)
         if (found === null || !this.sameNote(h, found)) {
-          this.log(`${from}: ${to} doesn't look like the same note; it stays as deleted outside vihko`)
+          this.log(`${shownPath(from)}: ${shownPath(to)} doesn't look like the same note; it stays as deleted outside vihko`)
           return false
         }
         h.orphaned = true // written nowhere until it's decided where
@@ -1060,7 +1241,7 @@ export class CollabHub implements HotDocuments {
           throw err
         }
         h.discarded = true
-        this.tellMoved(from, to, true)
+        this.tellMoved(from, to, true, h.doc.getText(TEXT).toString())
         this.hocuspocus.closeConnections(from)
         // Closed: nothing else can arrive. What came in between is written
         // before the lock is released, so the log (which unloading removes)
@@ -1072,7 +1253,7 @@ export class CollabHub implements HotDocuments {
           this.announceOrphan(from, h)
           throw err
         }
-        this.log(`${from} was moved outside vihko to ${to} while open: the note follows it`)
+        this.log(`${shownPath(from)} was moved outside vihko to ${shownPath(to)} while open: the note follows it`)
         return true
       })
     } finally {
@@ -1081,12 +1262,16 @@ export class CollabHub implements HotDocuments {
   }
 
   /**
-   * Tells a note's editors it moved: where to, to those who can read it
-   * there; to the rest, only that it's gone from where they had it (`to`
-   * null): a move into a folder they can't see names nothing of it.
+   * Tells a note's editors it moved: where to, with its text as it leaves
+   * here, to those who can read it there; to the rest, only that it's gone
+   * from where they had it (`to` null, no text): a move into a folder they
+   * can't see names nothing of it (its rewritten links would).
    */
-  private tellMoved(from: string, to: string, external: boolean) {
-    this.tellEach(from, (user) => ({ type: MOVED_MESSAGE, from, to: this.levelOf(user, to) === 'none' ? null : to, ...(external ? { external: true } : {}) }))
+  private tellMoved(from: string, to: string, external: boolean, text: string) {
+    this.tellEach(from, (user) => {
+      const reads = this.levelOf(user, to) !== 'none'
+      return { type: MOVED_MESSAGE, from, to: reads ? to : null, ...(external ? { external: true } : {}), ...(reads ? { text } : {}) }
+    })
   }
 
   /** Whether `text` is the note `h` holds: the same `uid` or, without one, the text last written. */
@@ -1132,6 +1317,8 @@ export class CollabHub implements HotDocuments {
       const setGeneration = () => doc.transact(() => doc.getMap(META).set('generation', randomUUID()), 'generation')
       if (previous) {
         for (const u of previous.updates) Y.applyUpdate(doc, u, 'recovery')
+        // Before the hub's first write of its own (SERVER_CLIENT_IDS), and none the saved state used.
+        doc.clientID = freshClientId(doc)
         const base = new Y.Doc()
         Y.applyUpdate(base, previous.lastSnapshot)
         snapshot = previous.lastSnapshot
@@ -1143,7 +1330,7 @@ export class CollabHub implements HotDocuments {
         history = flushedStates(previous)
         const own = history.find((b) => b.hash === diskHash)
         if (own) ({ snapshot, text: flushedText, hash: flushedHash } = own)
-        if (recovered) this.log(`recovered ${path} from the log (${recovered.updates.length} records)`)
+        if (recovered) this.log(`recovered ${shownPath(path)} from the log (${recovered.updates.length} records)`)
         const matches = diskOrNull === null || diskHash === flushedHash
         const trusted = !recovered && this.trusted.get(path) === previous.lastHash && this.uidIn(disk) === this.uidIn(flushedText)
         newGeneration = !(matches || trusted) || generationOf(doc) === null // none: saved before generations existed
@@ -1154,6 +1341,7 @@ export class CollabHub implements HotDocuments {
         }
         if (newGeneration) setGeneration()
       } else {
+        doc.clientID = freshClientId(doc)
         doc.getText(TEXT).insert(0, disk)
         setGeneration()
         snapshot = Y.encodeStateAsUpdate(doc)
@@ -1162,14 +1350,24 @@ export class CollabHub implements HotDocuments {
       }
       const records = [...pathRecords(path), snapshotRecord(flushedHash, snapshot)]
       if (recovered || (previous && newGeneration)) records.push(record('U', Y.encodeStateAsUpdate(doc)))
-      const logFd = replaceLog(logFile, records)
+      // The state volume refusing the log doesn't keep the note from opening: read-only, as when it fails later.
+      let logFd = -1
+      let failed: unknown = null
+      try {
+        logFd = replaceLog(logFile, records)
+      } catch (err) {
+        if (!isFsError(err)) throw err
+        failed = err
+      }
       const h: Hot = {
         doc, file, logFile, logFd, snapshot, flushedText, flushedHash,
         history: [...history.filter((b) => b.hash !== flushedHash), { snapshot, text: flushedText, hash: flushedHash }].slice(-HISTORY),
         uid: this.uidIn(flushedText), discarded: false, orphaned: false, agents: new Map(), announced: false, orphanTimer: null,
+        failing: null, recent: new Map(),
       }
       this.hot.set(path, h)
-      doc.on('update', (update: Uint8Array) => writeSync(h.logFd, record('U', update)))
+      if (failed) this.saveFailed(path, h, failed, 'state')
+      doc.on('update', (update: Uint8Array) => { this.logWrite(path, h, record('U', update)) })
       this.watchTyping(path, doc)
       // A missing file isn't "empty": it was deleted (server down, or before
       // reopening). Announced at once: a move made meanwhile was already seen
@@ -1271,14 +1469,14 @@ export class CollabHub implements HotDocuments {
     fork.transact(() => applyTextDiff(ftext, base.text, newText))
     const before = h.doc.getText(TEXT).toString()
     Y.applyUpdate(h.doc, Y.encodeStateAsUpdate(fork, sv), 'external')
-    this.log(`external change integrated into ${path}${onDisk ? '' : ' (rescued from the rename)'}`)
+    this.log(`external change integrated into ${shownPath(path)}${onDisk ? '' : ' (rescued from the rename)'}`)
     if (!onDisk) return
     this.opts.history?.external(path, newText)
     h.snapshot = Y.encodeStateAsUpdate(fork)
     h.flushedText = newText
     h.flushedHash = newHash
     this.remember(path, h, true)
-    writeSync(h.logFd, snapshotRecord(newHash, h.snapshot))
+    this.logWrite(path, h, snapshotRecord(newHash, h.snapshot))
     const now = h.doc.getText(TEXT).toString()
     if (now === before && now !== newText) this.storeLater(path)
   }
@@ -1290,7 +1488,7 @@ export class CollabHub implements HotDocuments {
     this.hocuspocus.storeDocumentHooks(document, {
       instance: this.hocuspocus, clientsCount: document.getConnectionsCount(), document,
       lastContext: {}, lastTransactionOrigin: 'external', documentName: path,
-    }).catch((e: unknown) => this.log(`flush of ${path}: ${e}`))
+    }).catch((e: unknown) => this.log(`flush of ${shownPath(path)}: ${e}`))
   }
 
   /** Records the file's new state (`external`: another program saved it) and tells the open editors it's now on disk. */
@@ -1327,13 +1525,18 @@ export class CollabHub implements HotDocuments {
     })
   }
 
-  /** Writes the document to the file. Only with the note's lock held. */
-  private async flushNow(path: string, h: Hot) {
-    if (h.discarded || h.orphaned) return
+  /**
+   * Writes the document to the file. Only with the note's lock held. False
+   * when the disk refused it (`saveFailed`: its editors are told and it's
+   * tried again later); true when the file holds the document, or there's
+   * nothing to write to (deleted, discarded).
+   */
+  private async flushNow(path: string, h: Hot): Promise<boolean> {
+    if (h.discarded || h.orphaned) return true
     const now = readText(h.file)
     if (now === null && (await readStable(h.file)) === null) {
       this.markOrphan(path, h)
-      return
+      return true
     }
     if (now !== null && contentHash(now) !== h.flushedHash) {
       const disk = await readStable(h.file, h.flushedText)
@@ -1347,19 +1550,26 @@ export class CollabHub implements HotDocuments {
       this.ensureUid(h)
       // Text and snapshot together, before any await.
       const text = h.doc.getText(TEXT).toString()
-      if (text === h.flushedText && readText(h.file) !== null) return
+      if (text === h.flushedText && readText(h.file) !== null) return true
       const snap = Y.encodeStateAsUpdate(h.doc)
       const hash = contentHash(text)
       let set = this.expected.get(path)
       if (!set) this.expected.set(path, (set = new Set()))
       set.add(hash)
-      writeSync(h.logFd, record('F', Buffer.from(hash, 'latin1')))
+      if (!this.logWrite(path, h, record('F', Buffer.from(hash, 'latin1')))) return false
       this.opts.history?.flushing(path, text)
-      const r = await replaceText(h.file, text, h.flushedHash)
+      let r: Awaited<ReturnType<typeof replaceText>>
+      try {
+        r = await replaceText(h.file, text, h.flushedHash)
+      } catch (err) {
+        if (!isFsError(err)) throw err
+        this.saveFailed(path, h, err, 'notes')
+        return false
+      }
       if (!r.replaced) {
         const disk = await readStable(h.file, h.flushedText)
-        if (disk === null) { this.markOrphan(path, h); return }
-        this.log(`race with an external write on ${path} (before the rename)`)
+        if (disk === null) { this.markOrphan(path, h); return true }
+        this.log(`race with an external write on ${shownPath(path)} (before the rename)`)
         this.mergeExternal(path, h, disk, contentHash(disk))
         continue
       }
@@ -1373,13 +1583,113 @@ export class CollabHub implements HotDocuments {
       if (text !== h.doc.getText(TEXT).toString()) {
         records.push(record('U', Y.encodeStateAsUpdate(h.doc, Y.encodeStateVectorFromUpdate(snap))))
       }
-      const old = h.logFd
-      h.logFd = replaceLog(h.logFile, records, records.length > 1 ? 'log-rewrite' : null)
-      closeSync(old)
+      const logged = this.rewriteLog(path, h, records, records.length > 1 ? 'log-rewrite' : null)
       this.opts.indexer.indexPaths([path])
-      if (r.rescued === null) return
+      if (!logged) return false
+      if (r.rescued === null) return true
       this.mergeExternal(path, h, r.rescued, contentHash(r.rescued), false)
     }
+  }
+
+  /**
+   * Appends a record to the note's recovery log. False when the state volume
+   * refused it: the note goes read-only (`saveFailed`), and the log is
+   * written whole again once it can be (`retrySave`).
+   */
+  private logWrite(path: string, h: Hot, rec: Buffer): boolean {
+    if (h.failing?.volume === 'state') return false
+    try {
+      writeSync(h.logFd, rec)
+      return true
+    } catch (err) {
+      if (!isFsError(err)) throw err
+      this.saveFailed(path, h, err, 'state')
+      return false
+    }
+  }
+
+  /** Replaces the note's recovery log with `records` (replaceLog); false when the state volume refused it (`saveFailed`). */
+  private rewriteLog(path: string, h: Hot, records: Buffer[], crashAt: string | null = null): boolean {
+    let fd: number
+    try {
+      fd = replaceLog(h.logFile, records, crashAt)
+    } catch (err) {
+      if (!isFsError(err)) throw err
+      this.saveFailed(path, h, err, 'state')
+      return false
+    }
+    if (h.logFd >= 0) closeSync(h.logFd)
+    h.logFd = fd
+    return true
+  }
+
+  /**
+   * The disk refused a write of the note (its file in the notes folder, or
+   * its recovery log in the state volume): until it can be saved, nobody
+   * writes in it, its editors are told why, and it stays in memory. What they
+   * see may not be on the disk; the hub tries again every `saveRetryMs`.
+   */
+  private saveFailed(path: string, h: Hot, err: unknown, volume: 'notes' | 'state') {
+    const reason = saveFailureOf(err)
+    const next = Date.now() + this.saveRetryMs()
+    const was = h.failing
+    // The log is what the state volume refuses: until it's written whole again, that's what's tried first.
+    h.failing = { reason, volume: was?.volume === 'state' ? 'state' : volume, next }
+    if (was) return
+    this.log(`${path} can't be saved (${volume === 'notes' ? 'notes folder' : 'state volume'}: ${(err as NodeJS.ErrnoException).code ?? err}); read-only until it can`)
+    const doc = this.hocuspocus.documents.get(path)
+    if (!doc) return
+    for (const conn of doc.getConnections()) conn.readOnly = true
+    doc.broadcastStateless(JSON.stringify({ type: SAVE_FAILED_MESSAGE, path, reason }))
+  }
+
+  /**
+   * Tries again to save a note the disk refused: its whole recovery log if
+   * that was refused, then its file. Once both are written, its editors
+   * write again (those who may), and are told.
+   */
+  private retrySave(path: string) {
+    return withLock(path, async () => {
+      const h = this.hot.get(path)
+      if (!h?.failing || h.discarded) return
+      h.failing.next = Date.now() + this.saveRetryMs()
+      if (h.failing.volume === 'state') {
+        // The whole document: whatever came in while the log couldn't be written is in it.
+        const records = [...pathRecords(path), snapshotRecord(h.flushedHash, h.snapshot), record('U', Y.encodeStateAsUpdate(h.doc))]
+        let fd: number
+        try {
+          fd = replaceLog(h.logFile, records)
+        } catch (err) {
+          if (!isFsError(err)) throw err
+          h.failing.reason = saveFailureOf(err)
+          return
+        }
+        if (h.logFd >= 0) closeSync(h.logFd)
+        h.logFd = fd
+        h.failing.volume = 'notes'
+      }
+      if (!(await this.flushNow(path, h))) return
+      h.failing = null
+      this.log(`${path} can be saved again`)
+      const doc = this.hocuspocus.documents.get(path)
+      if (!doc) return
+      for (const conn of doc.getConnections()) conn.readOnly = (conn.context as Ctx).level !== 'edit'
+      doc.broadcastStateless(JSON.stringify({ type: SAVE_RESUMED_MESSAGE, path }))
+      // Kept in memory while it couldn't be saved: with nobody left in it, it closes now.
+      if (doc.getConnectionsCount() === 0) this.storeLater(path)
+    })
+  }
+
+  /** How long until a note that couldn't be saved is tried again: `saveRetryMs`, 5 s (tests: `VIHKO_TEST_SAVE_RETRY_MS`). */
+  private saveRetryMs(): number {
+    return this.opts.saveRetryMs ?? (Number(process.env.VIHKO_TEST_SAVE_RETRY_MS) || 5000)
+  }
+
+  /** Notes vihko can't save right now, and why (for the admin's alert). */
+  unsaved(): UnsavedNote[] {
+    const out: UnsavedNote[] = []
+    for (const [path, h] of this.hot) if (h.failing && !h.discarded) out.push({ path, reason: h.failing.reason, volume: h.failing.volume })
+    return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   }
 
   private unload(path: string) {
@@ -1388,16 +1698,24 @@ export class CollabHub implements HotDocuments {
       if (!h) return
       if (h.orphanTimer) clearTimeout(h.orphanTimer)
       this.agentsDone(path, h)
-      closeSync(h.logFd)
-      const clean = !h.discarded && !h.orphaned && h.doc.getText(TEXT).toString() === h.flushedText
+      if (h.logFd >= 0) closeSync(h.logFd)
+      let clean = !h.discarded && !h.orphaned && h.doc.getText(TEXT).toString() === h.flushedText
       const state = this.statePath(path)
       if (clean) {
         // Kept before the log goes: at every moment one of the two is on disk.
         // Its first record is the snapshot (savedHash reads it alone), then the path if the name is a hash.
-        writeFileSync(state + '.tmp', Buffer.concat([snapshotRecord(h.flushedHash, Y.encodeStateAsUpdate(h.doc)), ...pathRecords(path)]))
-        renameSync(state + '.tmp', state)
-        this.trusted.set(path, h.flushedHash)
-      } else {
+        try {
+          writeFileSync(state + '.tmp', Buffer.concat([snapshotRecord(h.flushedHash, Y.encodeStateAsUpdate(h.doc)), ...pathRecords(path)]))
+          renameSync(state + '.tmp', state)
+          this.trusted.set(path, h.flushedHash)
+        } catch (err) {
+          // Only a cache: without it, the log stays (the file holds the text anyway).
+          if (!isFsError(err)) throw err
+          rmSync(state + '.tmp', { force: true })
+          clean = false
+        }
+      }
+      if (!clean) {
         rmSync(state, { force: true })
         this.trusted.delete(path)
       }
@@ -1417,11 +1735,11 @@ export class CollabHub implements HotDocuments {
     if (h.orphaned) return
     h.orphaned = true
     if (now) return this.announceOrphan(path, h)
-    this.log(`${path}: the file is gone while the note is open; nothing is written to it (waiting to see whether it moved)`)
+    this.log(`${shownPath(path)}: the file is gone while the note is open; nothing is written to it (waiting to see whether it moved)`)
     h.orphanTimer = setTimeout(() => {
       h.orphanTimer = null
       withLock(path, () => { if (this.hot.get(path) === h && h.orphaned && !h.discarded) this.announceOrphan(path, h) })
-        .catch((e) => this.log(`orphan notice for ${path}: ${e}`))
+        .catch((e) => this.log(`orphan notice for ${shownPath(path)}: ${e}`))
     }, this.opts.orphanGraceMs ?? 6000)
     h.orphanTimer.unref()
   }
@@ -1429,7 +1747,7 @@ export class CollabHub implements HotDocuments {
   private announceOrphan(path: string, h: Hot) {
     if (h.announced) return
     h.announced = true
-    this.log(`${path} was deleted outside vihko while the note was open: nothing is written until someone decides`)
+    this.log(`${shownPath(path)} was deleted outside vihko while the note was open: nothing is written until someone decides`)
     this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_MESSAGE, path }))
   }
 
@@ -1465,7 +1783,7 @@ export class CollabHub implements HotDocuments {
         this.remember(path, h)
         this.opts.indexer.indexPaths([path])
         this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_RESOLVED_MESSAGE, path, action: 'restore' }))
-        this.log(`${path}: the open copy is kept`)
+        this.log(`${shownPath(path)}: the open copy is kept`)
         return { etag: h.flushedHash }
       })
     } finally {
@@ -1483,7 +1801,7 @@ export class CollabHub implements HotDocuments {
       rmSync(this.statePath(path), { force: true })
       this.trusted.delete(path)
     }
-    this.log(`${path}: copy discarded; the external deletion is accepted as final`)
+    this.log(`${shownPath(path)}: copy discarded; the external deletion is accepted as final`)
   }
 
   /**
@@ -1544,7 +1862,7 @@ export class CollabHub implements HotDocuments {
         const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: { code: 'crash_recovery' } } })
         await conn.disconnect()
       } catch (err) {
-        this.log(`could not recover ${path}: ${err instanceof Error ? err.message : String(err)}`)
+        this.log(`could not recover ${shownPath(path)}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
   }
@@ -1574,14 +1892,21 @@ export class CollabHub implements HotDocuments {
 }
 
 
-/** The generation in an editor's token (`{"generation": …}`); anything else claims none. */
-function parseGeneration(token: string): string | null {
+/**
+ * What an editor's token claims (`{"generation": …, "level": …}`): the
+ * generation of its copy and the level it shows the note at; anything else
+ * claims none.
+ */
+function parseToken(token: string): { generation: string | null; claimed: string | null } {
+  let t: { generation?: unknown; level?: unknown } | null
   try {
-    const g = (JSON.parse(token) as { generation?: unknown } | null)?.generation
-    return typeof g === 'string' && g ? g : null
+    t = JSON.parse(token) as typeof t
   } catch {
-    return null
+    return { generation: null, claimed: null }
   }
+  const g = t?.generation
+  const l = t?.level
+  return { generation: typeof g === 'string' && g ? g : null, claimed: typeof l === 'string' && LEVELS.has(l) ? l : null }
 }
 
 function parseCookie(header: string, name: string): string | undefined {

@@ -42,6 +42,27 @@ test('Markdown: a tag with a long run of slashes inside it', () => {
   assert.equal(extract('#a/b///\n').tags[0]!.name, 'a/b')
 })
 
+test('Markdown: long paragraphs of emphasis, strikethrough, brackets and links', () => {
+  // Each closing delimiter was matched against every opening one before it in its paragraph.
+  for (const unit of ['*a', '[a] ', '~~a', '[a](b) ', '_a', '`a']) {
+    fast(unit, () => extract(unit.repeat(N / unit.length)))
+  }
+  // A long paragraph still gives its links, tags and comments, wherever they are in it.
+  const filler = (n: number) => 'lorem ipsum '.repeat(n)
+  const text = [filler(500), '[[First note]] ', filler(500), '#topic ', filler(300), '<!-- @a 2026-09-28 · a comment\nover two lines --> ', filler(400), '[x](Second%20note.md) [[Third note|shown]]\n'].join('')
+  const x = fast('long paragraph', () => extract(text))
+  assert.deepEqual(x.links.map((l) => l.target), ['First note', 'Second note.md', 'Third note'])
+  assert.deepEqual(x.links.map((l) => text.slice(l.from, l.to)), ['[[First note]]', '[x](Second%20note.md)', '[[Third note|shown]]'])
+  assert.deepEqual(x.tags.map((t) => t.name), ['topic'])
+  assert.equal(x.comments.length, 1)
+  assert.equal(text.slice(x.comments[0]!.from, x.comments[0]!.to), '<!-- @a 2026-09-28 · a comment\nover two lines -->')
+  // Without a space anywhere: a comment right after a long word is still one.
+  const glued = 'a'.repeat(N) + '<!-- @a 2026-09-28 · x -->' + '*a'.repeat(N / 2) + '[[Note]]'
+  const g = fast('no spaces', () => extract(glued))
+  assert.deepEqual(g.comments.map((c) => glued.slice(c.from, c.to)), ['<!-- @a 2026-09-28 · x -->'])
+  assert.deepEqual(g.links.map((l) => l.target), ['Note'])
+})
+
 test('a heading closing sequence, removed as the pattern did', () => {
   const cases: [string, string][] = [['a ##', 'a'], ['a ## ', 'a'], ['a ## ##', 'a ##'], ['a##', 'a##'], ['##', '##'], ['a \t#\t', 'a'], ['a', 'a']]
   for (const [heading, text] of cases) {

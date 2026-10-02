@@ -2,15 +2,17 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, Tooltip, TooltipTrigger, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@vihko/core/series'
-import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { ApiError, SESSION_ENDED_EVENT, api, atLeast, keysMadeHere, type FolderLock, type FolderMoveReport, type Level, type MoveJob, type MoveReport, type Note, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { TooLargeNote } from './TooLargeNote.tsx'
 import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
 import { renamedPath } from './legacyAddress.ts'
 import { openingNote } from './onOpen.ts'
 import { HomePage } from './Home.tsx'
 import { NoteSettingsDialog } from './NoteSettings.tsx'
+import { ChooseSeriesDialog } from './ChooseSeries.tsx'
 import { addressOf } from '@vihko/core/spaces'
 import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
-import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
+import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, SpaceDeletedToast, spaceError } from './SpaceDialogs.tsx'
 import { SpacesPage } from './SpacesAdmin.tsx'
 import { audienceChanges } from './Audience.tsx'
 import { MembersDialog, PermissionsDialog } from './Permissions.tsx'
@@ -25,8 +27,11 @@ import { baseHue, userColor } from './userColor.ts'
 import { errorText, useT } from './i18n.tsx'
 import { BackContext, Brand, Crumbs, DismissGuardContext, FolderPermissionsContext, GoHomeContext, Icon, MenuButton, OpenNavContext, ThemeToggle } from './ui.tsx'
 import { TrashToast, type Trashed } from './TrashToast.tsx'
+import { RescueBanner } from './RescueBanner.tsx'
+import { setRescueUser } from './editor/rescue.ts'
 import { managesFolder, noteFolder } from './levels.ts'
 import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
+import { TimeZoneToast, timeZoneOffer } from './TimeZoneOffer.tsx'
 import { MoveToast, moveNotice } from './MoveToast.tsx'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { shiftedNotice } from './Shifts.tsx'
@@ -157,10 +162,36 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [restored, setRestored] = useState<{ seq: number; report: RestoreReport } | null>(null)
   const restoredDone = (report: RestoreReport) => { setVersion(null); setRestored((r) => ({ seq: (r?.seq ?? 0) + 1, report })) }
   const [ready, setReady] = useState<string | null>(null)
+  /** What the person may do in the note that's ready, as the server said when it was checked: its editor starts at that. */
+  const [readyLevel, setReadyLevel] = useState<Level | null>(null)
+  /** The open note went where the person can't follow (moved where they can't open it, or gone on reconnecting). */
+  const [goneAway, setGoneAway] = useState<{ path: string; why: 'movedAway' | 'gone' } | null>(null)
+  // What the person typed that didn't reach a note is theirs only (rescue.ts).
+  setRescueUser(user.id)
+  /** The open note, when it's too large to edit live: shown as plain text, with a download. */
+  const [large, setLarge] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [trashed, setTrashed] = useState<Trashed | null>(null)
+  /**
+   * Someone else put the open note in the trash: «Restore» only when this
+   * person may (its entry is in their trash), and the space it was in, when
+   * it was deleted with it: never a «Restore» that fails.
+   */
+  const othersTrash = async (t: Trashed) => {
+    const [entries, now] = await Promise.all([api.trashEntries().catch(() => null), api.spaces().catch(() => null)])
+    if (entries === null) return
+    const root = rootOf(t.path)
+    // Deleted with its space: it comes back with the space, whole («Restore space» in the notice), never on its own here.
+    const spaceGone = now !== null && root !== null && root.startsWith('spaces/') && !now.spaces.some((s) => s.path === root) && !now.shared.some((s) => t.path.startsWith(`${s.path}/`))
+    const restorable = !spaceGone && entries.some((e) => e.id === t.id)
+    setTrashed((cur) => (cur?.id === t.id ? { ...cur, restorable, spaceGone } : cur))
+  }
+  /** A shared space this person just deleted: «Undo» brings it back whole. */
+  const [spaceDeleted, setSpaceDeleted] = useState<{ deleted: string; name: string } | null>(null)
   /** You opened one of an ambiguous link's candidates: pin the link there? */
   const [pinOffer, setPinOffer] = useState<PinOffer | null>(null)
+  /** The browser's timezone, offered once instead of the profile's (someone travelling). */
+  const [zoneOffer, setZoneOffer] = useState<{ saved: string; browser: string } | null>(null)
   /** Your last rename or move, if some link could not be rewritten. */
   const [moveIssue, setMoveIssue] = useState<MoveReport | null>(null)
   /** The open note was moved by another tool and followed its file; `links`: left behind (null until known). */
@@ -179,6 +210,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [prefsOpen, setPrefsOpen] = useState(false)
+  /** «Today's note» asks which series to use: the one chosen is gone. */
+  const [choosingSeries, setChoosingSeries] = useState(false)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -194,22 +227,35 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const loadWorkspace = () => api.workspace().then(setWorkspace).catch(() => {})
   const loadAlerts = () => api.alerts().then((a) => setAlerts(a.length)).catch(() => {})
 
+  /** The notices already said (the toast): one that arrives later, live, is said once. */
+  const seenNotices = useRef<Set<string>>(new Set())
+  const loadNotices = () => api.alerts().then((a) => {
+    setAlerts(a.length)
+    const fresh = a.filter(isPersonalNotice).filter((n) => !seenNotices.current.has(n.id))
+    for (const n of fresh) seenNotices.current.add(n.id)
+    // What this person just did themselves stays in the notices, without a toast over it
+    // (deleting a space has its own «Undo»; a key made here was just shown to them).
+    const own = (n: (typeof fresh)[number]) => (n.code === 'space_deleted' && n.by === user.username)
+      || (n.code === 'account_key_added' && n.kind === 'key' && keysMadeHere.has(n.name))
+    const mine = fresh.filter((n) => !own(n))
+    if (!mine.length) return
+    setArrived(mine)
+    // On a phone the tree starts open over everything: the notice goes first.
+    setNavOpen(false)
+  }).catch(() => {})
+
   useEffect(() => {
     void loadTree()
-    api.alerts().then((a) => {
-      setAlerts(a.length)
-      const mine = a.filter(isPersonalNotice)
-      if (!mine.length) return
-      setArrived(mine)
-      // On a phone the tree starts open over everything: the notice goes first.
-      setNavOpen(false)
-    }).catch(() => {})
+    void loadNotices()
     void loadWorkspace()
     const startedEmpty = !openPath && !view
     api.profile().then(async (p) => {
       // First sign-in: the browser's timezone becomes the person's (editable in Preferences).
       if (!p.timezone) p = await api.updateProfile({ timezone: browserTimeZone() }).catch(() => p)
       setProfile(p)
+      // Afterwards, a browser somewhere else is offered once (TimeZoneOffer.tsx); never changed by itself.
+      const browser = timeZoneOffer(p.timezone)
+      if (browser && p.timezone) setZoneOffer({ saved: p.timezone, browser })
       // «On opening», when nothing else was asked for: a note only if it exists and they
       // read it (today's is never created on coming in: no empty notes); otherwise Home stays.
       if (!startedEmpty) return
@@ -234,6 +280,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       if (r.created) void loadTree()
       setOpenPath(r.path)
     } catch (err) {
+      // The series they chose is gone: they choose again, never another one by itself.
+      if (err instanceof ApiError && err.code === 'series_gone') {
+        void loadWorkspace()
+        setChoosingSeries(true)
+        return
+      }
       fail(err)
     }
   }
@@ -241,15 +293,17 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   todayRef.current = dailyOn ? () => void openToday() : null
 
   // The tree and the sidebar, live: the server says «read your tree again» when someone
-  // else's change concerns what this person sees (GET /api/events). The browser reconnects by itself.
+  // else's change concerns what this person sees (GET /api/live). The browser reconnects by itself.
   useEffect(() => {
     if (typeof EventSource === 'undefined') return
-    const events = new EventSource('/api/events')
+    const events = new EventSource('/api/live')
     let timer: ReturnType<typeof setTimeout> | null = null
     events.addEventListener('tree', () => {
       if (timer) return
       timer = setTimeout(() => { timer = null; void loadTree() }, 150)
     })
+    // A notice arrived for this person (what someone did to their account or their spaces): said at once.
+    events.addEventListener('notices', () => { void loadNotices() })
     return () => { if (timer) clearTimeout(timer); events.close() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -304,8 +358,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setError(null)
     setMissing(null)
     setNoAccess(null)
+    setLarge(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
-    api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch((err) => {
+    setGoneAway(null)
+    // One too large to edit live (vihko.yaml `notes.maxSize`) shows as plain text instead.
+    api.note(openPath).then((n) => { setReadyLevel(n.level ?? null); if (n.tooLarge) setLarge(n); else setReady(openPath); rememberNote(openPath) }).catch((err) => {
       // Moved again a moment ago, while its editor reopened it at the last place it heard of: follow it.
       if (err instanceof ApiError && err.code === 'not_found' && typeof err.data?.movedTo === 'string') return setOpenPathState(err.data.movedTo)
       if (versionRef.current && err instanceof ApiError && err.code === 'not_found') setMissing(openPath)
@@ -332,6 +389,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
 
   const tree = useMemo(() => (notes ? buildTree(notes, folders) : []), [notes, folders])
   const admin = user.role === 'admin'
+  /** The main area holds the open note (and the rescue banner goes under its header), as the render below decides. */
+  const pageShown = view === 'alerts' || view === 'agents' || view === 'privacy' || view === 'account' || view === 'changes' || ((view === 'users' || view === 'spaces') && admin)
+  const noteShown = !pageShown && !!openPath && ready === openPath && !(version && missing === openPath)
   /** The person's level and a folder's marks, for the tree's actions and locks. */
   const folderInfo = useMemo<FolderInfoOf>(() => (path) => {
     if (!locks) return undefined
@@ -613,10 +673,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
         </nav>
       )}
       <main className="main">
+        {/* Over the note, under its header (NoteView); anywhere else, first. */}
+        {!noteShown && <RescueBanner user={user} onCreated={created} />}
         {view === 'alerts' ? (
           <AlertsPage
             onOpen={setOpenPath}
             onSpaces={showSpaces}
+            onSettings={(space) => setTreeDialog({ kind: 'settings', space: space?.path ?? null, name: space?.name ?? null })}
             onChanged={(n) => { setAlerts(n); void loadTree() }}
             onUnauthorized={onUnauthorized}
           />
@@ -643,7 +706,19 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </header>
             <VersionView key={version} path={openPath} id={version} store={missingVersions} exists={false} closeLabel={t('version.close')}
               onClose={showChanges}
-              onRestored={(report) => { restoredDone(report); setMissing(null); setReady(openPath); rememberNote(openPath); void loadTree() }} />
+              onRestored={(report) => { restoredDone(report); setMissing(null); setReady(openPath); rememberNote(openPath); void loadTree() }}
+              onOpen={(p) => { setVersion(null); setOpenPath(p); void loadTree() }} />
+          </>
+        ) : openPath && large?.path === openPath ? (
+          <>
+            <header className="main-head">
+              <MenuButton />
+              <Crumbs path={openPath} />
+              <span className="spacer" />
+              <SearchButton />
+              <ThemeToggle />
+            </header>
+            <TooLargeNote note={large} />
           </>
         ) : openPath && ready === openPath ? (
           <Suspense fallback={<div className="empty">{t('common.loading')}</div>}>
@@ -656,7 +731,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               onMoved={(to, report) => { setOpenPath(to); if (report && moveNotice(report)) setMoveIssue(report); void loadTree() }}
               onMovedOutside={movedOutside}
               onMoveStarted={moveStarted}
-              onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
+              onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree(); if (t.by !== null) void othersTrash(t) }}
+              onGone={(why) => { const from = openPath; setOpenPath(null); setGoneAway({ path: from, why }); void loadTree() }}
+              initialLevel={readyLevel}
+              rescue={<RescueBanner user={user} onCreated={created} />}
               templates={templates}
               onCreated={created}
               onPickCandidate={(offer) => { setPinOffer(offer); setOpenPath(offer.target) }}
@@ -699,57 +777,75 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </div>
           </>
         )}
-        {arrived && view !== 'alerts' && (
-          <NoticeToast notices={arrived} onSee={() => { setArrived(null); setNavOpen(false); showAlerts() }} onDismiss={() => setArrived(null)} />
-        )}
-        {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
-        {outsideMove && outsideMove.to === openPath && (
-          <div className="toast">
-            <span className="toast-icon">{Icon.rename}</span>
-            <span className="toast-text" role="status">
-              {t('movedOutside.done', { name: baseName(outsideMove.from).replace(/\.md$/i, ''), to: shellLabels.label(outsideMove.to) })}
-              {outsideMove.links ? ` ${t(outsideMove.links === 1 ? 'movedOutside.linksOne' : 'movedOutside.links', { n: outsideMove.links })}` : ''}
-            </span>
-            {!!outsideMove.links && <Button className="btn" onPress={() => { setOutsideMove(null); showAlerts() }}>{t('movedOutside.review')}</Button>}
-            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setOutsideMove(null)}>{Icon.close}</Button>
-          </div>
-        )}
-        {folderIssue && (
-          <div className="toast toast-warn">
-            <span className="toast-icon">{Icon.alert}</span>
-            <span className="toast-text" role="alert">{[
-              folderIssue.failed.length > 0 && t('folder.partial', { name: baseName(folderIssue.to), notes: folderIssue.failed.map((f) => baseName(f.path).replace(/\.md$/i, '')).join(', ') }),
-              shiftedNotice(t, baseName(folderIssue.to), folderIssue.shifted),
-            ].filter(Boolean).join(' ')}</span>
-            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setFolderIssue(null)}>{Icon.close}</Button>
-          </div>
-        )}
-        {jobIssue && (
-          <div className="toast toast-warn">
-            <span className="toast-icon">{Icon.alert}</span>
-            <span className="toast-text" role="alert">{jobIssue}</span>
-            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setJobIssue(null)}>{Icon.close}</Button>
-          </div>
-        )}
-        {moveJob && <MoveProgress key={moveJob.id} job={moveJob} onFinished={(end) => moveEnded(moveJob, end)} />}
-        {pinOffer && pinOffer.target === openPath && (
-          <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
-        )}
-        {restored && <RestoreToast key={restored.seq} report={restored.report} onDismiss={() => setRestored(null)} />}
-        {trashed && (
-          <TrashToast
-            key={trashed.id}
-            trashed={trashed}
-            canPurge={historyStatus?.mode === 'managed' && (admin || managesFolder((f) => locks?.get(f)?.level, noteFolder(trashed.path)))}
-            onRestored={(path) => {
-              if (trashed.folder) setExpanded((e) => new Set([...e, ...ancestors(path), path]))
-              else setOpenPath(path)
-              setTrashed(null)
-              void loadTree()
-            }}
-            onDismiss={() => setTrashed(null)}
-          />
-        )}
+        {/* The toasts, one above the other: a notice that comes in live never covers another. */}
+        <div className="toasts">
+          {arrived && view !== 'alerts' && (
+            <NoticeToast notices={arrived} onSee={() => { setArrived(null); setNavOpen(false); showAlerts() }} onDismiss={() => setArrived(null)} />
+          )}
+          {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
+          {outsideMove && outsideMove.to === openPath && (
+            <div className="toast">
+              <span className="toast-icon">{Icon.rename}</span>
+              <span className="toast-text" role="status">
+                {t('movedOutside.done', { name: baseName(outsideMove.from).replace(/\.md$/i, ''), to: shellLabels.label(outsideMove.to) })}
+                {outsideMove.links ? ` ${t(outsideMove.links === 1 ? 'movedOutside.linksOne' : 'movedOutside.links', { n: outsideMove.links })}` : ''}
+              </span>
+              {!!outsideMove.links && <Button className="btn" onPress={() => { setOutsideMove(null); showAlerts() }}>{t('movedOutside.review')}</Button>}
+              <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setOutsideMove(null)}>{Icon.close}</Button>
+            </div>
+          )}
+          {folderIssue && (
+            <div className="toast toast-warn">
+              <span className="toast-icon">{Icon.alert}</span>
+              <span className="toast-text" role="alert">{[
+                folderIssue.failed.length > 0 && t('folder.partial', { name: baseName(folderIssue.to), notes: folderIssue.failed.map((f) => baseName(f.path).replace(/\.md$/i, '')).join(', ') }),
+                shiftedNotice(t, baseName(folderIssue.to), folderIssue.shifted),
+              ].filter(Boolean).join(' ')}</span>
+              <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setFolderIssue(null)}>{Icon.close}</Button>
+            </div>
+          )}
+          {jobIssue && (
+            <div className="toast toast-warn">
+              <span className="toast-icon">{Icon.alert}</span>
+              <span className="toast-text" role="alert">{jobIssue}</span>
+              <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setJobIssue(null)}>{Icon.close}</Button>
+            </div>
+          )}
+          {moveJob && <MoveProgress key={moveJob.id} job={moveJob} onFinished={(end) => moveEnded(moveJob, end)} />}
+          {zoneOffer && (
+            <TimeZoneToast saved={zoneOffer.saved} browser={zoneOffer.browser} onChanged={(p) => { setProfile(p); setZoneOffer(null) }} onDismiss={() => setZoneOffer(null)} />
+          )}
+          {pinOffer && pinOffer.target === openPath && (
+            <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
+          )}
+          {restored && <RestoreToast key={restored.seq} report={restored.report} onDismiss={() => setRestored(null)} />}
+          {spaceDeleted && (
+            <SpaceDeletedToast key={spaceDeleted.deleted} deleted={spaceDeleted.deleted} name={spaceDeleted.name}
+              onRestored={(root) => { setSpaceDeleted(null); setSideTab('folders'); setExpanded((e) => new Set([...e, root])); void loadTree() }}
+              onDismiss={() => setSpaceDeleted(null)} />
+          )}
+          {goneAway && !openPath && (
+            <div className="toast toast-warn">
+              <span className="toast-icon">{Icon.alert}</span>
+              <span className="toast-text" role="alert">{t(goneAway.why === 'movedAway' ? 'note.movedAway' : 'note.goneAway', { name: baseName(goneAway.path).replace(/\.md$/i, '') })}</span>
+              <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setGoneAway(null)}>{Icon.close}</Button>
+            </div>
+          )}
+          {trashed && (
+            <TrashToast
+              key={trashed.id}
+              trashed={trashed}
+              canPurge={historyStatus?.mode === 'managed' && (admin || managesFolder((f) => locks?.get(f)?.level, noteFolder(trashed.path)))}
+              onRestored={(path) => {
+                if (trashed.folder) setExpanded((e) => new Set([...e, ...ancestors(path), path]))
+                else setOpenPath(path)
+                setTrashed(null)
+                void loadTree()
+              }}
+              onDismiss={() => setTrashed(null)}
+            />
+          )}
+        </div>
       </main>
       <DismissGuardContext.Provider value={dismissGuard}>
       <ModalOverlay className="modal-overlay" isOpen={treeDialog !== null} onOpenChange={(o) => { if (!o && !dismissGuard.current?.()) closeTreeDialog() }} isDismissable>
@@ -816,10 +912,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             }} />
           )}
           {treeDialog?.kind === 'deleteSpace' && (
-            <DeleteSpaceDialog space={treeDialog.space} notes={notesUnder(treeDialog.space.path)} onClose={closeTreeDialog} onDeleted={() => {
+            <DeleteSpaceDialog space={treeDialog.space} notes={notesUnder(treeDialog.space.path)} onClose={closeTreeDialog} onDeleted={(deleted) => {
               const root = treeDialog.space.path
               closeTreeDialog()
               if (openPath?.startsWith(`${root}/`)) setOpenPath(null)
+              // «Undo», right away: the space back whole.
+              setSpaceDeleted({ deleted, name: treeDialog.space.name })
               void loadTree()
             }} />
           )}
@@ -853,6 +951,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           onMode={setPalette}
           onOpen={setOpenPath}
           onCreated={(p) => { setCreateIn(null); created(p) }}
+        />
+      )}
+      {choosingSeries && workspace && (
+        <ChooseSeriesDialog
+          series={workspace.daily}
+          onClose={() => setChoosingSeries(false)}
+          onChosen={(p) => { setProfile(p); setChoosingSeries(false); void openToday() }}
         />
       )}
       {prefsOpen && profile && (

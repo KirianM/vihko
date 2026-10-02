@@ -245,6 +245,40 @@ test("an unreadable subdirectory doesn't get its notes treated as deleted", { sk
   }
 })
 
+test("an unreadable note stops no scan: it stays as indexed, a new one isn't added, and both are reported until they can be read", { skip: process.getuid?.() === 0 }, () => {
+  const { notes, db, indexer } = setup('unreadable-note')
+  indexer.scan()
+  const known = 'hogar/Proxy.md'
+  const fresh = m.aNotePath('hogar')
+  const other = m.aNotePath(m.aFolder())
+  writeFileSync(join(notes, fresh), `# ${m.aSentence()}\n`)
+  mkdirSync(join(notes, dirname(other)), { recursive: true })
+  writeFileSync(join(notes, other), `# ${m.aSentence()}\n`)
+  // Changed (so the scan reads it again) and then unreadable.
+  writeFileSync(join(notes, known), `# ${m.aSentence()}\n`)
+  chmodSync(join(notes, known), 0o000)
+  chmodSync(join(notes, fresh), 0o000)
+  const has = (p: string) => db.prepare('select 1 from notes where path = ?').get(p) !== undefined
+  try {
+    const r = indexer.scan()
+    assert.equal(r.aborted, null)
+    assert.ok(has(known), 'the note it had stays')
+    assert.ok(!has(fresh), 'a note it never read is not added')
+    assert.ok(has(other), 'the rest of the scan went on')
+    assert.ok(!r.removed.includes(known))
+    assert.deepEqual(indexer.unreadableNotes(), [known, fresh].sort())
+    // Reindexed by path (the watcher's way): the same.
+    assert.equal(indexer.indexPaths([known, fresh]).removed.length, 0)
+    assert.deepEqual(indexer.unreadableNotes(), [known, fresh].sort())
+  } finally {
+    chmodSync(join(notes, known), 0o644)
+    chmodSync(join(notes, fresh), 0o644)
+  }
+  indexer.scan()
+  assert.ok(has(fresh))
+  assert.deepEqual(indexer.unreadableNotes(), [])
+})
+
 test('a schema version change rebuilds the index', () => {
   const file = join(tmp('schema'), 'index.db')
   const raw = new Database(file)

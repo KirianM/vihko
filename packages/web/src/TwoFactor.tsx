@@ -242,21 +242,46 @@ export function SecondStepForm({ step, onDone, onRestart }: { step: SecondStep; 
   )
 }
 
-/** What confirms a new key or OAuth client for this person: `code` or `password` (null while it's asked). */
-export function useConfirmWith(): 'code' | 'password' | null {
-  const [how, setHow] = useState<'code' | 'password' | null>(null)
+/**
+ * What confirms at the moment, for this person, now: `code` or `password`;
+ * `none` while a confirmation of this browser session lasts (the server's
+ * window: nothing is asked, and nothing is sent); null while it's asked.
+ * When the window ends, it says what to ask for again.
+ */
+export type ConfirmHow = 'code' | 'password' | 'none' | null
+
+/** Ends the window this long before the server says, so that a clock a little ahead never sends an action unconfirmed. */
+const WINDOW_MARGIN_MS = 30_000
+
+export function useConfirmWith(): ConfirmHow {
+  const [info, setInfo] = useState<{ how: 'code' | 'password'; until: number | null } | null>(null)
+  const [, setTick] = useState(0)
   useEffect(() => {
     let live = true
-    api.twoFactor().then((r) => { if (live) setHow(r.confirmWith) }, () => { if (live) setHow('password') })
+    api.twoFactor().then(
+      (r) => { if (live) setInfo({ how: r.confirmWith, until: r.confirmNeeded || !r.confirmedUntil ? null : Date.parse(r.confirmedUntil) - WINDOW_MARGIN_MS }) },
+      () => { if (live) setInfo({ how: 'password', until: null }) },
+    )
     return () => { live = false }
   }, [])
-  return how
+  useEffect(() => {
+    if (info?.until == null) return
+    const left = info.until - Date.now()
+    if (left <= 0) return
+    const timer = setTimeout(() => setTick((n) => n + 1), left + 50)
+    return () => clearTimeout(timer)
+  }, [info])
+  if (!info) return null
+  return info.until !== null && Date.now() < info.until ? 'none' : info.how
 }
 
+/** Whether a confirmation can be sent now: inside the window nothing is needed; otherwise what was typed. */
+export const confirmReady = (how: ConfirmHow, secret: string) => how === 'none' || (how !== null && secret.trim() !== '')
+
 /** The confirmation at the moment (a session left open is not enough): the current code, or the password without a second factor. */
-export function ConfirmField({ how, value, onChange, hint }: { how: 'code' | 'password' | null; value: string; onChange: (v: string) => void; hint: string }) {
+export function ConfirmField({ how, value, onChange, hint }: { how: ConfirmHow; value: string; onChange: (v: string) => void; hint: string }) {
   const t = useT()
-  if (how === null) return null
+  if (how === null || how === 'none') return null
   if (how === 'code') return <CodeField name="confirm" label={t('twofa.confirmCode')} hint={hint} value={value} onChange={onChange} />
   return (
     <TextField className="field" name="confirm" type="password" isRequired value={value} onChange={onChange} autoComplete="current-password">

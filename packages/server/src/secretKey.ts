@@ -5,7 +5,9 @@
 // - The key is given in the environment (VIHKO_SECRET_KEY) or, for a Docker
 //   secret, in a file (VIHKO_SECRET_KEY_FILE). It's never written to disk or
 //   to the logs, and it's taken out of the process's environment once read
-//   (nothing vihko runs inherits it).
+//   (nothing vihko runs inherits it). That doesn't take it out of what the
+//   host sees of the container (`docker inspect`, the environment the
+//   process started with): the guide recommends the file.
 // - AES-256-GCM, with a key derived from it by HKDF-SHA-256 and a random
 //   nonce for each secret; the user's id is the additional data, so a secret
 //   copied to another user's row doesn't open.

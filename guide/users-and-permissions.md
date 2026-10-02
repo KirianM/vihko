@@ -161,6 +161,17 @@ with a neighbour who isn't a member, say), but never take someone away from a
 subfolder they reach from above: the dialog shows those rows as «Through
 <folder>», without a way to remove them there.
 
+A member of a shared space can only be raised in a subfolder: the share
+dialog offers them only the levels above the one they have in the whole
+space (someone who reads Home may edit `recipes/`). When their level in the
+space goes up, a grant below that no longer raises them goes by itself, and
+taking someone out of the space takes their grants below it too, as leaving
+does.
+
+Sharing a folder doesn't share its past: whoever you share it with (or add to
+a space, or to a group) sees its history and its trash from that moment on,
+not what was written or deleted there before.
+
 So what someone shouldn't see goes somewhere else: another folder of your own
 space, or another shared space. This is on purpose. Where you can create a
 note, you see everything around it, and nothing hidden there can get in your
@@ -217,8 +228,15 @@ for the others, and someone who manages it has to add you again to come back.
 ### Delete a space
 
 The space's menu → **Delete space…** (it takes `manage`). Its notes go to the
-trash, and only the people who managed it can restore them. Its members stop
-seeing it at once.
+trash, and its members stop seeing it at once; they get a notice. **Undo**,
+right after, brings it back whole; later, so does **Restore space** in the
+notice its managers get (and, for the admin, in «Spaces»): its folders, its
+notes and its members with their levels, as they were. Only under its own
+name: while another space has it, it can't come back.
+
+A deleted or renamed space's name stays taken while its trash or its history
+holds anything, so that a new space with that name never inherits them. It's
+free again once the retention or a purge empties that past.
 
 ### A shared space's notes
 
@@ -233,9 +251,7 @@ templates of its own, its photos in one folder, and a guide that tells
 assistants where things go.
 
 1. Make what the settings will point to: in «Family», a folder `Templates`
-   with a note `Shopping` in it (`# {{title}}` and the usual headings), and a
-   note `About this space` with what an assistant should know («Recipes go
-   in Recipes, one note each»).
+   with a note `Shopping` in it (`# {{title}}` and the usual headings).
 2. Open the menu of the folder `Templates` → **Mark notes as templates…** →
    **Mark as templates**: its notes, «Shopping» and any you add later by the
    same means, are now templates (see [Templates](notes.md#templates)).
@@ -245,7 +261,9 @@ assistants where things go.
    `Shopping`, Note name `{GGGG}-W{WW}` (one per week), Template
    `Templates/Shopping`.
 5. **New images** → **All in one folder**, **Folder of images**: `Photos`.
-6. **Guide for agents (a note)**: `About this space`.
+6. **Guide for agents**: what an assistant should know, for example
+   «Recipes go in Recipes, one note each». It's kept in the space's
+   settings, not in a note, so only the space's managers change it.
 7. Press **Save**.
 
 What the members get:
@@ -260,9 +278,9 @@ What the members get:
   template» when they make a note, anywhere.
 - **Images** pasted into any note of Family go to «Family / Photos». Images
   of their own notes don't change.
-- **Their agents** get «About this space» when they connect, for what they
-  do in Family. If that note doesn't exist (say it was renamed), saving the
-  settings says so, and the space's managers get an alert until it's back.
+- **Their agents** get that guide when they connect, for what they do in
+  Family. A member who edits Family's notes can't change it: only its
+  managers, in «Settings…».
 
 The settings are saved in a hidden file of the space
 (`spaces/Family/.vihko/settings.yaml` on the server); members never see it,
@@ -277,7 +295,7 @@ themselves. Nothing replaces anything, except for images:
 
 | Setting | What a person gets |
 |---|---|
-| Daily note series | All of them: their own, those of the spaces where they can edit, and the installation's, in that order. They choose one in Preferences; until they do, «Today's note» opens the first, and the first one it opens stays their choice |
+| Daily note series | All of them: their own, those of the spaces where they can edit, and the installation's, in that order. They choose one in Preferences; until they do, «Today's note» opens the first, and the first one it opens stays their choice. Two series that write the same notes are one, the closest (theirs, then a space's), with its template. If their choice goes away, «Today's note» asks again |
 | Templates | Not a setting: every note marked `template: true` they can read, in any space |
 | Where a new image goes | The setting of **the note's space**, if it has one; otherwise the installation's. Never someone else's |
 | Guide for agents | All of them, one after another: the installation's, then each space's, then their own |
@@ -410,8 +428,10 @@ send it yourself over a channel you trust.
 
 1. Go to Preferences → Users and groups → **New user**.
 2. Type a username and choose a role. The username is 2 to 64 letters,
-   digits, `.`, `_` or `-`, doesn't start with a dot, and can't be changed
-   later: it's also the name of their folder, `people/<username>/`. Names are
+   digits, `.`, `_` or `-`, doesn't start with a dot, and can only be changed
+   while their invitation is unused (the user's «Actions» → **Rename…**: their
+   folder and what's shared with them follow): it's also the name of their
+   folder, `people/<username>/`. Names are
    unique ignoring case (`Noa` and `noa` are the same person). A new admin,
    like making someone admin, asks you to confirm at the moment (see
    [Confirming at the moment](#confirming-at-the-moment)), and the other
@@ -432,7 +452,9 @@ required, they set it up right there.
 - If a folder with that name already exists in `people/` with something in it
   (put there from outside vihko), the user isn't created
   (`personal_folder_exists`): move that folder away first, or choose another
-  name. An empty one is simply theirs.
+  name. An empty one is simply theirs. If it is theirs (their account was
+  lost with `state.db`, say), **Adopt their folder** creates them with it, as
+  it is; `vihko user create <name> --adopt` does the same.
 
 ### From the command line
 
@@ -466,8 +488,12 @@ both password and phone. `reset-link` prints the full link when
   default, uses your browser's language. Your choice is saved in your
   account.
 - **Changing your password:** Preferences → Account → Password. It asks for the
-  current one, signs out your other sessions, and ends any reset link made for
-  you.
+  current one and ends any reset link made for you. Unless you untick «Also
+  sign out other sessions and revoke keys and authorised apps», it signs out
+  your other sessions and revokes your agent keys and the apps you authorised:
+  whatever got in with the old password is out.
+- **Keys and apps:** every key made, or app authorised, on your account
+  leaves you a notice, even when you did it yourself.
 - **Sessions:** Account lists the browsers you're signed in from. A session
   unused for 30 days expires. You can sign out any of them, or all the others.
 - **A forgotten password:** the admin makes a reset link (the user's
@@ -501,10 +527,14 @@ manages it, and how many members it has. Never what's inside.
 
 - **Assign a manager** to a space that has none (its last manager left, or
   nobody was ever given access). The person and the other admins are told.
-- **Join** a space, as one more member, at a level the admin chooses (`read`
-  by default). It's confirmed at the moment, the space's managers and the
-  other admins are told, and the admin shows up in its member list. That is the only way for an
-  admin to see what's inside a space that isn't theirs.
+- **Join** a space without managers (all of them disabled, or none left), to
+  rescue it, as one more member at a level the admin chooses (`read` by
+  default). It's confirmed at the moment, its members and the other admins are
+  told, and the admin shows up in its member list. A space with managers is
+  theirs: only they add people, the admin included, so the admin never sees
+  inside a space they weren't invited to.
+- **Restore a deleted space** whole (the admin sees every one, under «Deleted
+  spaces»), without gaining access to it.
 - **Who can create spaces**: everyone (the default) or admins only.
 - The page also shows what is in the notes folder outside every space, and
   the spaces of deleted people (below).
@@ -531,13 +561,14 @@ Both are in the user's «Actions» menu.
 - The account goes: sessions, links, profile, group memberships, second factor
   and notices. Their keys are revoked for good (they stay listed as revoked).
 - Their grants are removed from `vihko.yaml`.
-- **Their space closes**: nobody sees it, the admin neither, and the folders
-  they shared stop being seen by whoever received them. The delete dialog
-  says how many shared folders and how many people that is, and asks what
+- **Their space closes**: nobody sees it, the admin neither, but the folders
+  they shared stay shared, as they were, until the admin decides what becomes
+  of it. The delete dialog lists who has access to what, and asks what
   becomes of the space: **decide later** (the default), **transfer it** to
   someone, or **make it a shared space**, with the same choices and counts as
   below. Transferring or converting it right there is confirmed at the moment
-  with the admin's code or password, before the person is deleted.
+  with the admin's code or password, before the person is deleted. Deleting
+  the space later tells whoever still had a folder of it.
 - Their notes stay on disk, and the history still says what they wrote, under
   their name.
 - **Their username is reserved**: nobody else can take it, so a newcomer
@@ -565,6 +596,28 @@ Links to notes in it, from anywhere, are rewritten to the new place. The
 person who receives it, and the other admins, are told.
 
 The last active admin can't be disabled, deleted or lose the admin role.
+
+### Someone leaving with their notes
+
+vihko has no export yet. It doesn't need one to let someone take their
+notes: they are plain Markdown files, in folders, on the server's disk.
+
+- **Their own space** is the folder `notes/people/<username>/`. Whoever
+  administers the server copies it (with `cp -a`, `rsync`, or a zip of it)
+  and hands it over: the notes, their images and other files, and their
+  settings (`.vihko/settings.yaml`). Any Markdown editor opens it; in
+  Obsidian, open the folder as a vault, and the links by name work as they
+  did in vihko.
+- **What they wrote in a shared space** is the space's, its members'. Copy
+  only what the space's members agree to, from `notes/spaces/<name>/`.
+- **The history** of their notes isn't in those files. A note's earlier
+  versions can be copied one by one from its History; for all of it, the
+  admin can read the history's git repository
+  ([History](history.md)).
+
+Then disable or delete the account as above. Deleting doesn't remove the
+files from the disk unless the admin chooses **Delete…** for the closed
+space.
 
 ## Changing roles
 
@@ -598,6 +651,13 @@ decides. Whoever could have made that move from vihko (`edit` where they were
 and where they are) gets an alert with «Release them»; the notes go back to
 normal by themselves if they're moved back. A folder with held notes inside
 can't be deleted until they're released.
+
+**Only whoever moved them can release them**, in practice: the alert, and
+«Release them», go only to someone with `edit` both where the notes were and
+where they are now. A manager of the folder they landed in who couldn't edit
+where they came from doesn't get it, and can't delete that folder meanwhile:
+ask whoever moved them to release them, or move them back with the same
+program.
 
 Grants in `vihko.yaml` for a folder that no longer exists are kept, and apply
 again if the folder comes back; whoever manages its space gets an alert. Moves
@@ -688,6 +748,14 @@ app's code, or your password if you have no second factor.
   [retention](operations.md#retention), or running it now.
 
 A session left open on someone's computer isn't enough to do any of these.
+
+A confirmation lasts **15 minutes in that browser**: the current code, a
+recovery code, your password (without a second factor), or signing in with
+your code. Meanwhile these actions don't ask again, and their dialogs show no
+field for it; after that, they ask as before. It's only that browser's
+session: another browser, an agent key or an app authorized with OAuth never
+skips a confirmation. Signing out, changing your password, and turning your
+second factor off (or an admin resetting it) end it at once.
 
 Agent keys never ask for a second factor: they're separate credentials, made
 from a session that already passed it, and you can revoke them.

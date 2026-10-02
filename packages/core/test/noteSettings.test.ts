@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { EMPTY_NOTE_SETTINGS, NOTE_SETTINGS_VERSION, NoteSettingsFileError, noteSettingsPath, parseNoteSettings, resolveNoteSettings, writeNoteSettings, type NoteSettings } from '@vihko/core'
+import { EMPTY_NOTE_SETTINGS, MAX_SPACE_GUIDE, NOTE_SETTINGS_VERSION, NoteSettingsFileError, noteSettingsPath, parseNoteSettings, resolveNoteSettings, writeNoteSettings, type NoteSettings } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -13,7 +13,13 @@ function aSettings(): NoteSettings {
     daily: [{ id: m.anId(), label: m.aHeading(), folder: `${folder}/{YYYY}`, name: '{YYYY}-{MM}-{DD}', template: `${m.aFolder()}/${m.aTitle()}.md` }],
     attachments: { mode: 'folder', folder: m.aFolder() },
     agents: `${m.aTitle()}.md`,
+    guide: null,
   }
+}
+
+/** A shared space's settings: its guide is text, never a note. */
+function aSpaceSettings(): NoteSettings {
+  return { ...aSettings(), agents: null, guide: `${m.aSentence()}\n\n- ${m.aSentence()}\n- ${m.aSentence()}` }
 }
 
 test('note settings: the file of a space, where it is', () => {
@@ -81,4 +87,25 @@ test('note settings: resolved inside the space, each series with its own id', ()
   assert.deepEqual(r.attachments, { folder: (s.attachments as { folder: string }).folder })
   assert.equal(r.agents, `${root}/${s.agents}`)
   assert.deepEqual(resolveNoteSettings({ ...s, attachments: { mode: 'per-note', suffix: '.files' } }, root, '').attachments, { folder: null, perNote: '.files' })
+})
+
+test('note settings: a shared space\'s guide for agents is its text, in the file; a note named there is said, with the note, and doesn\'t apply', () => {
+  const s = aSpaceSettings()
+  const text = writeNoteSettings(null, s, 'shared')
+  assert.deepEqual(parseNoteSettings(text, 'shared'), { settings: s, errors: [] })
+  const root = `spaces/${m.aSpaceName()}`
+  assert.deepEqual([resolveNoteSettings(s, root, 'sp-').guide, resolveNoteSettings(s, root, 'sp-').agents], [s.guide, null])
+  // A space's settings written before: `agents` names a note, which no longer counts.
+  const note = m.aTitle()
+  const old = parseNoteSettings(`version: 1\nagents: ${JSON.stringify(note)}\n`, 'shared')
+  assert.deepEqual([old.settings.agents, old.settings.guide], [null, null])
+  assert.deepEqual(old.errors.map((e) => [e.code, e.at, e.detail]), [['space_guide_note', 'agents', note]])
+  // Saving the form (no note, the text) writes over it.
+  const saved = parseNoteSettings(writeNoteSettings(`version: 1\nagents: ${JSON.stringify(note)}\n`, { ...old.settings, guide: s.guide }, 'shared'), 'shared')
+  assert.deepEqual([saved.settings.guide, saved.errors], [s.guide, []])
+  // A person's guide is a note: `guide` means nothing there.
+  assert.deepEqual(parseNoteSettings(text, 'personal').errors.map((e) => [e.code, e.at]), [['unknown_key', 'guide']])
+  // Too long, or not text.
+  assert.equal(parseNoteSettings(`guide: ${JSON.stringify('x'.repeat(MAX_SPACE_GUIDE + 1))}\n`, 'shared').errors[0]?.code, 'invalid_value')
+  assert.equal(parseNoteSettings('guide: 7\n', 'shared').errors[0]?.code, 'invalid_type')
 })

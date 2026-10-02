@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { TwoFactor, base32Decode, base32Encode, hotp, openState, qrCode, qrModules, totp, type SetupData } from '@vihko/server'
+import { CONFIRM_WINDOW_MS, MAX_CODE_TRIES, TwoFactor, base32Decode, base32Encode, hotp, openState, qrCode, qrModules, totp, type SetupData } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 import { join } from 'node:path'
@@ -220,7 +220,7 @@ test('two steps: the password gives a pending sign-in, and a TOTP code or a reco
   try {
     const { username, password } = h.users.admin
     // «Account» asks for the password to set it up; a wrong one gets nothing.
-    assert.deepEqual((await h.admin('GET', '/api/account/2fa')).body, { policy: 'optional', enabled: false, enabledAt: null, recoveryCodesLeft: 0, confirmWith: 'password' })
+    assert.deepEqual((await h.admin('GET', '/api/account/2fa')).body, { policy: 'optional', enabled: false, enabledAt: null, recoveryCodesLeft: 0, confirmWith: 'password', confirmNeeded: true, confirmedUntil: null })
     const wrong = await h.admin('POST', '/api/account/2fa/setup', { password: m.aPassword() })
     assert.deepEqual([wrong.status, wrong.body.error], [403, 'wrong_password'])
     const setupData = (await h.admin('POST', '/api/account/2fa/setup', { password })).body
@@ -332,6 +332,25 @@ test('limits: wrong codes count, a right password does not clear them, and a suc
   } finally { await h.close() }
 })
 
+test('a pending sign-in ends after a few wrong codes: the password again', async () => {
+  const h = await setup()
+  try {
+    const { secret } = await enable(h, 'member')
+    nextStep(h)
+    const pending = (await signIn(h, 'member')).body.pending
+    for (let i = 0; i < MAX_CODE_TRIES; i++) {
+      const r = await send(h.app, 'POST', '/api/auth/login/code', { pending, code: '000000' })
+      assert.deepEqual([r.status, r.body.error], [401, 'invalid_code'], `wrong code ${i + 1}`)
+    }
+    const right = await send(h.app, 'POST', '/api/auth/login/code', { pending, code: totp(secret, h.clock.now.getTime()) })
+    assert.deepEqual([right.status, right.body.error], [401, 'login_expired'], 'not even with the right code')
+    // The password again gives another: the right code then works.
+    const again = (await signIn(h, 'member')).body.pending
+    const ok = await send(h.app, 'POST', '/api/auth/login/code', { pending: again, code: totp(secret, h.clock.now.getTime()) })
+    assert.equal(ok.status, 200)
+  } finally { await h.close() }
+})
+
 test('the policy: a change is confirmed; required makes whoever has none set it up at sign-in; disabled only stops new ones', async () => {
   const h = await setup()
   try {
@@ -379,7 +398,7 @@ test('the policy: a change is confirmed; required makes whoever has none set it 
     assert.equal((await signIn(h, 'admin')).body.step, 'code', 'still asked for')
     assert.equal((await h.member('POST', '/api/account/2fa/setup', { password: h.users.member.password })).body.error, 'two_factor_disabled', 'not offered to anyone new')
     assert.equal((await signIn(h, 'member')).body.user.username, member)
-    assert.deepEqual((await h.admin('GET', '/api/account/2fa')).body, { policy: 'disabled', enabled: true, enabledAt: since, recoveryCodesLeft: 10, confirmWith: 'code' })
+    assert.deepEqual((await h.admin('GET', '/api/account/2fa')).body, { policy: 'disabled', enabled: true, enabledAt: since, recoveryCodesLeft: 10, confirmWith: 'code', confirmNeeded: true, confirmedUntil: null })
     nextStep(h)
     assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName(), confirm: totp(secret, h.clock.now.getTime()) })).status, 201, 'keys confirm with the code')
     // Who has one may change the app (with a code of it: here, a recovery code), and turn it off: then it isn't offered again.
@@ -473,6 +492,78 @@ test('confirming at the moment: creating or rotating a key and approving an OAut
   } finally { await h.close() }
 })
 
+test('a confirmation lasts 15 minutes for its browser session: what would ask doesn\'t, then it asks again', async () => {
+  const h = await setup({ confirmWindowMs: CONFIRM_WINDOW_MS })
+  try {
+    const password = h.users.admin.password
+    const status = async (as = h.admin) => (await as('GET', '/api/account/2fa')).body as { confirmNeeded: boolean; confirmedUntil: string | null }
+    assert.deepEqual(await status(), { ...(await status()), confirmNeeded: true, confirmedUntil: null })
+    // A wrong password opens nothing.
+    assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName(), confirm: m.aPassword() })).body.error, 'wrong_password')
+    assert.equal((await status()).confirmNeeded, true)
+    assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName(), confirm: password })).status, 201)
+    const opened = h.clock.now.getTime()
+    assert.deepEqual(await status(), { ...(await status()), confirmNeeded: false, confirmedUntil: new Date(opened + CONFIRM_WINDOW_MS).toISOString() })
+    // Inside it: another key, a reset link, without anything to confirm with.
+    h.clock.now = new Date(opened + CONFIRM_WINDOW_MS - 1000)
+    assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName() })).status, 201)
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.users.member.id}/link`, {})).status, 200)
+    // Another browser session of the same person isn't confirmed by it.
+    const other = (await signIn(h, 'admin')).cookie!
+    const elsewhere = await send(h.app, 'POST', '/api/keys', { name: m.aKeyName() }, { cookie: other })
+    assert.deepEqual([elsewhere.status, elsewhere.body.error], [400, 'confirmation_required'])
+    // After it, it asks again; the time doesn't grow with each use.
+    h.clock.now = new Date(opened + CONFIRM_WINDOW_MS)
+    assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName() })).body.error, 'confirmation_required')
+    assert.equal((await status()).confirmNeeded, true)
+  } finally { await h.close() }
+})
+
+test('a sign-in with a code opens the window; a new password, the second factor off or reset, or signing out end it; a key never has one', async () => {
+  const h = await setup({ confirmWindowMs: CONFIRM_WINDOW_MS })
+  try {
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true, api: true })).status, 200)
+    const { secret } = await enable(h, 'member')
+    nextStep(h)
+    const pending = (await signIn(h, 'member')).body.pending
+    const signedIn = await send(h.app, 'POST', '/api/auth/login/code', { pending, code: totp(secret, h.clock.now.getTime()) })
+    const cookie = signedIn.cookie!
+    const as = (method: string, path: string, body?: unknown) => send(h.app, method, path, body, { cookie })
+    const created = await as('POST', '/api/keys', { name: m.aKeyName() })
+    assert.equal(created.status, 201, 'the code of the sign-in confirmed it')
+    assert.equal((await as('POST', '/api/account/2fa/recovery', {})).body.recoveryCodes.length, 10, 'new recovery codes too')
+    // A key can't confirm, nor use its person's window: the routes that confirm aren't a key's.
+    assert.equal((await h.withKey(created.body.token)('POST', '/api/keys', { name: m.aKeyName() })).status, 404)
+    // The admin resets their second factor: the window ends with it.
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.users.member.id}/2fa/reset`, { confirm: h.users.admin.password })).status, 200)
+    assert.equal((await as('POST', '/api/keys', { name: m.aKeyName() })).body.error, 'confirmation_required')
+    // With the password (no second factor now): open again, then a new password ends it.
+    assert.equal((await as('POST', '/api/keys', { name: m.aKeyName(), confirm: h.users.member.password })).status, 201)
+    assert.equal((await as('POST', '/api/keys', { name: m.aKeyName() })).status, 201)
+    const fresh = m.aPassword()
+    assert.equal((await as('POST', '/api/auth/password', { current: h.users.member.password, password: fresh })).status, 200)
+    assert.equal((await as('POST', '/api/keys', { name: m.aKeyName() })).body.error, 'confirmation_required')
+    // Open again, then signing out: the window goes with the session.
+    assert.equal((await as('POST', '/api/keys', { name: m.aKeyName(), confirm: fresh })).status, 201)
+    assert.equal((await as('POST', '/api/auth/logout', {})).status, 200)
+    const again = await send(h.app, 'POST', '/api/auth/login', { username: h.users.member.username, password: fresh })
+    assert.equal((await send(h.app, 'POST', '/api/keys', { name: m.aKeyName() }, { cookie: again.cookie! })).body.error, 'confirmation_required', 'a sign-in with the password alone confirms nothing')
+  } finally { await h.close() }
+})
+
+test('turning one\'s own second factor off ends the window', async () => {
+  const h = await setup({ confirmWindowMs: CONFIRM_WINDOW_MS })
+  try {
+    const { secret } = await enable(h, 'admin')
+    nextStep(h)
+    assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName(), confirm: totp(secret, h.clock.now.getTime()) })).status, 201)
+    assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName() })).status, 201)
+    nextStep(h)
+    assert.equal((await h.admin('POST', '/api/account/2fa/disable', { code: totp(secret, h.clock.now.getTime()) })).status, 200)
+    assert.equal((await h.admin('POST', '/api/keys', { name: m.aKeyName() })).body.error, 'confirmation_required')
+  } finally { await h.close() }
+})
+
 test('confirming counts in the login limits: guessing the code with a session left open soon waits', async () => {
   const h = await setup()
   try {
@@ -539,8 +630,8 @@ test('deleting a user takes their second factor with them', async () => {
   const h = await setup()
   try {
     await enable(h, 'member')
-    await h.admin('POST', `/api/admin/users/${h.users.member.id}/disable`)
-    await h.admin('DELETE', `/api/admin/users/${h.users.member.id}`)
+    await h.admin('POST', `/api/admin/users/${h.users.member.id}/disable`, { confirm: h.users.admin.password })
+    await h.admin('DELETE', `/api/admin/users/${h.users.member.id}`, { confirm: h.users.admin.password })
     for (const t of ['two_factor', 'recovery_codes']) assert.equal((h.auth.state.prepare(`select count(*) n from ${t} where user_id = ?`).get(h.users.member.id) as { n: number }).n, 0, t)
   } finally { await h.close() }
 })

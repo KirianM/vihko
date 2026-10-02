@@ -1,7 +1,8 @@
 // Note settings of a person and of a shared space: one's own, edited from
 // Preferences, give a daily-note series in one's own space, used by «Today»
 // (its template, marked as one, offered by «New note» too); a space's, edited by its managers
-// from the space's menu, decide where its new images go. A member who
+// from the space's menu, decide where its new images go and hold its guide
+// for agents (text, never a note). A member who
 // doesn't manage the space reads them (to apply them) but can't change them,
 // and isn't offered the menu entry. A hand edit with a mistake is an alert to
 // whom the file belongs, never to anyone else.
@@ -45,7 +46,7 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async () => {
   const { notes } = await (await k.request.get('/api/tree')).json() as { notes: { path: string }[] }
   for (const n of notes) if (n.path.startsWith(`${MINE}/${JOURNAL}/`) || n.path.startsWith(`${PROBE_DIR}/`)) await k.request.delete(`/api/note?path=${encodeURIComponent(n.path)}`)
-  for (const dir of [`${MINE}/${JOURNAL}`, `${MINE}/${TEMPLATES}`, PROBE_DIR, `${SPACE}/${IMAGES}`]) rmSync(`${NOTES}/${dir}`, { recursive: true, force: true })
+  for (const dir of [`${MINE}/${JOURNAL}`, `${MINE}/${TEMPLATES}`, PROBE_DIR, `${SPACE}/${IMAGES}`]) rmSync(`${NOTES}/${dir}`, { recursive: true, force: true, maxRetries: 10 })
   for (const root of [MINE, personal(MEMBER), SPACE]) rmSync(settingsFile(root), { force: true })
   await k.context().close()
 })
@@ -138,6 +139,28 @@ test('a space\'s settings, by its manager from the space\'s menu: where its new 
   expect(up.ok(), await up.text()).toBe(true)
   expect(((await up.json()) as { path: string }).path.startsWith(`${SPACE}/${IMAGES}/`)).toBe(true)
 
+  // Its guide for agents is written here, by its managers: a note named as one (as before) is said, and saving moves to the text.
+  const oldNote = m.aTitle()
+  writeFileSync(settingsFile(SPACE), `${read(settingsFile(SPACE))}agents: ${JSON.stringify(oldNote)}\n`)
+  const guide = `${m.aSentence()}\n${m.aSentence()}`
+  await k.getByRole('button', { name: `Acciones de «${SPACE_NAME}»` }).click()
+  await k.getByRole('menuitem', { name: 'Ajustes…' }).click()
+  await expect(dialog.getByRole('alert')).toContainText(`la guía para agentes de un espacio ya no es una nota («${oldNote}»)`)
+  await expect(dialog.getByLabel('Guía para agentes (una nota)')).toHaveCount(0)
+  await dialog.getByRole('textbox', { name: 'Guía para agentes' }).fill(guide)
+  await expect(dialog).toContainText('Se guarda en los ajustes del espacio: solo la cambian sus gestores.')
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${SHOTS}/space-guide-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(dialog).toHaveCount(0)
+  const saved = read(settingsFile(SPACE))!
+  expect(saved).not.toContain('agents:')
+  expect(saved).toContain('guide: |')
+  for (const line of guide.split('\n')) expect(saved).toContain(line)
+
   // The member edits in the space but doesn't manage it: no «Settings…», and the API says so.
   const a = await signIn(browser, MEMBER)
   await a.getByRole('button', { name: `Acciones de «${SPACE_NAME}»` }).click()
@@ -201,4 +224,33 @@ test('a hand edit with a mistake is an alert to whom the file belongs, and to no
   await a.goto('/?view=alerts')
   await expect(a.getByText('Los ajustes de tus notas tienen algo mal')).toBeVisible()
   await a.context().close()
+})
+
+test('a key vihko doesn\'t know: the alert names the file it\'s in, opens the settings, and «Quitar» takes it out on saving', async () => {
+  const unknown = m.aUniqueWord()
+  const series = m.anId()
+  mkdirSync(`${NOTES}/${MINE}/.vihko`, { recursive: true })
+  writeFileSync(settingsFile(MINE), `version: 1\n${unknown}: ${m.aWord()}\ndaily:\n  ${series}:\n    folder: ${m.aFolder()}\n`)
+  await expect(async () => {
+    await k.goto('/?view=alerts')
+    await expect(k.locator('.alert-card', { hasText: 'Los ajustes de tus notas tienen algo mal' })).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 20_000 })
+  const card = k.locator('.alert-card', { hasText: 'Los ajustes de tus notas tienen algo mal' })
+  await expect(card.getByRole('listitem')).toHaveText(`en ~${ADMIN.username}/.vihko/settings.yaml: línea 2 · ${unknown} Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.`)
+  await card.getByRole('button', { name: 'Abrir los ajustes de tus notas' }).click()
+  const dialog = k.getByRole('dialog', { name: 'Ajustes de tus notas' })
+  await dialog.getByRole('button', { name: `Quitar ${unknown} del archivo` }).click()
+  await expect(dialog).toContainText('se quitará al guardar')
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${SHOTS}/settings-remove-key-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(dialog).toHaveCount(0)
+  const file = read(settingsFile(MINE))!
+  expect(file).not.toContain(unknown)
+  expect(file).toContain(series)
+  const codes = async () => ((await (await k.request.get('/api/alerts')).json()) as { alerts: { code: string }[] }).alerts.map((x) => x.code)
+  await expect.poll(codes).not.toContain('settings_invalid')
 })

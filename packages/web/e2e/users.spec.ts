@@ -92,6 +92,10 @@ test('the admin invites a member by link, the member joins in another browser, a
   await expect(confirm.getByRole('heading')).toHaveText(`¿Desactivar a ${NEWCOMER.username}?`)
   await expect(confirm).toContainText('Sus sesiones se cierran ahora mismo, también una nota que tenga abierta')
   await expect(confirm).toContainText('Sus claves de agente y las aplicaciones que autorizó dejan de funcionar')
+  await expect(confirm).toContainText('Los demás administradores reciben un aviso.')
+  // Confirmed at the moment, with the admin's own password.
+  await expect(confirm.getByRole('button', { name: 'Desactivar' })).toBeDisabled()
+  await confirm.getByLabel('Tu contraseña').fill(ADMIN.password)
   await admin.screenshot({ path: `${SHOTS}/users-disable.png`, animations: 'disabled' })
   await confirm.getByRole('button', { name: 'Desactivar' }).click()
   await expect(row(admin, NEWCOMER.username)).toContainText('Desactivado')
@@ -117,6 +121,9 @@ test('the admin invites a member by link, the member joins in another browser, a
   await expect(del.getByRole('heading')).toHaveText(`¿Borrar a ${NEWCOMER.username}?`)
   await expect(del).toContainText('no se puede deshacer')
   await expect(del).toContainText('el historial sigue diciendo qué escribió')
+  // Confirmed a moment ago (disabling them), in this browser: it doesn't ask again.
+  await expect(del.getByLabel('Tu contraseña')).toHaveCount(0)
+  await expect(del.getByRole('button', { name: 'Borrar para siempre' })).toBeEnabled()
   await del.getByRole('button', { name: 'Borrar para siempre' }).click()
   await expect(row(admin, NEWCOMER.username)).toHaveCount(0)
 
@@ -161,21 +168,24 @@ test('a new admin is confirmed at the moment: the dialog asks for the admin\'s p
   // Disabled, an admin comes back only confirmed at the moment too.
   const { users } = await (await admin.request.get('/api/admin/users')).json() as { users: { id: string; username: string }[] }
   const id = users.find((u) => u.username === LEAD.username)!.id
-  expect((await admin.request.post(`/api/admin/users/${id}/disable`)).status()).toBe(200)
-  await admin.reload()
-  await expect(row(admin, LEAD.username)).toContainText('Desactivado')
-  await row(admin, LEAD.username).getByRole('button', { name: `Acciones para ${LEAD.username}` }).click()
-  await admin.getByRole('menuitem', { name: 'Reactivar' }).click()
-  const enable = admin.getByRole('alertdialog')
+  expect((await admin.request.post(`/api/admin/users/${id}/disable`, { data: { confirm: ADMIN.password } })).status()).toBe(200)
+  // In a browser of its own: this one confirmed a moment ago, and wouldn't ask.
+  const fresh = await signIn(browser, ADMIN)
+  await openSettings(fresh, 'Usuarios y grupos', 'users')
+  await expect(row(fresh, LEAD.username)).toContainText('Desactivado')
+  await row(fresh, LEAD.username).getByRole('button', { name: `Acciones para ${LEAD.username}` }).click()
+  await fresh.getByRole('menuitem', { name: 'Reactivar' }).click()
+  const enable = fresh.getByRole('alertdialog')
   await expect(enable.getByRole('heading')).toHaveText(`¿Reactivar a ${LEAD.username}, que es administrador?`)
   await expect(enable.getByRole('button', { name: 'Reactivar' })).toBeDisabled()
   await enable.getByLabel('Tu contraseña').fill(ADMIN.password)
   await enable.getByRole('button', { name: 'Reactivar' }).click()
-  await expect(row(admin, LEAD.username)).toContainText('Invitación pendiente')
+  await expect(row(fresh, LEAD.username)).toContainText('Invitación pendiente')
+  await fresh.context().close()
 
   // Removed: disabled, then deleted.
-  expect((await admin.request.post(`/api/admin/users/${id}/disable`)).status()).toBe(200)
-  expect((await admin.request.delete(`/api/admin/users/${id}`)).status()).toBe(200)
+  expect((await admin.request.post(`/api/admin/users/${id}/disable`, { data: { confirm: ADMIN.password } })).status()).toBe(200)
+  expect((await admin.request.delete(`/api/admin/users/${id}`, { data: { confirm: ADMIN.password } })).status()).toBe(200)
   await admin.context().close()
 })
 

@@ -31,7 +31,7 @@ const NO_HISTORY: NoteHistory = {
   operation: (_a, _r, fn) => fn(),
 }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'control_characters' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'control_characters' | 'edit_mismatch' | 'too_large' | 'note_too_large' | 'unsupported_type' | 'not_configured' | 'not_empty' | 'series_gone'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
@@ -67,7 +67,11 @@ export interface HotDocuments {
    * it isn't open, or its file is gone.
    */
   text?(path: string): string | null
-  edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
+  /**
+   * `rebased`: `ifMatch` named a text the note had a moment ago, and the
+   * change was applied where nothing had changed since, in the text as it is now.
+   */
+  edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string; rebased?: boolean }>
   /**
    * The note is deleted: flush what is pending, close its sessions and never
    * flush it again. `run`, the deletion itself, runs with the note flushed and
@@ -112,6 +116,8 @@ export interface NoteServiceOptions {
   retries?: RelinkRetries
   /** A retry that failed again: given up, for whoever made the move to be told. */
   onRelinkGaveUp?: (entry: RelinkRetry, failed: MoveReport['failed']) => void
+  /** The largest note, in bytes (vihko.yaml `notes.maxSize`): a write that makes a note larger is refused. None by default. */
+  maxNoteBytes?: () => number
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -327,15 +333,20 @@ export interface TrashRestoreReport {
 /**
  * What a folder holds, by what deleting it means for each (paths relative to
  * it). `notes` and `files` can go to the trash with it (`files` includes
- * hidden files, such as `.keep`). `kept`: what vihko never touches, hidden
- * folders (`.git/`, `.obsidian/`, listed with a trailing `/`) and symbolic
- * links: while there is one, the folder stays. `junk`: the operating
+ * hidden files, such as `.keep`). `hidden`: hidden folders (`.git/`,
+ * `.obsidian/`, `.vihko/`, listed with a trailing `/`), which vihko doesn't
+ * show; they go to the trash with it too, every file in them
+ * (`hiddenFiles`), so whoever deletes the folder is told first. `kept`:
+ * symbolic links (or stranger), anywhere in it, which vihko never follows or
+ * removes: while there is one, the folder stays. `junk`: the operating
  * system's clutter (`.DS_Store`, `Thumbs.db`…), removed with the folder
  * without asking.
  */
 export interface FolderContents {
   notes: string[]
   files: string[]
+  hidden: string[]
+  hiddenFiles: string[]
   kept: string[]
   junk: string[]
 }
@@ -476,6 +487,11 @@ export class NoteService {
     return rows[0]!.path
   }
 
+  /** Whether a note is at `path` (on the disk, or open in an editor). */
+  exists(path: string): boolean {
+    return this.opts.hot?.has(path) === true || readText(this.file(path)) !== null
+  }
+
   read(path: string): NoteRead {
     const text = readText(this.file(path))
     if (text === null) throw new NoteError('not_found', `does not exist: ${path}`)
@@ -567,7 +583,17 @@ export class NoteService {
    * the note is created and the system rewrites that link so it keeps
    * leading where it did, without saying so.
    */
+  /** Unless a note's text fits the size limit (vihko.yaml `notes.maxSize`): `note_too_large`. */
+  checkSize(text: string): void {
+    const max = this.opts.maxNoteBytes?.()
+    // Never more than 3 bytes of UTF-8 per UTF-16 unit: a short text needs no counting.
+    if (max === undefined || text.length * 3 <= max) return
+    const bytes = Buffer.byteLength(text, 'utf8')
+    if (bytes > max) throw new NoteError('note_too_large', `the note would be ${bytes} bytes; notes are kept up to ${max} bytes here`)
+  }
+
   async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason; mayName?: (path: string) => boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
+    this.checkSize(text)
     const file = this.newFile(path)
     const taken = opts.mayName ? this.newNoteTakes(path, text, opts.mayName) : null
     if (taken?.refuse) throw nameTaken(path)
@@ -602,7 +628,14 @@ export class NoteService {
    * hasn't changed since it was read. If the note had no `uid`, it gets one in
    * this same write; if it had one, it's kept even if the new text omits it.
    */
-  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string }> {
+  async edit(path: string, given: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string; rebased?: boolean }> {
+    // A note never grows over the size limit by an edit (`note_too_large`); one already over it is never made larger.
+    const fn = (t: string): Change => {
+      const change = given(t)
+      const next = changedText(t, change)
+      if (next.length > t.length) this.checkSize(next)
+      return change
+    }
     // An alias the edit adds is a name the note takes, as when creating one.
     const mayName = opts.mayName
     if (mayName) {
@@ -619,7 +652,7 @@ export class NoteService {
     return this.editNow(path, fn, { ifMatch: opts.ifMatch, actor: opts.actor })
   }
 
-  private async editNow(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
+  private async editNow(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string; rebased?: boolean }> {
     const hot = this.opts.hot
     if (hot?.has(path)) return hot.edit(path, fn, opts)
     const file = this.file(path)
@@ -1204,20 +1237,22 @@ export class NoteService {
   folderContents(path: string): FolderContents {
     const dir = this.dir(path)
     if (!isDirectory(dir)) throw new NoteError('not_found', `no such folder: ${path}`)
-    const out: FolderContents = { notes: [], files: [], kept: [], junk: [] }
-    const visit = (rel: string) => {
+    const out: FolderContents = { notes: [], files: [], hidden: [], hiddenFiles: [], kept: [], junk: [] }
+    // `inHidden`: inside a hidden folder, where every file is the hidden folder's, whatever its name.
+    const visit = (rel: string, inHidden: boolean) => {
       for (const e of readdirSync(rel ? join(dir, rel) : dir, { withFileTypes: true })) {
         const r = rel ? `${rel}/${e.name}` : e.name
         if (e.isDirectory()) {
-          if (isIgnoredDir(e.name)) out.kept.push(`${r}/`)
-          else visit(r)
+          if (!inHidden && isIgnoredDir(e.name)) out.hidden.push(`${r}/`)
+          visit(r, inHidden || isIgnoredDir(e.name))
         } else if (!e.isFile()) out.kept.push(r) // a symbolic link (or stranger): never followed, never removed
+        else if (inHidden) out.hiddenFiles.push(r)
         else if (isJunk(e.name)) out.junk.push(r)
         else if (classifyPath(`${path}/${r}`) === 'note') out.notes.push(r)
         else out.files.push(r)
       }
     }
-    visit('')
+    visit('', false)
     for (const list of Object.values(out)) list.sort()
     return out
   }
@@ -1229,22 +1264,24 @@ export class NoteService {
    */
   deleteFolder(path: string, _actor: Actor): { path: string } {
     const c = this.folderContents(path)
-    if (c.notes.length || c.files.length || c.kept.length) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
+    if (c.notes.length || c.files.length || c.hidden.length || c.kept.length) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
     this.removeFolder(path, c.junk)
     return { path }
   }
 
   /**
-   * Deletes a folder with everything in it that vihko handles: each note goes
-   * to the trash as if deleted on its own (with its images, one entry each),
-   * then the other files left, hidden ones included, as one entry of files
-   * alone; then the folder, with its clutter. What vihko never touches
+   * Deletes a folder with everything in it: each note goes to the trash as if
+   * deleted on its own (with its images, one entry each), then the other
+   * files left, hidden ones and those of its hidden folders included, as one
+   * entry of files alone (restoring it brings them back where they were);
+   * then the folder, with its clutter. A symbolic link anywhere in it
    * (FolderContents `kept`) stops it before anything moves. `canWrite` is
-   * passed on to each note's deletion. One version in the history.
+   * passed on to each note's deletion. One version in the history (hidden
+   * files have none).
    */
   async trashFolder(path: string, actor: Actor, opts: { canWrite?: (path: string) => boolean; managers?: string[] } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
     const c = this.folderContents(path)
-    if (c.kept.length) throw new NoteError('not_empty', `the folder holds what vihko never touches: ${path}`)
+    if (c.kept.length) throw new NoteError('not_empty', `the folder holds links vihko never follows: ${path}`)
     return this.history.operation(actor, null, async () => {
       const trashed: TrashEntry[] = []
       for (const rel of c.notes) {
@@ -1257,8 +1294,9 @@ export class NoteService {
       // What is left once the notes took their images: anything that came meanwhile is seen here.
       const rest = this.folderContents(path)
       if (rest.notes.length || rest.kept.length) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
-      if (rest.files.length) {
-        const entry = this.trashFiles(path, rest.files.map((r) => `${path}/${r}`), actor, opts.managers)
+      const files = [...rest.files, ...rest.hiddenFiles]
+      if (files.length) {
+        const entry = this.trashFiles(path, files.map((r) => `${path}/${r}`), actor, opts.managers)
         if (entry) trashed.push(entry)
       }
       this.removeFolder(path, rest.junk)
@@ -1718,8 +1756,10 @@ export class NoteService {
       w.abort()
       throw err
     }
-    if (created) w.done()
-    else w.abort()
+    if (created) {
+      w.done()
+      this.opts.indexer.indexPaths([path]) // findable by name at once (index.db `files`)
+    } else w.abort()
     return created
   }
 
@@ -1893,7 +1933,7 @@ export class NoteService {
    * One commit, by `actor`, with the reason `restored`. A note that no
    * longer exists is created again (with `mayName`, as `create` does).
    */
-  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean }): Promise<RestoreReport> {
+  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean; freshUid?: boolean }): Promise<RestoreReport> {
     const file = this.file(path)
     const reason: Reason = { code: 'restored', id: version.id, at: version.at }
     return this.history.operation(opts.actor, reason, async () => {
@@ -1902,7 +1942,10 @@ export class NoteService {
         etag = (await this.edit(path, () => version.text, { ifMatch: opts.ifMatch, actor: opts.actor })).etag
       } else {
         if (opts.ifMatch !== undefined) throw new NoteError('precondition_failed', `the note doesn't exist: ${path}`)
-        etag = (await this.create(path, version.text, opts.actor, { mayName: opts.mayName })).etag
+        // A new uid only when the version's is another note's now (`freshUid`): otherwise it comes back as it was.
+        const uid = this.uidIn(version.text)
+        const fresh = opts.freshUid === true && uid !== null && this.opts.db.prepare('select 1 from notes where uid = ?').get(uid) !== undefined
+        etag = (await this.create(path, version.text, opts.actor, { mayName: opts.mayName, freshUid: fresh })).etag
       }
       const images: RestoreReport['images'] = { restored: [], missing: [] }
       const seen = new Set<string>()

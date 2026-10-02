@@ -3,6 +3,8 @@
 // index and their notices; never anything they can't read.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdirSync, utimesSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { inShared } from './_permissions.ts'
 import { setup as historySetup } from './_history.ts'
 import { setup as spacesSetup } from './_spacesApp.ts'
@@ -64,6 +66,29 @@ test('home, without a history: one\'s own space by when it changed; what others 
     // An agent has no Home.
     const key = await h.newKey('member', { name: m.aKeyName(), canWrite: false })
     assert.equal((await h.withKey(key.token)('GET', '/api/home')).status, 404)
+  } finally {
+    h.close()
+  }
+})
+
+test('home: what others changed lately is looked for among what one reads, however much else changed since', async () => {
+  const h = await spacesSetup()
+  try {
+    // The member shares a note with the other, then the admin writes many notes of their own after it.
+    const shared = `${h.home('member')}/${m.aFolder()}`
+    const inside = `${shared}/${m.aTitle()}.md`
+    h.write(inside, `# ${m.aHeading()}\n`)
+    await h.rule(shared, { grants: { [h.names.other]: 'read' } })
+    const old = new Date(Date.now() - 86_400_000)
+    utimesSync(join(h.notesDir, inside), old, old)
+    h.indexer.indexPaths([inside])
+    const folder = `${h.home('admin')}/${m.aFolder()}`
+    mkdirSync(join(h.notesDir, folder), { recursive: true })
+    const many = Array.from({ length: 450 }, (_, i) => `${folder}/${i}-${m.aUniqueWord()}.md`)
+    for (const p of many) writeFileSync(join(h.notesDir, p), `# ${m.aHeading()}\n`)
+    h.indexer.indexPaths(many)
+    const other = (await h.other('GET', '/api/home')).body
+    assert.deepEqual(other.changed.map((n: any) => n.path), [inside])
   } finally {
     h.close()
   }

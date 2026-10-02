@@ -20,8 +20,12 @@ export function bearerToken(header: string | undefined): string | null {
 
 export type KeyAuth =
   | { ok: true; principal: AgentPrincipal }
-  /** 404 `not_found`: off; 401 `unauthorized`: not a valid key (unknown, revoked, expired, its user disabled). */
-  | { ok: false; status: 404 | 401; error: 'not_found' | 'unauthorized' }
+  /**
+   * 404 `not_found`: off; 401 `unauthorized`: not a valid key (unknown,
+   * revoked, expired, its user disabled); 403 `key_suspended`: a member's
+   * key while the admin doesn't let members have keys.
+   */
+  | { ok: false; status: 404 | 401 | 403; error: 'not_found' | 'unauthorized' | 'key_suspended' }
 
 /**
  * Who a key acts as, for the API (`api`) or the MCP server (`mcp`): the
@@ -31,5 +35,6 @@ export function authenticateKey(deps: { keys: ApiKeys; integrations: Integration
   const on = via === 'api' ? deps.integrations.apiEnabled() : deps.integrations.mcpEnabled()
   if (!on) return { ok: false, status: 404, error: 'not_found' }
   const principal = deps.keys.authenticate(token, via)
+  if (principal === 'suspended') return { ok: false, status: 403, error: 'key_suspended' }
   return principal ? { ok: true, principal } : { ok: false, status: 401, error: 'unauthorized' }
 }

@@ -109,11 +109,13 @@ export class PermissionsFile {
    * takes its members (its grants), never a name (the folder is it):
    * `setRule('spaces/Home', { grants: { ana: 'manage' }, ai: null })`.
    */
-  async setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string }) {
+  async setRule(folder: string, value: RuleValue, opts: { actor: Actor; ifMatch?: string; then?: (text: string) => string }) {
     let before = ''
     const r = await this.update((t) => {
       before = t
-      return setRule(t, folder, value)
+      const out = setRule(t, folder, value)
+      // What follows from it, in the same write (grants below a space's root that went with a member, say).
+      return opts.then ? opts.then(out) : out
     }, opts)
     if (r.changed) {
       try {
@@ -137,8 +139,8 @@ export class PermissionsFile {
   }
 
   /** Moves the rules of a folder and those under it (see core `moveRules`). */
-  moveRules(from: string, to: string, opts: { actor: Actor; extra?: (RuleValue & { folder: string })[]; keepFrom?: boolean }) {
-    return this.update((t) => moveRules(t, from, to, { extra: opts.extra, keepFrom: opts.keepFrom }), opts)
+  moveRules(from: string, to: string, opts: { actor: Actor; extra?: (RuleValue & { folder: string })[]; keepFrom?: boolean; grants?: false }) {
+    return this.update((t) => moveRules(t, from, to, { extra: opts.extra, keepFrom: opts.keepFrom, grants: opts.grants }), opts)
   }
 
   /** Removes the rules of a folder and those under it. */

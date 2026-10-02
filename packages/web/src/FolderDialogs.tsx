@@ -288,6 +288,12 @@ export function DeleteFolderDialog({ path, onClose, onDeleted }: { path: string;
   /** What it holds, once the server said it isn't empty: confirming again sends it to the trash. */
   const [contents, setContents] = useState<FolderContents | null>(null)
   const blocked = contents !== null && contents.kept.total > 0
+  // Asked before anything goes: an empty folder (nothing hidden either) is deleted at once, anything else is named first.
+  useEffect(() => {
+    let live = true
+    api.folderContents(path).then((c) => { if (live && !isEmpty(c)) setContents(c) }, () => {})
+    return () => { live = false }
+  }, [path])
   const confirm = async () => {
     setBusy(true)
     setError(null)
@@ -366,6 +372,44 @@ export function MarkTemplatesDialog({ path, onClose, onDone }: { path: string; o
   )
 }
 
+const isEmpty = (c: FolderContents) => c.notes.total + c.files.total + c.hidden.total + c.kept.total === 0
+
+/** What vihko knows of a hidden folder by its name: what it is, for whoever is about to delete it. */
+const KNOWN_HIDDEN: Record<string, MessageKey> = {
+  '.obsidian': 'hidden.obsidian',
+  '.trash': 'hidden.trash',
+  '.git': 'hidden.git',
+  '.vihko': 'hidden.vihko',
+  '.stfolder': 'hidden.stfolder',
+  '.stversions': 'hidden.stversions',
+  '.vscode': 'hidden.vscode',
+}
+
+/**
+ * What goes with a folder or a space that vihko doesn't show: its hidden
+ * folders, the known ones by what they are («Obsidian settings
+ * (.obsidian)»), the others by name. Only ever what the person deleting it
+ * reads: they manage it, and see all of it.
+ */
+export function HiddenList({ hidden }: { hidden: FolderContents['hidden'] }) {
+  const t = useT()
+  if (hidden.total === 0) return null
+  const name = (p: string) => {
+    const bare = p.replace(/\/$/, '')
+    const known = KNOWN_HIDDEN[bare.slice(bare.lastIndexOf('/') + 1).toLowerCase()]
+    return known ? t('hidden.known', { what: t(known), path: bare }) : bare
+  }
+  return (
+    <>
+      <p className="dialog-text">{t(hidden.files === 1 ? 'folder.deleteHiddenOne' : 'folder.deleteHidden', { n: hidden.files })}</p>
+      <ul className="folder-list" aria-label={t('folder.deleteHiddenList')}>
+        {hidden.paths.map((p) => <li key={p}>{name(p)}</li>)}
+        {hidden.total > hidden.paths.length && <li className="folder-list-more">{t('folder.deleteMore', { n: hidden.total - hidden.paths.length })}</li>}
+      </ul>
+    </>
+  )
+}
+
 /** What a folder holds, as the delete dialog shows it before sending it to the trash (paths relative to the folder). */
 function FolderContentsList({ contents: c }: { contents: FolderContents }) {
   const t = useT()
@@ -386,6 +430,7 @@ function FolderContentsList({ contents: c }: { contents: FolderContents }) {
       {what && <p className="dialog-text">{t(blocked ? 'folder.deleteHolds' : 'folder.deleteHoldsTrash', { what })}</p>}
       {c.notes.total > 0 && list(c.notes, t('folder.deleteNotesList'))}
       {c.files.total > 0 && list(c.files, t('folder.deleteFilesList'))}
+      <HiddenList hidden={c.hidden} />
       {c.kept.total > 0 && <p className="dialog-text" role="alert">{t('folder.deleteKept')}</p>}
       {c.kept.total > 0 && list(c.kept, t('folder.deleteKeptList'))}
     </>

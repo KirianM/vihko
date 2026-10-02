@@ -55,6 +55,84 @@ function asNumber(v: string): number | null {
 
 export interface SearchResult { path: string; title: string; snippet: string }
 
+/** Words in a snippet. */
+const SNIPPET_TOKENS = 12
+/** How far into a note's text a snippet is looked for: past it, the snippet is the best window found before. */
+const SNIPPET_SCAN = 1_000_000
+/** A token as FTS5's `unicode61` tokenizer splits text: letters, digits and marks. */
+const TOKEN = /[\p{L}\p{N}\p{M}\p{Co}]+/gu
+/** A token compared as `unicode61 remove_diacritics 2` does: without diacritics, case-insensitively. */
+const foldToken = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+
+/**
+ * The snippet of a result: the window of `SNIPPET_TOKENS` words of `body`
+ * that holds the most of the query's words (each matching word between the
+ * highlight markers), with `…` where text is left out on either side. FTS5's
+ * `snippet()` gave the same, but scored every window against every match, so a
+ * note with thousands of matches (a pasted log, a long list) kept the server's
+ * only thread busy for seconds on every search; this is one pass over the text.
+ */
+export function snippetOf(body: string, text: string): string {
+  const words = (text.normalize('NFC').match(/[\p{L}\p{N}_]+/gu) ?? []).flatMap((w) => w.match(TOKEN) ?? []).map(foldToken)
+  const prefix = words.length ? words[words.length - 1]! : null
+  const exact = new Map<string, number>()
+  for (const [i, w] of words.entries()) if (!exact.has(w)) exact.set(w, i)
+  const termOf = (token: string): number => {
+    const f = foldToken(token)
+    const i = exact.get(f)
+    if (i !== undefined) return i
+    return prefix !== null && f.startsWith(prefix) ? exact.get(prefix)! : -1
+  }
+  const scanned = body.length > SNIPPET_SCAN ? body.slice(0, SNIPPET_SCAN) : body
+  const tokens: { from: number; to: number; term: number }[] = []
+  for (const m of scanned.matchAll(TOKEN)) tokens.push({ from: m.index, to: m.index + m[0].length, term: termOf(m[0]) })
+  if (tokens.length === 0) return ''
+  // Windows that start at a matching word, scored by how many different words of the query they hold, then how many matches.
+  const counts = new Map<number, number>()
+  let distinct = 0
+  let hits = 0
+  let end = 0
+  let best = { start: 0, score: -1 }
+  const wanted = exact.size
+  for (let s = 0; s < tokens.length; s++) {
+    while (end < tokens.length && end < s + SNIPPET_TOKENS) {
+      const t = tokens[end++]!.term
+      if (t >= 0) {
+        hits++
+        const c = counts.get(t) ?? 0
+        if (c === 0) distinct++
+        counts.set(t, c + 1)
+      }
+    }
+    if (tokens[s]!.term >= 0) {
+      const score = distinct * 100_000 + hits
+      if (score > best.score) best = { start: s, score }
+      if (distinct >= wanted) break
+    }
+    const t = tokens[s]!.term
+    if (t >= 0) {
+      hits--
+      const c = counts.get(t)! - 1
+      if (c === 0) distinct--
+      counts.set(t, c)
+    }
+  }
+  const start = Math.max(0, Math.min(best.start, tokens.length - SNIPPET_TOKENS))
+  const last = Math.min(tokens.length, start + SNIPPET_TOKENS) - 1
+  const parts: string[] = [start > 0 ? '…' : '']
+  let at = start > 0 ? tokens[start]!.from : 0
+  for (let i = start; i <= last; i++) {
+    const t = tokens[i]!
+    parts.push(scanned.slice(at, t.from))
+    const word = scanned.slice(t.from, t.to)
+    parts.push(t.term >= 0 ? HIGHLIGHT_START + word + HIGHLIGHT_END : word)
+    at = t.to
+  }
+  if (last < tokens.length - 1 || scanned.length < body.length) parts.push('…')
+  else parts.push(scanned.slice(at))
+  return parts.join('')
+}
+
 /**
  * `visible`: the notes the principal may read (Access.notesWhere, on `n`),
  * applied in the query so the limit, the ranking and the snippets only ever
@@ -68,11 +146,12 @@ export function search(db: Db, input: string, visible: { sql: string; params: un
   const where = conds.map((c) => ` and ${c.sql}`).join('')
   const params = conds.flatMap((c) => c.params)
   if (fts) {
-    return db.prepare(`select n.path, n.title, snippet(notes_fts, 3, ?, ?, '…', 12) as snippet
+    const rows = db.prepare(`select n.path, n.title, notes_fts.body as body
         from notes_fts join notes n on n.path = notes_fts.path
         where notes_fts match ?${where}
         order by bm25(notes_fts, 0, 10.0, 8.0, 1.0) limit ${LIMIT}`)
-      .all(HIGHLIGHT_START, HIGHLIGHT_END, fts, ...params) as SearchResult[]
+      .all(fts, ...params) as { path: string; title: string; body: string }[]
+    return rows.map((r) => ({ path: r.path, title: r.title, snippet: snippetOf(r.body, text) }))
   }
   return db.prepare(`select n.path, n.title, '' as snippet from notes n where 1${where} order by n.path limit ${FILTER_LIMIT}`)
     .all(...params) as SearchResult[]

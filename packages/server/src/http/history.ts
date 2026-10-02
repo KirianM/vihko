@@ -21,7 +21,7 @@
 //   GET  /api/history/purgeable                         (what the person may purge and reads: `manage`, or the admin)
 //   DELETE /api/history/purges/:id                      (the admin: a purge's notice, dismissed)
 import type { Context, Hono } from 'hono'
-import { WORKSPACE_FILE, folderOf } from '@vihko/core'
+import { WORKSPACE_FILE, folderOf, readFrontmatter } from '@vihko/core'
 import { PurgeError, purgeTarget, type PurgeReport } from '../history/purge.ts'
 import { readablePath, type Notices } from '../notices.ts'
 import { parseAuthorKey, type Via } from '../actor.ts'
@@ -34,8 +34,9 @@ import { UNAVAILABLE_MESSAGE, authorFilter } from '../history/reader.ts'
 import { ResolvedThreads } from '../history/resolved.ts'
 import { revertVersion } from '../history/revert.ts'
 import { NoteError, NoteService, type Actor } from '../notes.ts'
-import { agentGuard, hiddenAfterWrite, revertWritten } from '../scoped.ts'
+import { RequestError, agentGuard, assertPlacement, hiddenAfterWrite, revertWritten } from '../scoped.ts'
 import { written } from './written.ts'
+import { jsonBody } from './jsonBody.ts'
 
 export interface HistoryRoutesDeps {
   history: History
@@ -182,23 +183,41 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   })
 
   // Writes through the core like any edit, as whoever asks (the user, or an
-  // agent on their behalf), with the reason `restored`.
+  // agent on their behalf), with the reason `restored`. Only over the same
+  // note: a version of another note that had this path before (another
+  // `uid`) is `409 uid_mismatch`, and goes back as a new note instead, at
+  // `to` (a path where whoever asks may create one, never over a note).
   app.post('/api/history/restore', async (c) => {
-    const body = await c.req.json<{ path?: string; id?: string; ifMatch?: string }>()
+    const body = await jsonBody<{ path?: string; id?: string; ifMatch?: string; to?: unknown }>(c)
     const path = writableNote(c, body.path)
     const reader = readerOf(c)
     const v = await versionOf(reader, path, body.id)
     if (v.text === null) throw new HistoryError('invalid', 'that version deletes the note: there is no text to restore')
     const ifMatch = body.ifMatch ?? unquote(c.req.header('if-match'))
     const access = c.get('access')
+    let dest = path
+    if (body.to !== undefined) {
+      if (typeof body.to !== 'string') throw new HistoryError('invalid', 'to must be a note path')
+      dest = NoteService.checkPath(body.to.normalize('NFC'))
+      assertPlacement(dest)
+      access.assertWrite(dest)
+      if (notes.exists(dest)) throw new NoteError('exists', `there's a note at ${dest}`)
+    } else {
+      let current: string | null = null
+      try { current = notes.read(path).text } catch (err) { if (!(err instanceof NoteError && err.code === 'not_found')) throw err }
+      const [now, then] = [current === null ? null : uidOf(current), uidOf(v.text)]
+      if (now !== null && then !== null && now !== then) throw new RequestError(409, 'uid_mismatch', 'that version is of another note that had this path before: restore it as a new note (`to`)')
+    }
     // The images it brings back: only from folders whoever asks can read, and to where they can write.
-    const r = await notes.restoreVersion(path, { id: v.id, at: v.at, path: v.path, text: v.text }, {
-      ifMatch, actor: access.actor, file: (p) => reader.file(v.id, p), canWrite: (p) => access.canWrite(p),
+    const r = await notes.restoreVersion(dest, { id: v.id, at: v.at, path: v.path, text: v.text }, {
+      ifMatch: dest === path ? ifMatch : undefined, actor: access.actor, file: (p) => reader.file(v.id, p), canWrite: (p) => access.canWrite(p),
       // Brought back where it no longer is, it mustn't take a link to what its person can't read: that would reveal it.
       mayName: (p) => access.userCanRead(p),
+      // As a new note, its own uid when the old one is taken (the note it was may live on elsewhere).
+      freshUid: dest !== path,
     })
     c.header('ETag', `"${r.etag}"`)
-    return c.json(r)
+    return c.json(dest === path ? r : { ...r, path: dest })
   })
 
   // Undoes what one version changed, on the note as it is now (history/revert.ts):
@@ -207,7 +226,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   // asks (the user, or an agent on their behalf), with the reason `reverted`.
   // An agent reverts only a version it can see (agentHistory.ts).
   app.post('/api/history/revert', async (c) => {
-    const body = await c.req.json<{ path?: string; id?: string; ifMatch?: string; dryRun?: boolean }>()
+    const body = await jsonBody<{ path?: string; id?: string; ifMatch?: string; dryRun?: boolean }>(c)
     const path = writableNote(c, body.path)
     if (typeof body.id !== 'string' || !body.id) throw new HistoryError('invalid', 'missing id')
     const access = c.get('access')
@@ -252,7 +271,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   // The answer names no other path the person can't read, and nothing of
   // the content.
   app.post('/api/history/purge', async (c) => {
-    const body = await c.req.json<{ path?: unknown; version?: unknown; dryRun?: unknown; confirm?: unknown }>()
+    const body = await jsonBody<{ path?: unknown; version?: unknown; dryRun?: unknown; confirm?: unknown }>(c)
     if (typeof body.path !== 'string' || (body.version !== undefined && typeof body.version !== 'string')) throw new HistoryError('invalid', 'expected a path and, optionally, a version')
     const access = c.get('access')
     const user = c.get('user')
@@ -364,6 +383,13 @@ function distinctAuthors(list: AuthorRef[]): AuthorRef[] {
   const seen = new Map<string, AuthorRef>()
   for (const a of list) seen.set(JSON.stringify(a), a)
   return [...seen.values()]
+}
+
+/** A note's `uid` in its text, or null. */
+function uidOf(text: string): string | null {
+  const fm = readFrontmatter(text)
+  const v = fm.error ? null : fm.data.uid
+  return typeof v === 'string' || typeof v === 'number' ? String(v) : null
 }
 
 function unquote(etag: string | undefined) {

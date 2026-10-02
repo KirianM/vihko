@@ -9,7 +9,7 @@ export {
 } from './markdown.ts'
 export { markdownParser, vihkoSyntax, withoutClosingHashes } from './syntax.ts'
 export { caseFold } from './casefold.ts'
-export { LinkIndex, isRootTarget, joinPath, linkSpace, normKey, noteName, pathKeys, sameSpace, shortestTarget, wikiLink, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
+export { LinkIndex, isRootTarget, joinPath, linkSpace, normKey, noteName, pathKeys, rootedPath, rootedTarget, sameSpace, shortestTarget, wikiLink, type LinkIndexOptions, type NoteKeys, type Resolution } from './resolve.ts'
 export { classifyPath, conflictOriginal, hasControlCharacter, isIgnoredDir, trimSlashes, trimTrailingSlashes, type PathKind } from './paths.ts'
 export type { AccountChange, SpaceChange, Alert, AlertAction, AlertCode, ConfigMigrationRef, ErrorCode } from './codes.ts'
 export { newUid } from './uid.ts'
@@ -17,7 +17,7 @@ export { IMAGE_EXTENSIONS, imageMarkdown, isExternalUrl, isImageRef, markdownDes
 export { addDays, canonicalTimeZone, civilNow, compareDates, formatDate, isValidDate, isoWeek, isoWeekStart, type CivilDate, type CivilDateTime } from './dates.ts'
 export { DEFAULT_DATE_FORMAT, TEMPLATE_KEY, isTemplate, renderTemplate, templateCopy, templateMarked, type TemplateVars } from './template.ts'
 export { SERIES_TOKENS, matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, seriesPattern, type Period, type Series, type SeriesToken } from './series.ts'
-export { RESERVED_FILTERS, foldField, hasSearchFilter, parseSearchQuery, type ParsedQuery, type ReservedFilter, type SearchFilter } from './query.ts'
+export { RESERVED_FILTERS, SEARCH_LIMITS, foldField, hasSearchFilter, parseSearchQuery, searchQueryProblem, type ParsedQuery, type ReservedFilter, type SearchFilter } from './query.ts'
 export {
   EMPTY_WORKSPACE, PERMISSIONS_SECTION, STRICT_SECTIONS, WORKSPACE_FILE, WORKSPACE_VERSION, parseWorkspaceConfig,
   type ConfigError, type ConfigErrorCode, type ParseResult, type StrictSection, type WorkspaceConfig,
@@ -35,11 +35,11 @@ export {
   type DisplayPath, type DisplaySpace, type PersonalSpace, type SharedSpace, type Space, type SpaceKind, type SpaceNameProblem, type SpacePath,
 } from './spaces.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
-export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
-export { WORKSPACE_MIGRATIONS, formatVersion, migrateWorkspaceText, type MigrationOutcome, type WorkspaceMigration } from './workspaceMigrations.ts'
+export { DEFAULT_HISTORY_MAX_FILE_MB, DEFAULT_NOTE_MAX_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
+export { WORKSPACE_MIGRATIONS, formatVersion, migrateWorkspaceText, deleteTopKey, rewriteYaml, type MigrationOutcome, type WorkspaceMigration } from './workspaceMigrations.ts'
 export {
-  EMPTY_NOTE_SETTINGS, NOTE_SETTINGS_FILE, NOTE_SETTINGS_VERSION, NoteSettingsFileError, noteSettingsPath, parseNoteSettings, resolveNoteSettings, spacePathProblem, writeNoteSettings,
-  type NoteSettings, type ResolvedNoteSettings, type SettingsAttachments, type SettingsSeries,
+  EMPTY_NOTE_SETTINGS, MAX_SPACE_GUIDE, NOTE_SETTINGS_FILE, NOTE_SETTINGS_VERSION, NoteSettingsFileError, noteSettingsPath, parseNoteSettings, resolveNoteSettings, spacePathProblem, writeNoteSettings,
+  type NoteSettings, type NoteSettingsKind, type ResolvedNoteSettings, type SettingsAttachments, type SettingsSeries,
 } from './noteSettings.ts'
 export { globProblem, pathMatcher, type GlobProblem } from './glob.ts'
 export {
@@ -49,3 +49,4 @@ export {
 export { MIN_HUE_DISTANCE, baseHue, distinctHue, freeHue, hueDistance, isPersonHue } from './hue.ts'
 export { keyWidens, type KeyScope } from './keyScope.ts'
 export { LANGUAGES, isLanguage, type Language } from './languages.ts'
+export { parseYamlDocument } from './yaml.ts'

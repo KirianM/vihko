@@ -12,6 +12,13 @@
 //   IP address         20 free, up to 15 min. Every account from one
 //                      address (guessing one password across many names).
 //
+// A second-factor code (`secondFactor`) is counted under an account of its
+// own, with a rule of its own: 10 free, then up to an hour, and forgotten
+// only after a day without failures. Only whoever knows the password reaches
+// it, so it holds back no stranger; and a code has a million values (three
+// accepted at a time), so the account's minute would let someone patient,
+// spreading the guesses over many addresses, through in weeks.
+//
 // A random token (a one-time link, the first-boot token) is counted by the
 // client only (`byAddress`): the client + token-kind and IP address counters,
 // never an account counter. Its 256 bits make a guess spread over many
@@ -51,6 +58,10 @@ export interface LimitRules {
   pair: Rule
   account: Rule
   ip: Rule
+  /** A second-factor code's account counter. */
+  secondFactor: Rule
+  /** A second-factor counter is forgotten this long after its last failure (not while it's waiting). */
+  secondFactorForgetMs: number
   /** The first wait (doubling from there), in ms. */
   baseMs: number
   /** A counter is forgotten this long after its last failure (not while it's waiting). */
@@ -67,6 +78,8 @@ export const DEFAULT_RULES: LimitRules = {
   pair: { free: 5, capMs: 15 * 60_000 },
   account: { free: 10, capMs: 60_000 },
   ip: { free: 20, capMs: 15 * 60_000 },
+  secondFactor: { free: 10, capMs: 60 * 60_000 },
+  secondFactorForgetMs: 24 * 60 * 60_000,
   baseMs: 1000,
   forgetMs: 60 * 60_000,
   maxEntries: 10_000,
@@ -83,9 +96,11 @@ interface Entry {
   lockedUntil: number
   /** The last failure (epoch ms). */
   last: number
+  /** How long after the last failure it's forgotten. */
+  forgetMs: number
 }
 
-type Kind = 'pair' | 'account' | 'ip'
+type Kind = 'pair' | 'account' | 'ip' | 'secondFactor'
 
 export interface AttemptInput {
   /** The client's address (clientIp.ts), or a placeholder when unknown. */
@@ -100,6 +115,8 @@ export interface AttemptInput {
    * other addresses could hold back.
    */
   byAddress?: boolean
+  /** A second-factor code: the account counter is `secondFactor`'s (see the top of this file). */
+  secondFactor?: boolean
 }
 
 /** An attempt allowed to go on: say how it ended. Both return the wait (seconds) now in force, 0 if none. */
@@ -145,14 +162,14 @@ export class LoginLimiter {
       ? [['pair', `d:${input.device}|${account}`]]
       : input.byAddress
         ? [['pair', `i:${input.ip}|${account}`], ['ip', `i:${input.ip}`]]
-        : [['pair', `i:${input.ip}|${account}`], ['account', `a:${account}`], ['ip', `i:${input.ip}`]]
+        : [['pair', `i:${input.ip}|${account}`], [input.secondFactor ? 'secondFactor' : 'account', `a:${account}`], ['ip', `i:${input.ip}`]]
     const wait = Math.max(0, ...keys.map(([, k]) => this.waiting(k, now)))
     if (wait > 0) {
       this.record(now)
       return { ok: false, retryAfter: seconds(wait) }
     }
     for (const [kind, key] of keys) {
-      const e = this.touch(key, now)
+      const e = this.touch(key, now, kind === 'secondFactor' ? this.rules.secondFactorForgetMs : this.rules.forgetMs)
       e.failures++
       e.last = now
       const over = e.failures - this.rules[kind].free
@@ -226,11 +243,11 @@ export class LoginLimiter {
   }
 
   private stale(e: Entry, now: number): boolean {
-    return e.lockedUntil <= now && now - e.last > this.rules.forgetMs
+    return e.lockedUntil <= now && now - e.last > e.forgetMs
   }
 
   /** The counter for `key`, most recently used from now on; a new one if absent or forgotten. */
-  private touch(key: string, now: number): Entry {
+  private touch(key: string, now: number, forgetMs: number): Entry {
     let e = this.entries.get(key)
     if (e) {
       this.entries.delete(key)
@@ -238,7 +255,7 @@ export class LoginLimiter {
     }
     if (!e) {
       if (this.entries.size >= this.rules.maxEntries) this.evict(now)
-      e = { failures: 0, lockedUntil: 0, last: now }
+      e = { failures: 0, lockedUntil: 0, last: now, forgetMs }
     }
     this.entries.set(key, e)
     return e

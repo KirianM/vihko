@@ -12,7 +12,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, TextField } from 'react-aria-components'
 import { ApiError, api, type AdminSettings, type RetentionCounts, type RetentionStatus } from './api.ts'
 import { Toggle } from './Agents.tsx'
-import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useLang, useT } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import './retention.css'
@@ -78,7 +78,7 @@ function ConfirmRetention({ next, mode, onClose, onSaved, onRan }: {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const go = async (e: FormEvent) => {
     e.preventDefault()
-    if (busy || !secret.trim()) return
+    if (busy || !confirmReady(how, secret)) return
     setBusy(true)
     setError(null)
     try {
@@ -119,7 +119,7 @@ function ConfirmRetention({ next, mode, onClose, onSaved, onRan }: {
         </div>
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className={`btn ${removes ? 'btn-danger' : 'btn-primary'}`} isDisabled={busy || counts === null || !secret.trim()}>{t(confirm)}</Button>
+          <Button type="submit" className={`btn ${removes ? 'btn-danger' : 'btn-primary'}`} isDisabled={busy || counts === null || !confirmReady(how, secret)}>{t(confirm)}</Button>
         </div>
       </form>
     </Dialog>

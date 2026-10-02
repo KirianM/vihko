@@ -27,12 +27,16 @@
 //   shown only while they can still see it.
 // - `retention_ran`: to every admin, what the retention removed:
 //   how many trash entries and history versions, never a path.
+// - `settings_migrated`: to whom a settings file belongs (the person, a
+//   space's managers, the admins for vihko.yaml), what vihko did at start
+//   with a key it retired there (retiredKeys.ts): how many notes it marked,
+//   and the folders the key named that no longer exist.
 //
 // Only ids are kept (who did it, to whom): names are looked up when shown,
 // so a rename shows the new one and a deleted user their tombstone's. Never
 // anything of a note's content. Each person keeps their latest notices only.
 import { randomUUID } from 'node:crypto'
-import { WORKSPACE_FILE, atLeast, parseSpacePath, type AccountChange, type Alert, type SpaceChange } from '@vihko/core'
+import { WORKSPACE_FILE, atLeast, folderOf, parseSpacePath, type AccountChange, type Alert, type SpaceChange } from '@vihko/core'
 import type { Access } from './access.ts'
 import type { Db } from './db.ts'
 import type { Role } from './auth.ts'
@@ -56,10 +60,16 @@ export function readablePath(access: Access, path: string): boolean {
  * and a personal space's path only while they can see it (a shared space's
  * name and path are no secret).
  */
-export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => string, spaceName: (root: string) => string | null = () => null): Alert {
+export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => string, spaceName: (root: string) => string | null = () => null, mayRestore: (deleted: string) => boolean = () => false): Alert {
   const d = n.data
   if (d.code === 'links_not_updated') return { code: d.code, id: n.id, at: n.at, actions: ['dismiss'] }
   if (d.code === 'retention_ran') return { code: d.code, id: n.id, at: n.at, trashEntries: d.trashEntries, versions: d.versions, failed: d.failed, actions: ['dismiss'] }
+  if (d.code === 'settings_migrated') {
+    // The file only while they can still see where it is (vihko.yaml: the admins it went to).
+    const shown = d.file === WORKSPACE_FILE || access.level(d.file.slice(0, d.file.indexOf('/.vihko/'))) !== null ? d.file : null
+    return { code: d.code, id: n.id, at: n.at, key: d.key, file: shown, marked: d.marked, missing: shown === null ? [] : d.missing, actions: ['dismiss'] }
+  }
+  if (d.code === 'account_key_added') return { code: d.code, id: n.id, at: n.at, kind: d.kind, name: d.name, actions: ['dismiss'] }
   const base = { id: n.id, at: n.at, by: nameOf(d.by), actions: ['dismiss' as const] }
   switch (d.code) {
     case 'account_changed': return { code: d.code, ...base, change: d.change, role: d.role }
@@ -72,6 +82,31 @@ export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => s
         : access.level(d.space!) !== null ? { path: d.space!, name: null }
         : null
       return { code: d.code, ...base, change: d.change, user: d.user === null ? null : nameOf(d.user), to: d.to === null ? null : nameOf(d.to), space: shown }
+    }
+    case 'moved_out': {
+      // Where it went, only while they read it; a shared space's name (no secret) or a person's.
+      const s = parseSpacePath(d.to)
+      const reads = access.level(d.kind === 'folder' ? d.to : folderOf(d.to)) !== null
+      return {
+        code: d.code, ...base, kind: d.kind, from: d.from, to: reads ? d.to : null,
+        space: s?.space.kind === 'shared' ? { path: s.space.root, name: spaceName(s.space.root) } : null,
+        owner: s?.space.kind === 'personal' ? s.space.owner : null,
+      }
+    }
+    // What they no longer see, as they last saw it: kept with the notice, never looked up again.
+    case 'removed_from': return { code: d.code, ...base, kind: d.kind, name: d.name, owner: d.owner, space: d.space }
+    case 'space_deleted': {
+      // Restoring it whole, from here, for whoever may (its managers then), while it can be.
+      const restorable = mayRestore(d.deleted)
+      return { code: d.code, ...base, name: d.name, deleted: restorable ? d.deleted : null, actions: restorable ? ['restore_space', 'dismiss'] : ['dismiss'] }
+    }
+    case 'space_restored': {
+      const shown = access.level(d.path) !== null
+      return { code: d.code, ...base, path: shown ? d.path : null, name: parseSpacePath(d.path)?.space.kind === 'shared' ? spaceName(d.path) : null }
+    }
+    case 'space_renamed': {
+      const shown = access.level(d.path) !== null
+      return { code: d.code, ...base, from: d.from, path: shown ? d.path : null, name: spaceName(d.path) }
     }
     case 'shared_with_you': {
       const s = parseSpacePath(d.path)
@@ -101,6 +136,25 @@ export type NoticeData =
   | { code: 'shared_with_you'; kind: 'space' | 'folder'; by: string; path: string }
   /** To every admin: the retention removed that many trash entries and history versions (or failed). Counts only. */
   | { code: 'retention_ran'; trashEntries: number; versions: number; failed: boolean }
+  /** To whom `file` belongs: vihko removed the retired `key` from it at start, after doing what it asked (`marked` notes; `missing` folders). */
+  | { code: 'settings_migrated'; key: string; file: string; marked: number; missing: string[] }
+  /** To a personal space's owner: `by` moved a note or folder of theirs (`from`) out of it, to `to`. */
+  | { code: 'moved_out'; kind: 'note' | 'folder'; by: string; from: string; to: string }
+  /**
+   * `by` took them out of a shared space (`space`), or stopped sharing a
+   * folder with them (`folder`): its name, and whose it is (`owner`) or the
+   * space it's in (`space`, its name), as they last saw them. No path: what
+   * it's called later is no longer theirs to know.
+   */
+  | { code: 'removed_from'; kind: 'space' | 'folder'; by: string; name: string; owner: string | null; space: string | null }
+  /** `by` deleted the shared space `name` they were in (`deleted`: its record, to restore it whole). */
+  | { code: 'space_deleted'; by: string; name: string; deleted: string }
+  /** `by` restored the shared space at `path` they were in. */
+  | { code: 'space_restored'; by: string; path: string }
+  /** `by` renamed the shared space they're in from `from` (its name then) to the one at `path`. */
+  | { code: 'space_renamed'; by: string; from: string; path: string }
+  /** A key (`key`) was made, or an app (`app`) authorized, on their account, named `name`: never unnoticed. */
+  | { code: 'account_key_added'; kind: 'key' | 'app'; name: string }
 
 export type NoticeCode = NoticeData['code']
 
@@ -114,11 +168,13 @@ export interface Notice {
 /** The most notices a person keeps: older ones go first. */
 const MAX_PER_USER = 100
 
-const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran']
+const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran', 'settings_migrated', 'moved_out', 'removed_from', 'space_deleted', 'space_restored', 'space_renamed', 'account_key_added']
 
 export class Notices {
   private db: Db
   private now: () => Date
+  /** After a notice was kept for someone: their open pages hear of it at once (liveTree.ts `noticeFor`). */
+  onAdded: ((userId: string) => void) | null = null
 
   constructor(state: Db, opts: { now?: () => Date } = {}) {
     this.db = state
@@ -136,6 +192,7 @@ export class Notices {
       this.db.prepare(`delete from notices where user_id = ? and id not in
         (select id from notices where user_id = ? order by created_at desc, rowid desc limit ?)`).run(userId, userId, MAX_PER_USER)
     })()
+    try { this.onAdded?.(userId) } catch { /* hearing of it later is never why it fails */ }
     return notice
   }
 

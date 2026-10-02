@@ -1,9 +1,10 @@
 // vihko.yaml: read at start, reloaded on change, errors as alerts.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { SESSION_COOKIE } from '@vihko/server'
+import { LAST_VALID_FILE, SESSION_COOKIE, Workspace } from '@vihko/server'
+import { tempDir } from './_tmp.ts'
 import { CONFIG, DAILY, setup } from './_app.ts'
 import { SHARED, inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -57,6 +58,44 @@ test('workspace: invalid from the start means nothing configured; never served a
   assert.equal(alert.errors[0].code, 'yaml')
   assert.equal((await admin('GET', '/api/file?path=vihko.yaml')).status, 404)
   assert.equal((await admin('GET', '/api/tree')).body.notes.some((n: { path: string }) => n.path === 'vihko.yaml'), false, 'not a note')
+})
+
+test('workspace: invalid when vihko starts, the last valid file kept in the state volume applies, with the alert, until it is fixed', () => {
+  const dir = tempDir('vihko-last-valid-')
+  const notesDir = join(dir, 'notes')
+  const stateDir = join(dir, 'state')
+  mkdirSync(notesDir)
+  mkdirSync(stateDir)
+  const file = join(notesDir, 'vihko.yaml')
+  const excluded = `people/*/${m.aFolder()}/**`
+  const valid = `history:\n  mode: managed\n  exclude: ${JSON.stringify(excluded)}\n`
+  writeFileSync(file, valid)
+  const first = new Workspace({ notesDir, stateDir })
+  assert.deepEqual(first.config.history.exclude, [excluded])
+  assert.equal(readFileSync(join(stateDir, LAST_VALID_FILE), 'utf8'), valid, 'kept in the state volume')
+  // A typo, then a restart: what it kept out of the history stays out.
+  const broken = valid.replace('mode: managed', 'mode: sometimes')
+  writeFileSync(file, broken)
+  const restarted = new Workspace({ notesDir, stateDir })
+  assert.deepEqual(restarted.config.history.exclude, [excluded])
+  assert.equal(restarted.config.history.mode, 'managed')
+  assert.equal(restarted.status.fallback, 'last_good')
+  assert.equal(restarted.status.errors[0]?.at, 'history.mode')
+  assert.equal(readFileSync(join(stateDir, LAST_VALID_FILE), 'utf8'), valid, 'an invalid file never replaces it')
+  // Fixed: it applies, and the alert goes.
+  const other = `people/*/${m.aFolder()}x/**`
+  const fixed = valid.replace(excluded, other)
+  writeFileSync(file, fixed)
+  assert.equal(restarted.reload(), true)
+  assert.deepEqual(restarted.status.errors, [])
+  assert.deepEqual(restarted.config.history.exclude, [other])
+  assert.equal(readFileSync(join(stateDir, LAST_VALID_FILE), 'utf8'), fixed)
+  // No file: nothing is configured, and nothing is kept for later.
+  rmSync(file)
+  restarted.reload()
+  assert.equal(existsSync(join(stateDir, LAST_VALID_FILE)), false)
+  writeFileSync(file, broken)
+  assert.equal(new Workspace({ notesDir, stateDir }).status.fallback, 'none')
 })
 
 test('workspace: an unreadable file is an alert, not a crash', { skip: process.getuid?.() === 0 }, async () => {

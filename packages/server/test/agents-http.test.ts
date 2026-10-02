@@ -119,7 +119,7 @@ test('VIHKO_INTEGRATIONS=off: keys get 404 whatever state.db says, and the switc
   try {
     h.integrations.set({ api: false })
     const view = await h.admin('GET', '/api/integrations')
-    assert.deepEqual(view.body, { api: false, mcp: false, membersCanCreateKeys: false, oauthRegistration: false, locked: true, canCreateKeys: true, publicUrl: null })
+    assert.deepEqual(view.body, { api: false, mcp: false, membersCanCreateKeys: false, oauthRegistration: false, locked: true, canCreateKeys: true, publicUrl: null, memberKeys: 0 })
     const on = await h.admin('PUT', '/api/admin/integrations', { api: true })
     assert.deepEqual([on.status, on.body.error], [409, 'integrations_locked'])
     const { token } = await h.newKey({ name: m.aKeyName() })
@@ -198,12 +198,24 @@ test('keys over the UI: created once with their token, listed without it, change
     assert.equal((await h.member('DELETE', `/api/keys/${key.id}`)).status, 404)
     assert.equal((await h.admin('DELETE', `/api/keys/${theirs.id}`)).body.key.status, 'revoked')
 
-    // «Members can create keys» off: the member can't create or change theirs; they still list and revoke them.
-    const mine = (await h.member('POST', '/api/keys', { confirm: h.users.member.password, name: m.aKeyName() })).body.key
+    // «Members can create keys» off: the member can't create or change theirs, and those they have are
+    // suspended (the admin is told how many first); they still list and revoke them. Back on, they work again.
+    await h.enableApi()
+    const made = (await h.member('POST', '/api/keys', { confirm: h.users.member.password, name: m.aKeyName() })).body
+    const mine = made.key
+    assert.equal((await h.withKey(made.token)('GET', '/api/tree')).status, 200)
+    assert.equal((await h.admin('GET', '/api/integrations')).body.memberKeys, 1)
+    assert.equal((await h.member('GET', '/api/integrations')).body.memberKeys, undefined, 'the admin\'s alone')
     assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })).body.membersCanCreateKeys, false)
     assert.equal((await h.member('GET', '/api/integrations')).body.canCreateKeys, false)
+    const off = await h.withKey(made.token)('GET', '/api/tree')
+    assert.deepEqual([off.status, off.body.error], [403, 'key_suspended'])
+    assert.equal((await h.member('GET', '/api/keys')).body.keys.find((k: any) => k.id === mine.id).status, 'suspended')
     assert.deepEqual([(await h.member('POST', '/api/keys', { confirm: h.users.member.password, name: m.aKeyName() })).status, (await h.member('PATCH', `/api/keys/${mine.id}`, { name: m.aKeyName() })).status], [403, 403])
     assert.equal((await h.member('GET', '/api/keys')).body.keys.length, 2)
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
+    assert.equal((await h.withKey(made.token)('GET', '/api/tree')).status, 200, 'back on, it works again')
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })).status, 200)
     assert.equal((await h.member('DELETE', `/api/keys/${mine.id}`)).status, 200)
     assert.equal((await h.admin('POST', '/api/keys', { confirm: h.users.admin.password, name: m.aKeyName() })).status, 201)
     // Only the admin touches the switches.

@@ -17,6 +17,8 @@ import {
   LEVELS, WORKSPACE_FILE, atLeast, isSubject, parentFolder, parseSpacePath, rulesOf, spaceKeyProblem, subjectKey, trimSlashes,
   type Level, type RuleValue,
 } from '@vihko/core'
+import { SpaceError } from '../spaceService.ts'
+import { memberLevel, tidyBelow } from '../spaceGrants.ts'
 import { AccessError, inFolders, type Access, type AccessPolicy } from '../access.ts'
 import type { User } from '../auth.ts'
 import type { Db } from '../db.ts'
@@ -26,6 +28,7 @@ import { holdAccess, type PermissionHolds } from '../permissionHolds.ts'
 import type { PermissionsEngine } from '../permissions.ts'
 import type { PermissionsFile } from '../permissionsFile.ts'
 import { RequestError } from '../scoped.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -100,7 +103,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
   })
 
   app.put('/api/permissions', async (c) => {
-    const body = await c.req.json<{ folder?: unknown; grants?: unknown; ai?: unknown; ifMatch?: unknown }>()
+    const body = await jsonBody<{ folder?: unknown; grants?: unknown; ai?: unknown; ifMatch?: unknown }>(c)
     const folder = folderParam(body?.folder)
     assertManage(c, folder)
     const written = engine.spaceRules().own(folder)
@@ -128,9 +131,23 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
     }
     const ifMatch = typeof body.ifMatch === 'string' ? body.ifMatch.replace(/^W\//, '').replace(/^"|"$/g, '') : undefined
     if (ifMatch === undefined) throw new RequestError(428, 'precondition_required', 'ifMatch: the ETag of vihko.yaml the change was planned on')
+    const s = parseSpacePath(folder)!
+    // Inside a shared space, a grant to one of its members only raises them above their level there.
+    if (s.space.kind === 'shared' && s.inner !== '') {
+      for (const [subject, level] of Object.entries(grants ?? {})) {
+        const was = Object.entries(written?.grants ?? {}).find(([k]) => subjectKey(k) === subjectKey(subject))?.[1]
+        if (was === level) continue
+        const member = memberLevel(engine, engine.spaceRules(), s.space.root, subject)
+        if (member !== null && atLeast(member, level)) throw new SpaceError(400, 'grant_not_higher', `${subject} has ${member} in the whole space already: a grant here only raises it`, { subject, level: member })
+      }
+    }
     // A name rc.1 or rc.2 wrote at a shared space's root stays, for the start that renames its folder to it.
     const value: RuleValue = { grants, ai, name: written?.name ?? null }
-    await file.setRule(folder, value, { actor: c.get('access').actor, ifMatch })
+    // At a shared space's root, what follows below: whoever is taken out of it loses their grants there too
+    // (as leaving does), and grants that no longer raise anyone above their level in the space go.
+    const removed = new Set(Object.keys(written?.grants ?? {}).map(subjectKey).filter((k) => !Object.keys(grants ?? {}).some((g) => subjectKey(g) === k)))
+    const then = s.space.kind === 'shared' && s.inner === '' ? (t: string) => tidyBelow(t, s.space.root, removed, engine) : undefined
+    await file.setRule(folder, value, { actor: c.get('access').actor, ifMatch, then })
     // The dialog after the change: whoever made it may have given their own `manage` away.
     const now = deps.policy.for({ kind: 'user', user: c.get('user') })
     c.set('access', now)
@@ -196,7 +213,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
   // were and where they are) sees the hold and releases it; for anyone else
   // it doesn't exist.
   app.post('/api/permissions/holds/:id', async (c) => {
-    const { action } = await c.req.json<{ action?: unknown }>().catch(() => ({ action: undefined }))
+    const { action } = await jsonBody<{ action?: unknown }>(c).catch(() => ({ action: undefined }))
     const hold = deps.holds?.get(c.req.param('id'))
     const access = c.get('access')
     if (!hold || access.isAgent || !holdAccess(hold, { level: (f) => access.level(f) }).decides) throw new NoteError('not_found', 'no such hold')

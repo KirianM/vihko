@@ -100,6 +100,7 @@ permissions:
 | [`history.maxFileSize`](#history) | number (MB) | `20` | Largest file that enters the history |
 | [`history.exclude`](#history) | list of patterns | none | Paths kept out of the history |
 | [`mcp.instructions`](#mcpinstructions) | note path | none | A note served to agents as instructions |
+| [`notes.maxSize`](#notesmaxsize) | number (MB) | `5` | Largest note indexed and edited live |
 | [`permissions`](#permissions) | map of folder rules | nothing shared | Shared spaces, and who shares what |
 
 Paths in the file are relative to the root of the notes folder, with `/`
@@ -162,7 +163,7 @@ has buttons for the previous and next note in the series.
 
 | Key | Default | Notes |
 |---|---|---|
-| id (the key) | — | Letters, digits, `-` or `_`, starting with a letter or digit, up to 64 characters |
+| id (the key) | — | Letters, digits, `-` or `_`, starting with a letter or digit, up to 64 characters. Not starting with `me-` or `sp-` (in any case): those are the ids of the spaces' series |
 | `label` | the id | Name shown in the UI |
 | `folder` | the root | Folder pattern. It must be inside a space: a series at the root of the notes folder, or anywhere else outside `people/` and `spaces/`, is ignored |
 | `name` | `{YYYY}-{MM}-{DD}` | File name pattern, without `.md` and without `/` |
@@ -319,8 +320,40 @@ mcp:
 ```
 
 Someone without that note gets vihko's instructions alone. A shared space and
-a person can add a guide of their own after this one (`agents` in their
-[settings](#settings-of-a-person-or-a-space)).
+a person can add a guide of their own after this one (`guide` in a shared
+space's [settings](#settings-of-a-person-or-a-space), `agents` in a person's).
+
+### `mcp.client_domains`
+
+```yaml
+mcp:
+  client_domains: [claude.ai, example.com]
+```
+
+The domains OAuth apps (remote MCP clients such as claude.ai) may come from,
+each with its subdomains: the host of the document an app names itself by, or
+every address an app that registers itself goes back to. Empty or left out
+(the default), any app may ask, and the authorization page shows its domain
+prominently and warns when the name it gives doesn't fit that domain. A name
+that isn't a domain or an IP address is an `invalid_value`, and the list is
+left as it was. Only matters with `VIHKO_PUBLIC_URL` and the MCP server on. See
+[Agents](agents.md#how-apps-introduce-themselves).
+
+### `notes.maxSize`
+
+```yaml
+notes:
+  maxSize: 5    # MB
+```
+
+The largest note vihko indexes and opens in the live editor, in MB (decimals
+are fine; 5 by default). A note larger than that, written with another tool
+or imported, is still listed by its name, but nothing of its text is indexed
+(no search, links or tags from it), and opening it shows it as plain text
+with a download instead of the editor. The admins get the `notes_too_large`
+alert listing them. The API and MCP refuse a write that would make a note
+larger than this (`note_too_large`). A huge note in the live editor would make
+every browser that opens it, and the server, slow for everyone.
 
 ### `permissions`
 
@@ -489,8 +522,11 @@ attachments:                    # where new images of this space's notes go
   mode: folder
   folder: images
 
-agents: For agents              # a note of this space: its guide for agents
+guide: |                        # a shared space's guide for agents, the text itself
+  Recipes go in Recipes, one note each.
 ```
+
+A person's file names a note of theirs instead: `agents: For agents`.
 
 - **Every path is relative to the space**: `journal/{YYYY}` in Noa's file is
   `people/noa/journal/{YYYY}`. Nothing in the file names `people/` or
@@ -499,7 +535,13 @@ agents: For agents              # a note of this space: its guide for agents
   isn't allowed in a series (the space already says whose it is).
 - The keys mean what they mean in `vihko.yaml`: [`daily`](#daily-daily-notes),
   [`attachments`](#attachments-where-new-images-go),
-  and `agents`, which is the space's [`mcp.instructions`](#mcpinstructions).
+  and the guide for agents, the space's [`mcp.instructions`](#mcpinstructions):
+  in a **shared space**, `guide`, the text itself, which only its managers
+  change (a note there could be changed by any member who edits); in a
+  **person's** file, `agents`, a note of theirs. A shared space's file
+  that still names a note under `agents` (as before 0.1.0-rc.6) applies
+  none of it, and its managers get `space_guide_note` until they write the
+  text under «Guide for agents» and save.
   `version` is the format's number, `1` now; a file without it is version 1.
 - **Who reads and changes it.** A person's file is theirs alone. A shared
   space's file is changed by its managers, and read by its members only to
@@ -509,15 +551,25 @@ agents: For agents              # a note of this space: its guide for agents
 - **vihko writes it** when someone saves the form, atomically, and only the
   keys that changed: comments and key order stay. You can also edit it by
   hand while vihko runs; it applies at once.
+- **Something wrong in it** (a hand edit, a key of an older or newer vihko)
+  is an alert to whom it belongs, the person or the space's managers, never
+  the admins, naming the file as vihko names places
+  (`~noa/.vihko/settings.yaml`, `Family/.vihko/settings.yaml`) and the line.
+  Its «Open…» button opens the form, where a key vihko doesn't know has
+  **Remove**: saving takes it out of the file.
+- **Keys vihko retires** are migrated by vihko when it starts, once: it does
+  what the key asked for, removes it from the file (the rest as it was) and
+  tells whom the file belongs to. `templates` (0.1.0-rc.4) is the first: its
+  folders' notes are marked as templates.
 
 ### How they add up
 
 | Setting | What a person gets |
 |---|---|
-| Daily-note series | `vihko.yaml`'s, those of the shared spaces they belong to, and their own: those where they can write today's note. Two series that give the same note are one (the first in that order is kept), so a personal series that repeats one of the installation's isn't offered twice. They're listed the other way round, their own first: until a person chooses, the first is the default |
+| Daily-note series | Their own, those of the shared spaces they belong to, and `vihko.yaml`'s: those where they can write today's note. Two series that give the same note are one, the closest to the person (their own, then a space's, then `vihko.yaml`'s), with its name and template, so a personal series that repeats one of the installation's is offered once, as theirs. Listed in that order: until a person chooses, the first is the default. If the series they chose goes away, «Today's note» asks them to choose again; it never moves to another series by itself |
 | Templates | Not a setting: every note marked `template: true` they can read, wherever it is ([Templates](notes.md#templates)) |
 | Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
-| Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. Each is a note the agent must be able to read |
+| Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. `vihko.yaml`'s and the person's are notes the agent must be able to read; a space's is text in its settings |
 
 An example with all three, in plain words: [How the installation's, the
 space's and yours add up](users-and-permissions.md#how-the-installations-the-spaces-and-yours-add-up).
@@ -549,7 +601,7 @@ a wrong setting meant.
 |---|---|
 | A key vihko doesn't know (a typo, or a setting from a newer vihko) | Ignored; an alert lists it with its line. The rest applies |
 | A `version` newer than vihko's | What vihko understands applies; an alert says so |
-| A known key with a wrong value (a path outside the notes folder, a bad series pattern, `mode: sometimes`) | The file can't be used. vihko keeps the last valid version it read; if there is none since it started, nothing is configured (no daily notes). The permissions section is judged on its own |
+| A known key with a wrong value (a path outside the notes folder, a bad series pattern, `mode: sometimes`) | The file can't be used. vihko keeps the last valid version it read; when it starts with such a file, the last valid one, which it keeps in the state volume (`vihko.yaml.last-valid`); if it never read one, nothing is configured (no daily notes). The permissions section is judged on its own |
 | A series or `mcp.instructions` outside the spaces | Ignored, with a warning (`outside_spaces`) |
 | Not valid YAML, or can't be read | As above, and the permissions can't be read either: the last valid ones stay, or nothing is shared if vihko started that way |
 | Anything doubtful in `permissions` | The section is rejected ([see above](#the-section-is-strict)); the rest applies |

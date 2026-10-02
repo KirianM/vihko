@@ -3,7 +3,7 @@
 // linked to its origin. The link goes into the note through the shared Y.Text,
 // at the place that was chosen even if someone else writes meanwhile.
 import type { EditorView } from '@codemirror/view'
-import { markdownDest } from '@vihko/core/images'
+import { imageMarkdown, markdownDest } from '@vihko/core/images'
 import { useState, type FormEvent } from 'react'
 import { Button, Dialog, FileTrigger, Heading, Input, Label, Modal, ModalOverlay, TextField } from 'react-aria-components'
 import * as Y from 'yjs'
@@ -110,6 +110,14 @@ export function useImageInsert(path: string, session: Session | null, view: Edit
     closeDialog: () => setDialog(null),
     /** Pasted or dropped files, for the range `from`–`to`. */
     onFiles: (files: File[], from: number, to: number) => void insertFiles(files, target(from, to)),
+    /** «Save a copy» of an external image already in the note: downloaded, and the image written over `from`–`to` points to the copy (its alt text kept). */
+    saveCopy: (url: string, alt: string, from: number, to: number) => {
+      const at = target(from, to)
+      if (!at) return
+      setError(null)
+      setBusy('download')
+      api.fetchImage(path, url).then((r) => { place(at, imageMarkdown(r.src, alt)); setBusy(null) }, fail)
+    },
     /** A pasted image URL: ask what to do with it. */
     onUrl: (url: string, from: number, to: number) => { const at = target(from, to); if (at) setDialog({ kind: 'pasted', url, at }) },
     /** «Insert image»: file picker or URL, at the cursor. */

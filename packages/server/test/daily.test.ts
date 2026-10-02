@@ -79,7 +79,8 @@ test('daily note: the person\'s chosen series; without a timezone, UTC', async (
   await admin('PUT', '/api/profile', { dailySeries: DAILY.team.id })
   assert.equal((await admin('GET', '/api/daily')).body.path, team('2026-09-24'))
   await admin('PUT', '/api/profile', { dailySeries: m.anId() })
-  assert.equal((await admin('GET', '/api/daily')).body.series, DAILY.own.id, 'a series vihko.yaml no longer has: the first one')
+  const gone = await admin('GET', '/api/daily')
+  assert.deepEqual([gone.status, gone.body.error], [409, 'series_gone'], 'a series vihko.yaml no longer has: never another one by itself')
 })
 
 test('daily note: the day changes at the person\'s midnight', async () => {

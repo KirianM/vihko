@@ -276,14 +276,17 @@ export class SpaceRules {
   /**
    * The level `who` has in a folder (a space's root or anything under it);
    * null: none. `userExists` says whether a personal space's owner exists
-   * (active or disabled): a deleted person's space is nobody's.
+   * (active or disabled), or `'closed'` for a deleted person whose space
+   * nobody has decided about yet: it's nobody's, but what they shared stays
+   * shared meanwhile. A folder of nobody's (no such user) is nobody's.
    */
-  level(folder: string, who: Grantee, userExists: (username: string) => boolean): Level | null {
+  level(folder: string, who: Grantee, userExists: (username: string) => boolean | 'closed'): Level | null {
     const s = parseSpacePath(folder)
     if (!s) return null
     if (s.space.kind === 'personal') {
-      if (!userExists(s.space.owner)) return null
-      if (who.username.normalize('NFC') === s.space.owner) return 'manage'
+      const owner = userExists(s.space.owner)
+      if (!owner) return null
+      if (owner === true && who.username.normalize('NFC') === s.space.owner) return 'manage'
     }
     const me = subjectKey(who.username)
     const groups = new Set(who.groups.map((g) => subjectKey('@' + g)))
@@ -534,9 +537,10 @@ export function rulesInFile(text: string): Map<string, RuleValue> {
  * folder that didn't exist: a forgotten audience) go: the folder
  * brings its own. `extra`: rules to write as well. With `keepFrom`, the rules
  * stay at `from` too (the first step of a move that never leaves the folder
- * without its rules).
+ * without its rules). With `grants: false`, only `ai: false` travels: the
+ * moved folders take the audience of where they go.
  */
-export function moveRules(text: string, from: string, to: string, opts: { extra?: readonly (RuleValue & { folder: string })[]; keepFrom?: boolean } = {}): string {
+export function moveRules(text: string, from: string, to: string, opts: { extra?: readonly (RuleValue & { folder: string })[]; keepFrom?: boolean; grants?: false } = {}): string {
   const f = from.normalize('NFC')
   const t = to.normalize('NFC')
   const changes: Change[] = []
@@ -546,7 +550,8 @@ export function moveRules(text: string, from: string, to: string, opts: { extra?
   for (const [key, v] of rules) {
     if (!under(key, f)) continue
     if (!opts.keepFrom) changes.push([key, null])
-    changes.push([t + key.slice(f.length), v])
+    // `grants: false`: only what closes travels (`ai: false`); a rule left with nothing isn't written.
+    changes.push([t + key.slice(f.length), opts.grants === false ? { ...v, grants: null, name: null } : v])
   }
   for (const e of opts.extra ?? []) changes.push([e.folder, { grants: e.grants, ai: e.ai, name: e.name ?? null }])
   return changes.length ? applyRules(text, changes) : text

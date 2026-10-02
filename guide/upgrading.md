@@ -64,11 +64,9 @@ lists them all), among them:
 |---|---|
 | `ghcr.io/kirianm/vihko:0.1` | Recommended. Every 0.1.x release: fixes only. |
 | `ghcr.io/kirianm/vihko:0.1.0` | You want to choose each update yourself, or to [roll back](#rolling-back). |
-| `ghcr.io/kirianm/vihko:0` | Don't. It moves to every new minor version on a `docker compose pull`, and in 0.x one can need you to do something first. |
-| `ghcr.io/kirianm/vihko:latest` | Don't, for the same reason. |
 | `ghcr.io/kirianm/vihko:0.2.0-rc.1` | Testing a release candidate. Candidates are only published under their exact tag; moving tags never point to one. |
 
-A moving tag (`0.1`, `0`, `latest`) only goes forward: a fix published for an
+A moving tag (`0.1`) only goes forward: a fix published for an
 older line doesn't move it back.
 
 ## How to update
@@ -218,6 +216,11 @@ To go back:
    ```
 
    The index rebuilds on its own if the versions differ.
+
+The copy brings back what was revoked or changed in `state.db` since the
+update (keys, sessions, passwords, people disabled or deleted): see [After
+restoring an older `state.db`](backups.md#after-restoring-an-older-statedb)
+for what to undo by hand.
 
 Stay on the pinned tag until a fixed release is out, then go back to the
 moving tag of your line (such as `:0.2`) and update as usual. If the update broke something, please

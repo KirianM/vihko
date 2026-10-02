@@ -73,6 +73,9 @@
 .editor .cm-image-mark { position: absolute; top: var(--space-2); right: var(--space-2); font-family: var(--font-sans); font-size: 12px; line-height: 18px; padding: 0 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted); }
 .editor .cm-image-box { display: inline-block; font-family: var(--font-sans); font-size: 13px; line-height: 18px; padding: 10px 14px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); background: var(--panel); color: var(--muted); overflow-wrap: anywhere; }
 .editor .cm-image-missing .cm-image-box { border-color: var(--danger); color: var(--danger); }
+.editor .cm-image-actions { display: inline-flex; gap: var(--space-2); margin-left: var(--space-3); }
+.editor .cm-image-action { font: inherit; font-size: 13px; padding: 0; border: none; background: none; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.editor .cm-image-action:hover { color: var(--ink); }
 
 /* Tasks: a checkbox in place of `- [ ]`; done ones muted and struck through */
 .editor .cm-task { position: relative; display: inline-flex; align-items: center; vertical-align: -0.12em; margin-right: var(--space-1); cursor: pointer; }
@@ -111,7 +114,10 @@
 .editor .cm-comment-notice span { flex-grow: 1; text-align: left; }
 .editor .cm-comment-notice b { color: var(--accent); font-weight: 500; }
 
-/* Other users' cursors (y-codemirror) */
+/* Other users' cursors (y-codemirror). Their name is always shown, over the
+   text around it; a click on the cursor, its dot or its name goes to the text
+   under it (on them, the editor would ignore it). */
+.editor .cm-ySelectionCaret { pointer-events: none; }
 .editor .cm-ySelectionInfo { font-family: var(--font-sans); font-size: 11px; font-weight: 500; border-radius: 4px; padding: 1px 6px; color: var(--on-user); opacity: 1; }
 
 @media (max-width: 760px) {

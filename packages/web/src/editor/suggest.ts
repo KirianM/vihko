@@ -3,7 +3,7 @@
 // and the shortest link that reaches a note from the current one.
 // Plain data in and out, so it can be tested on its own.
 import { caseFold } from '@vihko/core/casefold'
-import { LinkIndex, sameSpace, wikiLink } from '@vihko/core/resolve'
+import { LinkIndex, rootedTarget, sameSpace, wikiLink } from '@vihko/core/resolve'
 
 /** A note as the tree lists it. */
 export interface NoteEntry { path: string; title: string; aliases?: readonly string[] }
@@ -83,7 +83,16 @@ export interface NoteMatch {
   score: number
 }
 
-interface Prepared { note: NoteEntry; title: string; name: string; path: string; aliases: string[]; folder: string }
+interface Prepared {
+  note: NoteEntry
+  title: string
+  name: string
+  path: string
+  /** The path from the root of its space, with its leading `/`: what `[[/…` is typed against. */
+  rooted: string
+  aliases: string[]
+  folder: string
+}
 
 /**
  * The notes of the workspace, ready to be suggested: ranking by what's typed
@@ -110,6 +119,7 @@ export class NoteCatalog {
       title: fold(note.title || baseName(note.path)),
       name: fold(baseName(note.path)),
       path: fold(stripMd(note.path)),
+      rooted: fold(stripMd(rootedTarget(note.path, note.path))),
       aliases: (note.aliases ?? []).map(fold),
       folder: folderOf(note.path),
     }))
@@ -131,7 +141,9 @@ export class NoteCatalog {
       if (p.note.path === source || !sameSpace(source, p.note.path)) continue
       const label = p.note.title || baseName(p.note.path)
       let best = Math.max(matchScore(p.title, q), matchScore(p.name, q) - 1)
-      if (q.includes('/')) best = Math.max(best, matchScore(p.path, q) - 2)
+      // `/…` is typed from the root of the space, as such a link resolves; any other path, anywhere in the path.
+      if (q.startsWith('/')) best = Math.max(best, matchScore(p.rooted, q) - 2)
+      else if (q.includes('/')) best = Math.max(best, matchScore(p.path, q) - 2)
       let alias: string | null = null
       p.aliases.forEach((a, i) => {
         const s = matchScore(a, q) - 3

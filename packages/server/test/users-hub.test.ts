@@ -3,10 +3,11 @@
 // password ends the other sessions' editors, never the one that changed it.
 // On a real server.
 import { writeFileSync } from 'node:fs'
+import Database from 'better-sqlite3'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
+import { adminOf, api, closeAll, connect, login, makeDirs, startServer, typeLine, waitFor, type Client, type Srv } from './_collab.ts'
 import { everyone, inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -59,7 +60,7 @@ test('disabling someone ends their open editor and their key at once', async () 
     const bystander = await connect(srv, admin, NOTE)
     const other = watch(bystander)
 
-    assert.equal((await api(srv, admin, 'POST', `/api/admin/users/${created.body.user.id}/disable`)).status, 200)
+    assert.equal((await api(srv, admin, 'POST', `/api/admin/users/${created.body.user.id}/disable`, { confirm: adminOf(srv).password })).status, 200)
     await waitFor(() => seen.heard.includes('vihko:session-ended'), 'the editor is told its session ended')
     await waitFor(() => seen.status() === 'disconnected', 'and its connection closes')
     assert.equal((await api(srv, '', 'GET', '/api/tree', undefined, key)).status, 401, 'the key stops at once')
@@ -96,6 +97,30 @@ test('a new password ends the editors of the other sessions, not the one that ch
     await waitFor(async () => (await api(srv, admin, 'GET', `/api/note?path=${encodeURIComponent(NOTE)}`)).body?.text?.includes(stillHere), 'this session keeps writing')
     assert.ok(!hereSeen.heard.includes('vihko:session-ended'))
     assert.equal(hereSeen.status(), 'connected')
+  } finally {
+    closeAll()
+    await srv.stop()
+  }
+})
+
+test('a session that expires on its own ends its open editor too, within seconds', async () => {
+  const { env } = dirs()
+  const srv = await startServer(env)
+  try {
+    const expiring = await login(srv)
+    const staying = await login(srv)
+    const a = await connect(srv, expiring, NOTE)
+    const b = await connect(srv, staying, NOTE)
+    const [seenA, seenB] = [watch(a), watch(b)]
+    // The first session's time runs out (as the clock would make it), with nobody signing out.
+    const db = new Database(join(env.VIHKO_STATE_DIR!, 'state.db'))
+    try {
+      const rows = db.prepare('select token_hash from sessions order by created_at').all() as { token_hash: string }[]
+      assert.equal(rows.length, 2)
+      db.prepare("update sessions set expires_at = '2000-01-01T00:00:00.000Z' where token_hash = ?").run(rows[0]!.token_hash)
+    } finally { db.close() }
+    await waitFor(() => seenA.status() === 'disconnected' || seenB.status() === 'disconnected', 'one editor ends', 15_000)
+    assert.ok(seenA.heard.includes('vihko:session-ended') !== seenB.heard.includes('vihko:session-ended'), 'only the expired one')
   } finally {
     closeAll()
     await srv.stop()

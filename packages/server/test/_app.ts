@@ -57,7 +57,7 @@ export async function setup(opts: { config?: ByNames<string>; clock?: { now: Dat
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   const notes = new NoteService({ notesDir, stateDir: join(dir, 'state'), indexer, db: index, attachments: () => workspace.config.attachments })
   const clock = opts.clock ?? { now: new Date('2026-09-24T23:30:00Z') }
-  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir, runtime, now: () => clock.now, moveWaitMs: opts.moveWaitMs })
+  const app = createApp({ auth, profiles, workspace, notes, index, indexer, notesDir, runtime, now: () => clock.now, moveWaitMs: opts.moveWaitMs, confirmWindowMs: 0 })
   const users = { admin: await create(auth, people.admin), member: await create(auth, people.member) }
   runtime.rescan({})
   const cookies = {} as Record<keyof typeof users, string>

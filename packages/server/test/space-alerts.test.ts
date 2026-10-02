@@ -42,8 +42,8 @@ test('the admin is told what is outside the spaces, person folders of nobody, an
       assert.deepEqual((await alertsOf(who)).filter((a) => ['outside_spaces', 'person_folder_without_user', 'space_without_members', 'space_without_managers'].includes(a.code)), [])
     }
     // A deleted person's folder is their closed space: not a stray, but the admin is reminded while it waits for a decision.
-    assert.equal((await h.admin('POST', `/api/admin/users/${h.users.other.id}/disable`)).status, 200)
-    assert.equal((await h.admin('DELETE', `/api/admin/users/${h.users.other.id}`)).status, 200)
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.users.other.id}/disable`, { confirm: ADMIN.password })).status, 200)
+    assert.equal((await h.admin('DELETE', `/api/admin/users/${h.users.other.id}`, { confirm: ADMIN.password })).status, 200)
     const after = await alertsOf(h.admin)
     assert.deepEqual(after.find((a) => a.code === 'person_folder_without_user')?.names, [NOBODY])
     assert.deepEqual(after.find((a) => a.code === 'closed_spaces')?.people, [OTHER.username])

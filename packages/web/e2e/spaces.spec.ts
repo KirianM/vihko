@@ -11,7 +11,7 @@
 // space, and another one transferred; a new member's empty «My notes»; and
 // the phone's drawer.
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, personal, specMother } from './env.ts'
 import { literally, newUser, noteInUrl, signIn, spaceTree } from './helpers.ts'
 import { readablePart } from '@vihko/core/spaces'
@@ -470,11 +470,11 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   await note(l, lNote, `# ${baseName(lNote)}\n`)
   await g.context().close()
   await l.context().close()
-  for (const u of [GONE, LEFT]) await call(k, 'post', `/api/admin/users/${await userId(k, u.username)}/disable`)
-  await call(k, 'delete', `/api/admin/users/${await userId(k, GONE.username)}`)
+  for (const u of [GONE, LEFT]) await call(k, 'post', `/api/admin/users/${await userId(k, u.username)}/disable`, { confirm: ADMIN.password })
+  await call(k, 'delete', `/api/admin/users/${await userId(k, GONE.username)}`, { confirm: ADMIN.password })
   // Undecided, the admin is reminded, and goes from there to «Spaces».
   await k.goto('/?view=alerts')
-  const reminder = k.locator('.alert-card', { hasText: GONE.username }).filter({ hasText: 'nadie los ve, tampoco tú' })
+  const reminder = k.locator('.alert-card', { hasText: GONE.username }).filter({ hasText: 'nadie ve lo suyo, tampoco tú' })
   await expect(reminder).toBeVisible(SLOW)
   await reminder.getByRole('button', { name: 'Ir a Espacios' }).click()
   await expect(k.getByRole('heading', { name: 'Espacios', level: 1 })).toBeVisible()
@@ -490,7 +490,8 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   await dialog.getByRole('combobox', { name: 'Nivel', exact: true }).selectOption('manage')
   await dialog.getByRole('button', { name: 'Añadir' }).click()
   await expect(dialog).toContainText('Contiene 1 nota, 0 archivos.')
-  await dialog.getByLabel('Tu contraseña').fill(ADMIN.password)
+  // The admin confirmed a moment ago in this browser (disabling and deleting them): nothing to type.
+  await expect(dialog.getByLabel('Tu contraseña')).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Convertir' }).click()
   await expect(k.getByRole('status')).toContainText(GONE.username)
   await a.goto('/')
@@ -510,13 +511,36 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   await dialog.getByRole('combobox', { name: 'A quién' }).selectOption({ label: MEMBER.username })
   await expect(dialog).toContainText('Contiene 1 nota, 0 archivos.', SLOW)
   const go = dialog.getByRole('button', { name: 'Borrar y decidir su espacio' })
-  await expect(go).toBeDisabled()
-  await dialog.getByLabel('Tu contraseña').fill(ADMIN.password)
+  await expect(dialog.getByLabel('Tu contraseña')).toHaveCount(0)
   await go.click()
   await expect(dialog).toHaveCount(0)
   await expect.poll(() => existsSync(`${NOTES}/${personal(MEMBER)}/${LEFT.username}/${baseName(lNote)}.md`)).toBe(true)
   await k.goto('/?view=spaces')
   await expect(k.locator('.group-card', { hasText: `Espacio de ${LEFT.username}` })).toHaveCount(0)
+})
+
+test('deleting a space names first what vihko doesn\'t show and goes with it: files that aren\'t notes, its settings', async () => {
+  const name = m.aSpaceName()
+  const root = ((await call(a, 'post', '/api/spaces', { name }, 201)) as { space: { path: string } }).space.path
+  await note(a, `${root}/${m.aTitle()}.md`, `# ${m.aHeading()}\n`)
+  const settings = await call(a, 'get', `/api/settings?space=${q(root)}`) as { etag: string; settings: Record<string, unknown> }
+  await call(a, 'put', '/api/settings', { space: root, settings: { ...settings.settings, guide: m.aSentence() }, ifMatch: settings.etag })
+  const pdf = `${m.aUniqueWord()}.pdf`
+  writeFileSync(`${NOTES}/${root}/${pdf}`, `%PDF-1.4\n${m.aSentence()}\n`)
+  await a.goto('/')
+  await sectionMenu(a, name, 'Borrar espacio…')
+  const dialog = a.getByRole('alertdialog', { name: `¿Borrar el espacio «${name}»?` })
+  await expect(dialog).toContainText('También va a la papelera 1 archivo que no es una nota:')
+  await expect(dialog.getByRole('list', { name: 'Sus archivos' })).toHaveText(pdf)
+  await expect(dialog.getByRole('list', { name: 'Carpetas ocultas' })).toHaveText('Ajustes de vihko de este espacio (.vihko)')
+  for (const theme of ['light', 'dark'] as const) {
+    await a.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${E2E_DIR}/shots/space-delete-hidden-${theme}.png` })
+  }
+  await a.emulateMedia({ colorScheme: null })
+  await dialog.getByRole('button', { name: 'Borrar espacio' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => existsSync(`${NOTES}/${root}`)).toBe(false)
 })
 
 test('someone new sees «My notes» empty and creates their first note there', async ({ browser }) => {
@@ -560,6 +584,12 @@ test('a space\'s folder is its name: renaming it moves the open note\'s address,
   await fresh.getByLabel('Nombre', { exact: true }).fill(after.toLowerCase() === after ? after.toUpperCase() : after.toLowerCase())
   await fresh.getByRole('button', { name: 'Crear espacio' }).click()
   await expect(fresh.getByRole('alert')).toHaveText(`Ya hay un espacio llamado «${after}»: elige otro nombre.`)
+  // A name Windows can't give a folder, by a character or as a device's: each said.
+  for (const [bad, said] of [[`${m.aWord()}?`, 'ninguno de < > : " | ? *'], ['Nul', 'como CON, NUL o COM1']] as const) {
+    await fresh.getByLabel('Nombre', { exact: true }).fill(bad)
+    await fresh.getByRole('button', { name: 'Crear espacio' }).click()
+    await expect(fresh.getByRole('alert')).toContainText(said)
+  }
   await fresh.getByRole('button', { name: 'Cancelar' }).click()
 
   // An address of the folder rc.1 or rc.2 would have made for it leads to the space it is now.

@@ -162,7 +162,8 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
             <li>{t('privacy.imagesFetch')}</li>
             <li>{config === null ? t('common.loading')
               : config.externalImages === 'block' ? t('privacy.imagesBlocked')
-                : withCode(t('privacy.imagesAllowed'), { setting: 'VIHKO_EXTERNAL_IMAGES=block' })}</li>
+                : config.externalImages === 'ask' ? withCode(t('privacy.imagesAsk'), { setting: 'VIHKO_EXTERNAL_IMAGES' })
+                  : withCode(t('privacy.imagesAllowed'), { setting: 'VIHKO_EXTERNAL_IMAGES' })}</li>
           </ul>
         </section>
       </div>

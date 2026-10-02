@@ -33,6 +33,7 @@ import type { User } from './auth.ts'
 import type { Db } from './db.ts'
 import { NoteError } from './notes.ts'
 import type { PermissionsEngine, Viewer } from './permissions.ts'
+import type { GrantStarts } from './grantStarts.ts'
 
 /** What a key grants (keys.ts). `folders`: those it reaches, empty = all its user sees. */
 export interface KeyGrant {
@@ -120,6 +121,12 @@ export class AccessPolicy {
   readonly aiKey: string
   readonly permissions: PermissionsEngine
   readonly holds: Holds | null
+  /**
+   * When each grant began (grantStarts.ts): the past each person may see.
+   * Set by the API (http/app.ts); without it, everyone sees all of the past
+   * of what they reach.
+   */
+  starts: GrantStarts | null = null
   private index: Db
   private statements = new Map<string, Statement>()
   /** The accesses whose queries may be running, by id (the SQL function's last argument). */
@@ -299,6 +306,19 @@ export class Access {
   }
 
   /**
+   * Whether it may read a file (not a note) that a note it reads names Obsidian's
+   * way (`![[photo.png]]`, `[[invoice.pdf]]`, found by name: fileNames.ts).
+   * As `canRead`, except that for an agent the naming note, which the caller
+   * has checked it reads, counts as one that uses the file (the index only
+   * knows the files notes name by their path); a note hidden from agents
+   * that uses it still hides it.
+   */
+  canReadNamed(path: string): boolean {
+    if (this.principal.kind === 'user') return this.canRead(path)
+    return this.userCan(path, 'read') && this.agentReaches(path) && !this.fileHidden(path)
+  }
+
+  /**
    * For an agent, whether a file that isn't a note is used by a note hidden
    * from agents (`ai: false` in it or in its folder, or a frontmatter that
    * can't be read): then the file is hidden too, whatever else uses it, or
@@ -351,6 +371,31 @@ export class Access {
   canHistory(path: string): boolean {
     if (!this.userCan(path, 'edit')) return false
     return this.principal.kind === 'user' || this.agentReaches(path)
+  }
+
+  /**
+   * Since when the user (an agent's) has been able to read in `folder`, by
+   * the grants that reach them there now (grantStarts.ts), in ms: `-Infinity`
+   * for all of its past (their own space, or a grant from before vihko kept
+   * starts).
+   */
+  readableSince(folder: string): number {
+    const starts = this.policy.starts
+    if (!starts) return -Infinity
+    const engine = this.policy.permissions
+    return starts.since(this.user, folder, engine.spaceRules(), (id) => engine.directory.groupsOf(id))
+  }
+
+  /**
+   * Whether what happened at `at` (ISO) in `folder` is from when the user
+   * could read there: the history and the trash show each person only that
+   * (sharing a folder doesn't share its past).
+   */
+  sawAt(folder: string, at: string): boolean {
+    const t = Date.parse(at)
+    // In whole seconds, as the history keeps its times: a note written the moment after
+    // someone is given access is theirs to see, whatever the milliseconds say.
+    return Number.isNaN(t) ? false : t >= Math.floor(this.readableSince(folder) / 1000) * 1000
   }
 
   /** Whether a note's text is hidden from this principal (`ai: false`, unreadable frontmatter): never for a user. */

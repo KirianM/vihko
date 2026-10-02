@@ -1,7 +1,8 @@
 // Agent keys and the integration switches, for the UI (session only: a key
 // never reaches these, http/routes.ts).
 //
-//   GET    /api/integrations            the switches, the lock, whether this user may create keys, and the public URL (OAuth)
+//   GET    /api/integrations            the switches, the lock, whether this user may create keys, and the public URL (OAuth);
+//                                        for the admin, `memberKeys`: members' keys and apps, which «members can create keys» off suspends
 //   PUT    /api/admin/integrations      { api?, mcp?, membersCanCreateKeys?, oauthRegistration? }   the vihko admin only
 //   GET    /api/keys[?all=1]            this user's keys; with all=1, the admin gets everyone's
 //   POST   /api/keys                    { name, canWrite?, folders?, expiresAt?, confirm } → { key, token } (the token, once).
@@ -16,6 +17,7 @@ import type { User } from '../auth.ts'
 import type { Access } from '../access.ts'
 import { KeyError, type ApiKeys, type KeyInput } from '../keys.ts'
 import type { Integrations } from '../integrations.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -29,6 +31,8 @@ export interface KeyRoutesDeps {
    * password without one): null if so, the response otherwise.
    */
   confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
+  /** A key was made on someone's account: they're told (notices.ts `account_key_added`), whoever made it. */
+  onKeyAdded?: (userId: string, name: string) => void
 }
 
 export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
@@ -37,12 +41,13 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
   /** An admin always may; a member, if the admin allows it. */
   const mayCreate = (c: Context<Env>) => isAdmin(c) || integrations.view().membersCanCreateKeys
   const body = async (c: Context<Env>) => {
-    const b = await c.req.json<unknown>()
+    const b = await jsonBody<unknown>(c)
     if (typeof b !== 'object' || b === null || Array.isArray(b)) throw new KeyError('invalid', 'expected an object')
     return b as Record<string, unknown>
   }
 
-  const view = (c: Context<Env>) => ({ ...integrations.view(), canCreateKeys: mayCreate(c), publicUrl: deps.publicUrl ?? null })
+  // The admin also gets how many members' keys and apps there are: what turning «members can create keys» off suspends.
+  const view = (c: Context<Env>) => ({ ...integrations.view(), canCreateKeys: mayCreate(c), publicUrl: deps.publicUrl ?? null, ...(isAdmin(c) ? { memberKeys: keys.memberKeys() } : {}) })
 
   app.get('/api/integrations', (c) => c.json(view(c)))
 
@@ -80,7 +85,10 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
     const refused = await deps.confirm(c, b.confirm)
     if (refused) return refused
     const input: KeyInput = { name: b.name, canWrite: b.canWrite, folders: b.folders, expiresAt: b.expiresAt }
-    return c.json(keys.create(c.get('user'), input), 201)
+    const made = keys.create(c.get('user'), input)
+    // Told even of their own: a session taken by someone else would make one unnoticed otherwise.
+    deps.onKeyAdded?.(c.get('user').id, made.key.name)
+    return c.json(made, 201)
   })
 
   /** A key of this user's; someone else's doesn't exist for them. */
@@ -108,7 +116,7 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
   app.post('/api/keys/:id/rotate', async (c) => {
     const key = own(c)
     if (!mayCreate(c)) return c.json({ error: 'forbidden', message: 'members may not change keys here' }, 403)
-    const b = await c.req.json<{ confirm?: unknown }>().catch(() => ({}) as { confirm?: unknown })
+    const b = await jsonBody<{ confirm?: unknown }>(c).catch(() => ({}) as { confirm?: unknown })
     const refused = await deps.confirm(c, b?.confirm)
     if (refused) return refused
     return c.json(keys.rotate(key.id))

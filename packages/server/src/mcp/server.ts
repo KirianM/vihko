@@ -83,7 +83,7 @@ function spacesGuide(access: Access, v: SpacesResponse): string[] {
   if (shared.length) lines.push(`- Folders others share with them: ${shared.join(', ')}.`)
   if (all.length > shown.length) lines.push(`- And ${all.length - shown.length} more: list_folder with folder "" lists them all.`)
   lines.push(
-    '- Links: by name ([[plan]]) or relative path, and only inside the note\'s own space: a link never leads to another space (one written to it is broken).',
+    '- Links: by name ([[plan]]), relative path, or path from the root of the note\'s space ([[/projects/plan]]), and only inside that space: a link never leads to another space (one written to it is broken).',
     '- Moving a note to another space changes who can see it and whose it is, and leaves broken the links between it and the space it leaves (the move\'s dry run lists them).',
   )
   return lines
@@ -109,7 +109,7 @@ function instructions(access: Access, spaces?: SpacesResponse): string {
       : '- Some notes exist but are not available to agents (marked `ai: false`, in a folder closed to agents or outside the folders of this key). Searches and listings don\'t show them. A link to one has status `no_access`; naming one yourself (reading, writing, its history) answers `agent_denied` with the reason. Neither is a broken link or a missing note: '
         + LEAVE_IT.replace(/^do/, 'Do'),
     ...(access.mayWrite ? [
-      '- Every read gives the note\'s ETag. To replace text (find_replace, replace_section, set_frontmatter), pass it as if_match: plan the change on the text you read. Appends don\'t need it. If it fails with precondition_failed, read again (or ask changes_since) and plan again.',
+      '- Every read gives the note\'s ETag. To replace text (find_replace, replace_section, set_frontmatter), pass it as if_match: plan the change on the text you read. Appends don\'t need it. If someone typed since, it still goes in where nothing changed since; if it fails with precondition_failed, read again (or ask changes_since) and plan again.',
       '- Someone may have the note open and be typing: prefer small operations with edit_note to rewriting a note, and use changes_since (it can wait for a change) to see what they changed since your last read.',
       '- create_note never overwrites; delete moves to the trash. Everything you write is kept in the note\'s history under your name and can be reverted.',
       '- Who can see a note depends on its folder, so moving it can open it to other people. A move that would do so fails with `audience_widens` and who would gain access: ask the person you act for before moving it with confirm_audience: true, and never confirm it on your own.',
@@ -168,23 +168,21 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
 
   /**
    * The guides for agents of the spaces' and the person's own note settings
-   * (noteSettings.ts): of each shared space the key reaches, then the
-   * person's own if it reaches their space. Each a note read as the key; one
-   * it can't read is left out.
+   * (noteSettings.ts): of each shared space the key reaches (`view` already
+   * leaves out those outside its folders or closed to agents), its text as
+   * its managers wrote it in the space's settings; then the person's own, a
+   * note read as the key (one it can't read is left out).
    */
   const settingsGuides = (access: Access, v: SpacesResponse): string[] => {
     const out: string[] = []
-    const read = (note: string): string | null => {
-      try { return services.scoped(access).read(note).text } catch { return null }
-    }
     for (const s of v.spaces) {
-      const g = services.noteSettings.read(s.path).resolved.agents
-      const text = g ? read(g) : null
-      if (text !== null) out.push(`The guide for agents of the shared space ${JSON.stringify(s.name)} (the note ${g}), for what you do in it:\n\n${text}`)
+      const text = services.noteSettings.read(s.path).resolved.guide
+      if (text !== null) out.push(`The guide for agents of the shared space ${JSON.stringify(s.name)}, written by its managers, for what you do in it:\n\n${text}`)
     }
     if (v.personal) {
       const g = services.noteSettings.read(v.personal.path).resolved.agents
-      const text = g ? read(g) : null
+      let text: string | null = null
+      try { text = g ? services.scoped(access).read(g).text : null } catch { text = null }
       if (text !== null) out.push(`${access.user.username}'s own guide for agents (the note ${g}):\n\n${text}`)
     }
     return out
@@ -237,13 +235,17 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
     // An OAuth access token (only while OAuth is available): also from its client's own site.
     // A key: only from vihko's own origin, or with no Origin at all.
     let principal: AgentPrincipal | null
+    // A member's key or app while the admin doesn't let members have keys: suspended, never deleted (403 `key_suspended`).
+    const suspended = () => fail(c, 403, 'key_suspended', 'this key is suspended while the admin doesn\'t let members have keys')
     if (OAuthServer.isAccessToken(token)) {
       const r = services.oauth.authenticate(token, foreignOrigin)
       if (r === 'origin') return foreign(c)
+      if (r === 'suspended') return suspended()
       principal = r
     } else {
       const r = authenticateKey({ keys: services.keys, integrations: services.integrations }, token, 'mcp')
       if (!r.ok && r.status === 404) return fail(c, 404, 'not_found', 'does not exist')
+      if (!r.ok && r.status === 403) return suspended()
       if (r.ok && foreignOrigin !== undefined) return foreign(c)
       principal = r.ok ? r.principal : null
     }

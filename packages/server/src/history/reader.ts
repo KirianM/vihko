@@ -35,6 +35,14 @@ export interface RawVersion {
   /** Words (and marks) added and removed against the note's previous version. */
   added: number
   removed: number
+  /**
+   * Where who may see this version is judged, when not at `path`: the note's
+   * path now, for a version from before its folder was renamed within its
+   * space or its shared space was renamed (managed.ts). Never sent to a client.
+   */
+  judgedPath?: string
+  /** The same, for `from`. */
+  fromJudgedPath?: string
 }
 
 /** One change of «Recent changes»: a commit, with the files the reader may show. */
@@ -56,6 +64,8 @@ export interface VersionText {
   text: string | null
   /** null: the note didn't exist before this version. */
   before: string | null
+  /** Where who may see it is judged, when not at `path` (see RawVersion). */
+  judgedPath?: string
 }
 
 export interface HistoryReader {
@@ -68,9 +78,10 @@ export interface HistoryReader {
   /**
    * A page of changes, newest first: only files `canRead` allows, and no
    * change left without any; `author` keeps those with a matching author
-   * (`authorFilter`).
+   * (`authorFilter`). `canRead` is asked with where the file is judged (see
+   * RawVersion `judgedPath`) and when the change was made (ISO).
    */
-  changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string) => boolean }): Promise<{ changes: RawChange[]; next: string | null }>
+  changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string, at: string) => boolean }): Promise<{ changes: RawChange[]; next: string | null }>
   /** Everyone who appears in the history (for the author filter). */
   authors(): Promise<AuthorRef[]>
 }

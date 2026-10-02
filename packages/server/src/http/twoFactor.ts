@@ -9,7 +9,8 @@
 //                                now (POST /api/auth/2fa/setup, then /api/auth/2fa/enable)
 //
 // A pending sign-in lives 5 minutes (15 while setting up: scanning takes a
-// while), in memory, and works once. Wrong codes count in the login limits
+// while), in memory, and works once; after MAX_CODE_TRIES wrong codes it's
+// gone, and the password is asked again. Wrong codes count in the login limits
 // (loginLimit.ts) under an account of their own for each user, which a
 // right password doesn't clear: knowing the password gives no fresh free
 // guesses at the code.
@@ -35,6 +36,16 @@
 // second factor's reset, their role) and a new policy ask the same,
 // so an admin never does it unseen, and the person and every other admin are told (notices.ts).
 // Keys themselves never ask for a second factor.
+//
+// A confirmation lasts a while for that browser session (CONFIRM_WINDOW_MS,
+// like GitHub's «sudo mode»): the current code, a recovery code, the password
+// without a second factor, or a sign-in that took a code, and for 15 minutes
+// what would ask to confirm doesn't (`confirmIdentity` answers as confirmed;
+// GET /api/account/2fa says so, `confirmNeeded`). Only a session's: a key or
+// an OAuth token never confirms, nor skips. Kept in memory: a restart asks
+// again. It ends with the session, when its password changes (and anything
+// else that ends sessions), and when its person's second factor is turned off
+// or reset. Inside it no code is tried, so nothing counts in the limits.
 import { createHash, randomBytes } from 'node:crypto'
 import type { Context, Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
@@ -45,6 +56,7 @@ import type { LoginLimiter } from '../loginLimit.ts'
 import type { Notices } from '../notices.ts'
 import type { TwoFactor } from '../twoFactor.ts'
 import type { Users } from '../users.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -53,6 +65,10 @@ export type PendingStep = 'code' | 'setup'
 
 const PENDING_MS: Record<PendingStep, number> = { code: 5 * 60_000, setup: 15 * 60_000 }
 const MAX_PENDING = 10_000
+/** Wrong codes a pending sign-in takes before it ends. */
+export const MAX_CODE_TRIES = 5
+/** How long a confirmation lasts for its browser session (see the header). */
+export const CONFIRM_WINDOW_MS = 15 * 60_000
 
 /** The account a user's second-factor attempts are counted under in the login limits (no username has a NUL). */
 export function secondFactorAccount(username: string): string {
@@ -64,7 +80,7 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
 /** Sign-ins whose password was right, waiting for their second step (in memory: a restart asks for the password again). */
 export class PendingSignIns {
   private readonly now: () => number
-  private readonly entries = new Map<string, { userId: string; step: PendingStep; until: number }>()
+  private readonly entries = new Map<string, { userId: string; step: PendingStep; until: number; wrong: number }>()
 
   constructor(opts: { now?: () => number } = {}) {
     this.now = opts.now ?? Date.now
@@ -77,7 +93,7 @@ export class PendingSignIns {
     while (this.entries.size >= MAX_PENDING) this.entries.delete(this.entries.keys().next().value!)
     const token = randomBytes(32).toString('base64url')
     const until = now + PENDING_MS[step]
-    this.entries.set(sha256(token), { userId, step, until })
+    this.entries.set(sha256(token), { userId, step, until, wrong: 0 })
     return { token, expiresAt: new Date(until).toISOString() }
   }
 
@@ -95,6 +111,12 @@ export class PendingSignIns {
 
   end(token: string) {
     this.entries.delete(sha256(token))
+  }
+
+  /** A wrong code with this pending sign-in: after MAX_CODE_TRIES of them, it ends. */
+  wrongCode(token: string) {
+    const e = this.entries.get(sha256(token))
+    if (e && ++e.wrong >= MAX_CODE_TRIES) this.entries.delete(sha256(token))
   }
 }
 
@@ -115,6 +137,10 @@ export interface TwoFactorHttpDeps {
   /** Notices addressed to one person: the admin's reset of someone's second factor is told. */
   notices?: Notices
   now?: () => number
+  /** How long a confirmation lasts (CONFIRM_WINDOW_MS by default; 0: none, every action asks). */
+  confirmWindowMs?: number
+  /** The server's log: the admin taking someone's second factor away stays on record there. */
+  log?: (msg: string) => void
 }
 
 const fail = (c: Context, status: 400 | 401 | 403 | 404 | 409, error: string, message: string) => c.json({ error, message }, status)
@@ -122,6 +148,37 @@ const fail = (c: Context, status: 400 | 401 | 403 | 404 | 409, error: string, me
 export function twoFactorHttp(deps: TwoFactorHttpDeps) {
   const { auth, twoFactor, settings, limiter } = deps
   const pending = new PendingSignIns({ now: deps.now })
+  const now = deps.now ?? Date.now
+  /** Confirmation windows, by session (its token's hash): whose, and until when (epoch ms). */
+  const windows = new Map<string, { userId: string; until: number }>()
+  /** The browser session of a request, if it is one (never a key's or an OAuth token's). */
+  const sessionOf = (c: Context): string | null => {
+    const access = (c as Context<Env>).get('access') as Access | undefined
+    const token = (c as Context<Env>).get('token') as string | undefined
+    return access && !access.isAgent && token ? token : null
+  }
+  /** Until when this request's session is confirmed (epoch ms), or null. */
+  const confirmedUntil = (c: Context): number | null => {
+    const token = sessionOf(c)
+    const w = token === null ? undefined : windows.get(sha256(token))
+    if (!w) return null
+    if (w.until <= now()) { windows.delete(sha256(token!)); return null }
+    return w.until
+  }
+  /** A session just confirmed: its window opens (or starts again). */
+  const openWindow = (token: string, userId: string) => {
+    const t = now()
+    for (const [k, w] of windows) if (w.until <= t) windows.delete(k)
+    windows.set(sha256(token), { userId, until: t + (deps.confirmWindowMs ?? CONFIRM_WINDOW_MS) })
+  }
+  const confirmedNow = (c: Context<Env>) => {
+    const token = sessionOf(c)
+    if (token !== null) openWindow(token, c.get('user').id)
+  }
+  /** Every window of a person ends (a new password, their second factor off or reset, sessions ended). */
+  const endWindows = (userId: string) => {
+    for (const [k, w] of windows) if (w.userId === userId) windows.delete(k)
+  }
   const deviceOf = (c: Context, username: string) => limiter.deviceFor(getCookie(c, deps.deviceCookie), username)
   /**
    * Whether this user signs in (and confirms) with a code: they set one up.
@@ -132,9 +189,13 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
   const host = (c: Context) => {
     try { return new URL(deps.publicUrl ?? c.req.url).host } catch { return null }
   }
-  const startSession = (c: Context, user: User) => deps.signedIn(c, user.username, auth.startSession(user.id, c.req.header('user-agent')))
+  const startSession = (c: Context, user: User): string => {
+    const s = auth.startSession(user.id, c.req.header('user-agent'))
+    deps.signedIn(c, user.username, s)
+    return s.token
+  }
   const body = async (c: Context): Promise<Record<string, unknown>> => {
-    const b = await c.req.json<unknown>().catch(() => null)
+    const b = await jsonBody<unknown>(c).catch(() => null)
     return typeof b === 'object' && b !== null && !Array.isArray(b) ? b as Record<string, unknown> : {}
   }
 
@@ -143,7 +204,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
    * limits under `account`: null if it was right, the response otherwise.
    */
   const attempt = async (c: Context, account: string, username: string, check: () => Promise<string | null> | string | null, status: 400 | 401 | 403, message?: string): Promise<Response | null> => {
-    const a = limiter.begin({ ip: deps.ipOf(c), account, device: deviceOf(c, username) })
+    const a = limiter.begin({ ip: deps.ipOf(c), account, device: deviceOf(c, username), secondFactor: account === secondFactorAccount(username) })
     if (!a.ok) return deps.tooMany(c, a.retryAfter)
     const error = await check()
     if (error) {
@@ -180,11 +241,16 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
    */
   const confirmIdentity = async (c: Context<Env>, confirm: unknown): Promise<Response | null> => {
     const user = c.get('user')
+    // Confirmed a moment ago in this browser session: as confirmed, without asking or trying anything.
+    if (confirmedUntil(c) !== null) return null
     if (typeof confirm !== 'string' || !confirm) {
       return c.json({ error: 'confirmation_required', message: 'confirm with the current code (or the password, without a second factor)', with: inForce(user.id) ? 'code' : 'password' }, 400)
     }
-    if (inForce(user.id)) return attempt(c, secondFactorAccount(user.username), user.username, () => checkCode(user.id, confirm, false), 403)
-    return attempt(c, user.username, user.username, async () => ((await auth.checkPassword(user.id, confirm)) ? null : 'wrong_password'), 403)
+    const refused = inForce(user.id)
+      ? await attempt(c, secondFactorAccount(user.username), user.username, () => checkCode(user.id, confirm, false), 403)
+      : await attempt(c, user.username, user.username, async () => ((await auth.checkPassword(user.id, confirm)) ? null : 'wrong_password'), 403)
+    if (!refused) confirmedNow(c)
+    return refused
   }
 
   return {
@@ -203,6 +269,9 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
     },
 
     confirmIdentity,
+
+    /** Every confirmation window of a person ends (http/app.ts: when sessions of theirs end). */
+    endConfirmations: endWindows,
 
     /** The second step, without a session yet (before the session middleware). */
     publicRoutes(app: Hono<Env>) {
@@ -224,9 +293,13 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
           if (r.ok && r.recovery) recovery.left = r.recoveryCodesLeft
           return r.ok ? null : r.reason === 'used' ? 'code_used' : 'invalid_code'
         }, 401)
-        if (refused) return refused
+        if (refused) {
+          if (refused.status !== 429) pending.wrongCode(b.pending as string)
+          return refused
+        }
         pending.end(b.pending as string)
-        startSession(c, user)
+        // A sign-in that took a code is a confirmation: its window opens with the session.
+        openWindow(startSession(c, user), user.id)
         return c.json({ user, ...(recovery.left === undefined ? {} : { recoveryCodesLeft: recovery.left }) })
       })
 
@@ -244,7 +317,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         const done = await finishSetup(c, user, b.code)
         if (done instanceof Response) return done
         pending.end(b.pending as string)
-        startSession(c, user)
+        openWindow(startSession(c, user), user.id)
         return c.json({ user, recoveryCodes: done.codes })
       })
     },
@@ -272,9 +345,14 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         return attempt(c, secondFactorAccount(u.username), u.username, () => checkCode(u.id, code, true), 403)
       }
 
+      // `confirmNeeded`: whether what confirms at the moment would ask now (false inside a window, `confirmedUntil`).
       app.get('/api/account/2fa', (c) => {
         const u = me(c)
-        return c.json({ policy: settings.twoFactorPolicy(), ...twoFactor.status(u.id), confirmWith: inForce(u.id) ? 'code' : 'password' })
+        const until = confirmedUntil(c)
+        return c.json({
+          policy: settings.twoFactorPolicy(), ...twoFactor.status(u.id), confirmWith: inForce(u.id) ? 'code' : 'password',
+          confirmNeeded: until === null, confirmedUntil: until === null ? null : new Date(until).toISOString(),
+        })
       })
 
       // Setting it up asks for the password: a session left open must not be
@@ -305,8 +383,11 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
       app.post('/api/account/2fa/recovery', async (c) => {
         const u = me(c)
         if (!inForce(u.id)) return fail(c, 409, 'two_factor_off', 'no second factor in force')
-        const refused = await withCode(c, u, (await body(c)).confirm)
-        if (refused) return refused
+        if (confirmedUntil(c) === null) {
+          const refused = await withCode(c, u, (await body(c)).confirm)
+          if (refused) return refused
+          confirmedNow(c)
+        }
         return c.json({ recoveryCodes: await twoFactor.regenerate(u.id) })
       })
 
@@ -318,6 +399,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         const refused = await attempt(c, secondFactorAccount(u.username), u.username, () => checkCode(u.id, code, true), 403)
         if (refused) return refused
         twoFactor.disable(u.id)
+        endWindows(u.id)
         return c.json({ ok: true })
       })
 
@@ -330,7 +412,12 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         if (twoFactor.enabled(id)) {
           const refused = await confirmIdentity(c, (await body(c)).confirm)
           if (refused) return refused
-          if (twoFactor.disable(id)) deps.notices?.accountChanged(id, me(c).id, 'two_factor_reset')
+          if (twoFactor.disable(id)) {
+            // The person and every other admin are told at once (their open pages hear of it), and it's on record.
+            deps.notices?.accountChanged(id, me(c).id, 'two_factor_reset')
+            deps.log?.(`${me(c).username} took the second factor of ${deps.users.get(id)?.username ?? id} away`)
+          }
+          endWindows(id)
         }
         return c.json({ user: deps.users.get(id) })
       })

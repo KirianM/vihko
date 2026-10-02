@@ -3,8 +3,9 @@
 // note goes. The editor only shows the badge; creating is the note view's job.
 import { Facet } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
-import { isRootTarget, joinPath, sameSpace } from '@vihko/core/resolve'
+import { isRootTarget, joinPath, rootedPath, sameSpace } from '@vihko/core/resolve'
 import { resolveImageRef } from '@vihko/core/images'
+import { isFileTarget } from './files.ts'
 
 /** A broken link the person asked to create: where the note goes and its title. */
 export interface NewLinkedNote {
@@ -42,8 +43,9 @@ const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) :
 /**
  * Where the note of a missing wikilink is created so that the link resolves to
  * it: the link's name in the note's folder. A target with folders
- * (`[[project/Plan]]`) keeps them below that folder, and one from the root
- * (`[[/project/Plan]]`, `[[people/ana/Plan]]`) is created there. Only in the
+ * (`[[project/Plan]]`) keeps them below that folder, one from the root of
+ * the space (`[[/project/Plan]]`) or of the notes folder
+ * (`[[people/ana/Plan]]`) is created there. Only in the
  * note's own space (a link never leads to another space, so a note
  * anywhere else would leave it broken): null for a target elsewhere, or if no
  * valid name is left.
@@ -52,13 +54,14 @@ export function wikiLinkNote(source: string, raw: string): NewLinkedNote | null 
   const embed = raw.startsWith('!')
   const inner = raw.slice(embed ? 3 : 2, -2)
   const target = inner.split('|')[0]!.replace(/#.*$/, '').trim()
-  if (!target) return null
-  const fromRoot = target.startsWith('/') || isRootTarget(target)
+  // A file's name (`[[invoice.pdf]]`) isn't a note to create.
+  if (!target || isFileTarget(target)) return null
   const parts = target.replace(/^\/+/, '').replace(/\.md$/i, '').split('/').map((p) => p.trim())
   // A name that would have to change to be a valid file (hidden, control characters…) wouldn't match the link.
   if (parts.some((p) => p === '' || p === '..' || cleanSegment(p) !== p.normalize('NFC'))) return null
   const rel = parts.join('/') + '.md'
-  const path = fromRoot ? rel : joinPath(dirOf(source), rel)
+  // `/` is the root of the note's space; `people/…` or `spaces/…`, the notes root.
+  const path = target.startsWith('/') ? rootedPath(source, '/' + rel) : isRootTarget(target) ? rel : joinPath(dirOf(source), rel)
   return sameSpace(source, path) ? { path, title: parts[parts.length - 1]!, raw } : null
 }
 

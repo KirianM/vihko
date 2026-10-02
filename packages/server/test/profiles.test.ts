@@ -55,6 +55,24 @@ test('profiles: the language of the UI, one of its translations or automatic (nu
   assert.equal((await admin('GET', '/api/profile')).body.language, null)
 })
 
+test('profiles: «On opening» a note follows it when it is renamed or moved, alone or with its folder', async () => {
+  const { admin, member } = await setup({ config: CONFIG })
+  // testdata/vault's Plan.md (in the shared space), chosen by both.
+  const note = inShared('Plan.md')
+  for (const who of [admin, member]) assert.equal((await who('PUT', '/api/profile', { onOpen: 'note', onOpenNote: note })).status, 200)
+  const [folder, renamed] = [m.aFolder(), `${m.aTitle()}.md`]
+  const moved = inShared(`${folder}/${renamed}`)
+  const r = await member('POST', '/api/note/move', { from: note, to: moved })
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  for (const who of [admin, member]) assert.deepEqual(await who('GET', '/api/profile').then((x) => [x.body.onOpen, x.body.onOpenNote]), ['note', moved])
+  // A dry run moves nothing, and changes nothing either.
+  assert.equal((await member('POST', '/api/note/move', { from: moved, to: inShared(`${m.aTitle()}.md`), dryRun: true })).status, 200)
+  assert.equal((await admin('GET', '/api/profile')).body.onOpenNote, moved)
+  const other = m.aFolder()
+  assert.equal((await admin('POST', '/api/folder/move', { from: inShared(folder), to: inShared(other) })).status, 200)
+  for (const who of [admin, member]) assert.equal((await who('GET', '/api/profile')).body.onOpenNote, inShared(`${other}/${renamed}`))
+})
+
 test('profiles: «On opening»: home by default, the last note, today\'s, or a note the person reads', async () => {
   const { admin, member, users, dir } = await setup({ config: CONFIG })
   assert.equal((await admin('GET', '/api/profile')).body.onOpen, 'home')

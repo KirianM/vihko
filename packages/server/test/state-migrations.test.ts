@@ -9,7 +9,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Alert } from '@vihko/core'
-import { Profiles, STATE_VERSION, configFromEnv, dismissStateMigration, openState, start, stateMigrationAlerts, stateMigrations } from '@vihko/server'
+import { Profiles, STATE_VERSION, configFromEnv, dismissStateMigration, externalImagesDefault, openState, start, stateMigrationAlerts, stateMigrations } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -19,7 +19,7 @@ const m = mother(import.meta.url)
 function version5(file: string) {
   openState(file).close()
   const raw = new Database(file)
-  raw.exec(`drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
+  raw.exec(`drop table deleted_spaces; drop table grant_starts; drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
     alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;
     alter table profiles drop column on_open; alter table profiles drop column on_open_note;`)
   raw.pragma('user_version = 5')
@@ -137,7 +137,8 @@ test('state.db: «Open today\'s note on start» of version 10 carries over as «
   const file = join(dir, 'state.db')
   openState(file).close()
   const raw = new Database(file)
-  raw.exec('alter table profiles drop column on_open; alter table profiles drop column on_open_note;')
+  raw.exec(`alter table profiles drop column on_open; alter table profiles drop column on_open_note;
+    drop table deleted_spaces; drop table grant_starts; alter table group_members drop column added_at;`)
   const [daily, plain] = [m.aUsername(), m.aUsername()]
   for (const [id, name] of [['01A', daily], ['01B', plain]]) raw.prepare("insert into users (id, username, password_hash, role, created_at) values (?, ?, 'x', 'member', '2026-01-01T00:00:00Z')").run(id, name)
   raw.prepare('insert into profiles (user_id, open_daily) values (?, ?), (?, ?)').run('01A', 1, '01B', 0)
@@ -147,4 +148,53 @@ test('state.db: «Open today\'s note on start» of version 10 carries over as «
   const profiles = new Profiles(db)
   assert.deepEqual([profiles.get('01A').onOpen, profiles.get('01B').onOpen], ['daily', 'home'])
   db.close()
+})
+
+test('external images by default: a new installation asks before showing them; one from before keeps showing them, and the choice stays', () => {
+  const dir = tempDir('vihko-state-images-')
+  const fresh = join(dir, 'fresh.db')
+  let db = openState(fresh)
+  assert.equal(externalImagesDefault(db), 'ask')
+  db.close()
+  db = openState(fresh)
+  assert.equal(externalImagesDefault(db), 'ask', 'decided once: opening it again changes nothing')
+  db.close()
+  // A state.db from before this default (no row for it): it keeps showing them.
+  const old = join(dir, 'state.db')
+  openState(old).close()
+  const raw = new Database(old)
+  raw.prepare("delete from settings where key = 'install.externalImages'").run()
+  raw.close()
+  db = openState(old)
+  assert.equal(externalImagesDefault(db), 'allow')
+  db.close()
+  db = openState(old)
+  assert.equal(externalImagesDefault(db), 'allow')
+  db.close()
+})
+
+test('external images: VIHKO_EXTERNAL_IMAGES takes allow, ask or block, or nothing (the installation\'s default)', () => {
+  const base = { VIHKO_NOTES_DIR: tempDir('vihko-env-notes-'), VIHKO_STATE_DIR: tempDir('vihko-env-state-') }
+  assert.equal(configFromEnv(base).externalImages, null)
+  for (const v of ['allow', 'ask', 'block'] as const) assert.equal(configFromEnv({ ...base, VIHKO_EXTERNAL_IMAGES: v }).externalImages, v)
+  assert.throws(() => configFromEnv({ ...base, VIHKO_EXTERNAL_IMAGES: m.aWord() }), /VIHKO_EXTERNAL_IMAGES/)
+})
+
+test('state.db of version 11 takes when grants began, since when people are in groups (from before: from the start) and deleted spaces', () => {
+  const dir = tempDir('vihko-state-v11-')
+  const file = join(dir, 'state.db')
+  openState(file).close()
+  const raw = new Database(file)
+  raw.exec('drop table deleted_spaces; drop table grant_starts; alter table group_members drop column added_at;')
+  raw.prepare("insert into users (id, username, password_hash, role, created_at) values ('01A', ?, 'x', 'member', '2026-01-01T00:00:00Z')").run(m.aUsername())
+  raw.prepare("insert into user_groups (id, name, created_at) values ('01G', ?, '2026-01-01T00:00:00Z')").run(m.aGroupName())
+  raw.prepare("insert into group_members (group_id, user_id) values ('01G', '01A')").run()
+  raw.pragma('user_version = 11')
+  raw.close()
+  const db = openState(file)
+  assert.equal(db.pragma('user_version', { simple: true }), STATE_VERSION)
+  assert.deepEqual(db.prepare('select added_at from group_members').all(), [{ added_at: null }], 'a member from before: from the start')
+  assert.deepEqual([db.prepare('select count(*) n from grant_starts').get(), db.prepare('select count(*) n from deleted_spaces').get()], [{ n: 0 }, { n: 0 }])
+  db.close()
+  assert.ok(existsSync(`${file}.bak-v11`))
 })

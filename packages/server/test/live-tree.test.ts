@@ -1,4 +1,4 @@
-// The tree, live (liveTree.ts): GET /api/events tells a person to
+// The tree, live (liveTree.ts): GET /api/live tells a person to
 // read their tree again when a change concerns what they see, and only then;
 // an event never says what changed.
 import { test } from 'node:test'
@@ -16,18 +16,19 @@ const QUIET = 700
 /** Listens to someone's events: what arrived (event name and data), and how to stop. */
 async function listen(h: Spaces, who: Name) {
   const ctrl = new AbortController()
-  const res = await h.app.request('/api/events', { headers: { cookie: h.cookie(who) }, signal: ctrl.signal })
+  const res = await h.app.request('/api/live', { headers: { cookie: h.cookie(who) }, signal: ctrl.signal })
   assert.equal(res.status, 200)
   assert.match(res.headers.get('content-type') ?? '', /^text\/event-stream/)
   const reader = res.body!.getReader()
   const events: { event: string; data: string }[] = []
   const raw: string[] = []
   let buffer = ''
+  let finished = false
   void (async () => {
     try {
       for (;;) {
         const { done, value } = await reader.read()
-        if (done) return
+        if (done) { finished = true; return }
         buffer += new TextDecoder().decode(value)
         raw.push(new TextDecoder().decode(value))
         let at: number
@@ -46,6 +47,11 @@ async function listen(h: Spaces, who: Name) {
   const trees = () => events.filter((e) => e.event === 'tree').length
   return {
     events, raw, trees,
+    /** Whether the server ended the stream, waiting up to `ms` for it. */
+    async ended(ms = 3000) {
+      for (let t = 0; t < ms && !finished; t += 25) await sleep(25)
+      return finished
+    },
     /** Waits for one more `tree` than `seen`, up to a while; whether it came. */
     async next(seen: number, ms = 3000) {
       for (let t = 0; t < ms; t += 25) { if (trees() > seen) return true; await sleep(25) }
@@ -140,9 +146,47 @@ test('live tree: an agent has no event stream; nobody signed in, neither', async
   try {
     await h.enable()
     const key = await h.newKey('member', { name: m.aKeyName(), canWrite: false })
-    assert.equal((await h.withKey(key.token)('GET', '/api/events')).status, 404)
-    assert.equal((await h.app.request('/api/events')).status, 401)
+    assert.equal((await h.withKey(key.token)('GET', '/api/live')).status, 404)
+    assert.equal((await h.app.request('/api/live')).status, 401)
     assert.equal(h.services.live.size, 0)
+    // Its old name is no stream any more, for anyone: it's kept for something else.
+    const old = await h.app.request('/api/events', { headers: { cookie: h.cookie('member') } })
+    assert.equal(old.status, 404)
+    assert.notEqual(old.headers.get('content-type'), 'text/event-stream')
+  } finally {
+    h.close()
+  }
+})
+
+test('a notice reaches its person\'s open pages at once: «read your notices again», nothing of it, and only theirs', async () => {
+  const h = await setup()
+  const streams: { close(): void }[] = []
+  try {
+    const [member, other] = [await listen(h, 'member'), await listen(h, 'other')]
+    streams.push(member, other)
+    const notices = (s: typeof member) => s.events.filter((e) => e.event === 'notices')
+    // The admin makes a reset link for the member: they're told at once.
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/link`, { confirm: h.created.admin.password })).status, 200)
+    for (let t = 0; t < 3000 && notices(member).length === 0; t += 25) await sleep(25)
+    assert.deepEqual(notices(member).map((e) => e.data), ['{}'])
+    await sleep(QUIET)
+    assert.deepEqual(notices(other), [], 'nobody else')
+  } finally {
+    for (const s of streams) s.close()
+    h.close()
+  }
+})
+
+test('live tree: a stream ends with its session, signed out or disabled, and the others stay', async () => {
+  const h = await setup()
+  try {
+    const [member, other, admin] = [await listen(h, 'member'), await listen(h, 'other'), await listen(h, 'admin')]
+    assert.equal((await h.member('POST', '/api/auth/logout', {})).status, 200)
+    assert.equal(await member.ended(), true, 'signed out: it ends at once')
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.other.id}/disable`, { confirm: h.created.admin.password })).status, 200)
+    assert.equal(await other.ended(), true, 'disabled: it ends at once')
+    assert.equal(await admin.ended(300), false, 'the admin\'s goes on')
+    for (const s of [member, other, admin]) s.close()
   } finally {
     h.close()
   }

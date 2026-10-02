@@ -38,8 +38,10 @@ way.
 The last two switches, and one more:
 
 - **Members can create keys** (off by default). While it's off, members can't
-  create keys or approve apps with OAuth; those they have keep working and
-  they can revoke them, but can't change or rotate them. An admin always can.
+  create keys or approve apps with OAuth, and those they have are suspended:
+  they answer `403 key_suspended`, and work again when it's turned back on
+  (turning it off says how many). Members can still revoke them, but can't
+  change or rotate them. An admin's keys always work.
 - **OAuth apps can register themselves** (off by default), right under **MCP
   server**. It only shows when vihko has a public address
   (`VIHKO_PUBLIC_URL`). Connecting `mcp-remote` or another app that registers
@@ -91,7 +93,16 @@ Whatever the settings, a key never sees:
 A key that may write only writes where its person has `edit`.
 
 When a folder vihko knows a key by is moved or renamed from vihko, the key
-follows it. A key never creates, renames, leaves or deletes spaces, shares
+follows it.
+
+**A key's folders are paths, not a list of notes.** It reaches whatever is
+in its folders now, also what lands there later: a note someone moves in,
+or a folder moved inside. So if the key's folder is one other people can
+write to (a shared space, or a folder someone shares with you with `edit`),
+anyone with `edit` there can move a note into it, and your key's agent will
+read it (and write it, if the key writes). A note moved out of the folder is
+out of the key's reach at once. Give a key a folder only you write to when
+that matters. A key never creates, renames, leaves or deletes spaces, shares
 folders or moves folders: that's for people, in the UI.
 
 ### Create a key
@@ -307,9 +318,17 @@ Conventions the tools share:
   links it leaves broken.
 - Every read returns the note's ETag (`sha256:…`). Operations that replace text
   (`find_replace`, `replace_section`, `set_frontmatter`) need it as `if_match`,
-  so the agent plans changes on the text it read. Appends don't. If the note
-  changed in between, the edit fails with `precondition_failed`, and the agent
-  reads again.
+  so the agent plans changes on the text it read. Appends don't. If someone
+  typed in the note in between (its ETag changes on every keystroke), the
+  edit still goes in, applied to the text as it is now, as long as nothing
+  changed in what it replaces or right next to it, and the ETag is one the
+  note had in the last few minutes (vihko keeps the texts it handed out for
+  about ten minutes while the note is open). Otherwise it fails with
+  `precondition_failed`, and the agent reads again (or asks `changes_since`)
+  and plans again. The ETag an edit returns is the note's new one, others'
+  changes included.
+- What an agent appends while someone is typing at the end of the note goes
+  after the word they are typing, never into it.
 - Parameters are `snake_case` (`dry_run`, `if_match`); `camelCase` is accepted
   too.
 - Lists are paged: pass `next_offset` (or `next`) back as `offset` (or
@@ -410,14 +429,25 @@ can read the note. A key that can't read it (a folder outside its reach, or
 note. See [Configuration](configuration.md).
 
 A shared space and a person can each add a guide of their own without
-`vihko.yaml`: a note of the space, named under «Guide for agents» in the
-space's «Settings…» (its managers) or in Preferences › «Your note settings»
-(see [Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space);
+`vihko.yaml` (see [Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space);
 step by step, with an example of what to write:
-[A guide for agents](first-steps.md#a-guide-for-agents)).
+[A guide for agents](first-steps.md#a-guide-for-agents)):
+
+- **A shared space's guide** is written in the space's «Settings…», under
+  «Guide for agents», by its managers only. It's kept in the space's
+  settings, never in a note, so a member who can edit the space's notes
+  can't change what every member's agents are told. It reaches every key
+  that reaches the space.
+- **A person's own guide** is a note of theirs, named in Preferences › «Your
+  note settings». Their key gets it only if it can read that note.
+
 An agent gets, in this order: the server's instructions, the guide in
 `vihko.yaml`, the guide of each shared space its key reaches, and its
-person's own guide. Each is there only if the key can read that note.
+person's own guide.
+
+`mcp.instructions` in `vihko.yaml` is a note, too: whoever can edit that note
+changes what every agent of the installation is told. Name a note only its
+admins edit, or one in each person's own space with `{user}`.
 
 ### The icon
 
@@ -477,8 +507,11 @@ tokens only work on `/mcp`: the HTTP API takes keys, never OAuth tokens.
    works without registration.
 3. Connect. claude.ai sends you to vihko's authorization page.
 4. Sign in to vihko, if you aren't already.
-5. Check the page: which app asks (Claude, from `claude.ai`), and the address
-   it goes back to (`https://claude.ai/api/mcp/auth_callback`).
+5. Check the page: which app asks (Claude), its domain, in large type
+   (`claude.ai`), and the address it goes back to
+   (`https://claude.ai/api/mcp/auth_callback`). If the name an app gives
+   doesn't fit its domain (an app calling itself Claude from another domain),
+   the page warns you.
 6. Choose what it may do: tick **Can write** or leave it read-only, and give it
    every folder you see or only some. The default is read-only and every
    folder.
@@ -517,8 +550,8 @@ ways, and neither gives access to any note: only a person approving it does.
 
 **Registration.** The app registers itself (OAuth dynamic client registration,
 at `/oauth/register`) with its name and the addresses it goes back to. This is
-what `mcp-remote` does. Anyone can register, so the approval page marks the name
-as not checked and shows the address the app goes back to. Registration is
+what `mcp-remote` does. Anyone can register, so the approval page says the
+name is the app's own and shows, as its domain, where it goes back to. Registration is
 limited to 5 apps an hour from each address (then `429` with `Retry-After`;
 behind a proxy, set `VIHKO_TRUSTED_PROXIES` so each client counts apart). An
 app registered but never approved is forgotten after a day. It's off until the
@@ -544,6 +577,23 @@ vihko ever makes to an address someone else chose, and it's fenced in:
 
 The approval page then shows the app's domain: that is who publishes it. This
 way in isn't affected by the registration switch.
+
+**Only some domains.** By default any app can ask, and the approval page shows
+its domain prominently and warns when its name doesn't fit it. To accept apps
+from some domains only, list them in `vihko.yaml`:
+
+```yaml
+mcp:
+  client_domains: [claude.ai]
+```
+
+A domain covers its subdomains. An app named by a metadata document must be
+served from one of them (vihko doesn't even fetch it otherwise), and one that
+registers itself must go back only to addresses on them (for `mcp-remote`,
+which goes back to this computer, add `localhost` or `127.0.0.1`). Any other
+gets an error on vihko's page, naming its domain; one registered before the
+list keeps the tokens it already has (revoke it in Agents and API) but can't
+be authorized again. See [Configuration](configuration.md#mcpclient_domains).
 
 **Where an app may go back to.** An `https` address, `http` only to the same
 computer (`127.0.0.1`, `[::1]` or `localhost`, on any port), or an app's own

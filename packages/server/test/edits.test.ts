@@ -85,3 +85,19 @@ test('operations apply in order, each on the text the previous one left', () => 
   assert.equal(out, NOTE.replace('Intro.', 'Introduction.').replace('Last line.\n', 'Last line.\nAfter.\n').replace('title: Plan\n', 'title: Plan 2\n'))
   mismatch(() => planEdits(NOTE, [{ op: 'replace_section', heading: 'Tasks', text: 3 as never }]), /text must be text/)
 })
+
+test('find_replace of every occurrence in a long note takes time in proportion to the text', () => {
+  // One copy of the whole text per occurrence kept the server's only thread busy for seconds; the values are the case.
+  const n = 250_000
+  const text = 'a'.repeat(n)
+  const start = performance.now()
+  const splices = planEdits(text, [{ op: 'find_replace', find: 'a', replace: 'bc', expectedCount: n }])
+  const out = applyEdits(text, [{ op: 'find_replace', find: 'a', replace: 'bc', expectedCount: n }])
+  const ms = performance.now() - start
+  assert.ok(ms < 1500, `${Math.round(ms)} ms`)
+  assert.equal(splices.length, n)
+  assert.equal(out, 'bc'.repeat(n))
+  // Mixed with other operations, in order, each on the text the previous one left.
+  const ops = [{ op: 'find_replace', find: 'a', replace: 'bb', expectedCount: 2 }, { op: 'find_replace', find: 'x', replace: '', expectedCount: 3 }, { op: 'append', text: 'end' }] as const
+  assert.equal(applyEdits('x a x a x\n', [...ops]), ' bb  bb \nend')
+})

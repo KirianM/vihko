@@ -106,6 +106,11 @@
 .toast-text { display: flex; flex-direction: column; gap: 2px; font-size: 14px; line-height: 20px; }
 .toast-warn { width: auto; max-width: min(560px, calc(100vw - 2 * var(--space-4))); }
 .toast-warn .toast-icon { color: var(--warn-strong); }
+/* The shell's toasts, stacked: the first one at the bottom, the others above it */
+.toasts { position: fixed; z-index: 5; left: 50%; bottom: var(--space-6); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 2 * var(--space-4)); display: flex; flex-direction: column-reverse; align-items: center; gap: var(--space-2); pointer-events: none; }
+.toasts:empty { display: none; }
+.toasts > * { pointer-events: auto; }
+.toasts .toast { position: static; transform: none; max-width: 100%; }
 .btn-quiet { border-color: transparent; color: var(--muted); }
 
 /* --- A path typed that names several differing only in case: which one ---- */
@@ -124,7 +129,8 @@
   .preview-row { flex-direction: column; gap: 2px; }
   .preview-src { width: auto; }
   .dialog-actions .btn { flex-grow: 1; }
-  .toast { bottom: var(--space-4); flex-wrap: wrap; }
+  .toast, .toasts { bottom: var(--space-4); }
+  .toast { flex-wrap: wrap; }
   .toast-text { flex: 1 1 200px; }
 }
 /* Daily notes and one's own note settings (Preferences.tsx): choosing a series and defining one's own, together in one box. */
@@ -153,6 +159,8 @@
 .btn.settings-add { align-self: flex-start; }
 .settings-textarea { font: inherit; font-size: 14px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--field); color: var(--ink); resize: vertical; }
 .settings-problems { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+.settings-problems .settings-key-action { padding: 0 var(--space-2); min-height: 0; font-size: 13px; }
+.settings-problems .settings-removing { font-style: italic; }
 @media (max-width: 760px) {
   .settings-series { grid-template-columns: minmax(0, 1fr) auto; }
   .settings-series .settings-remove { grid-column: 2; }

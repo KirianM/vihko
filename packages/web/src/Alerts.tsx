@@ -9,6 +9,7 @@ import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from 
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { BackButton, Icon, MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
 import { noteHref, usePathLabels } from './spaces.tsx'
+import { addressOf } from '@vihko/core/spaces'
 import { SearchButton } from './Palette.tsx'
 import type { ConfigError, ConfigMigrationRef } from '@vihko/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
@@ -16,24 +17,47 @@ import { RelinkRows } from './MovePreview.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { useDates } from './history/ui.tsx'
 import { historyApi } from './history/api.ts'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import './actions.css'
 
 type ExternalMove = Extract<Alert, { code: 'external_move' }>
 type Translate = ReturnType<typeof useT>
 
 /** Notices addressed to one person: theirs to dismiss, and said when they come in. */
-export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' | 'links_not_updated' | 'space_changed' | 'shared_with_you' | 'retention_ran' }>
-export const isPersonalNotice = (a: Alert): a is PersonalNotice =>
-  a.code === 'account_changed' || a.code === 'user_account_changed' || a.code === 'history_purged_authored'
-  || a.code === 'links_not_updated' || a.code === 'space_changed' || a.code === 'shared_with_you' || a.code === 'retention_ran'
+export type PersonalNotice = Extract<Alert, { code: (typeof NOTICE_CODES)[number] }>
+const NOTICE_CODES = [
+  'account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran', 'settings_migrated',
+  'moved_out', 'removed_from', 'space_deleted', 'space_restored', 'space_renamed', 'account_key_added',
+] as const
+export const isPersonalNotice = (a: Alert): a is PersonalNotice => (NOTICE_CODES as readonly string[]).includes(a.code)
 
-type NoticeParts = { by?: string; user?: string; path?: string; to?: string; space?: string; name?: string; owner?: string }
+/** A settings file as the UI names places: `vihko.yaml`, `~ana/.vihko/settings.yaml`, `Home/.vihko/settings.yaml`. */
+const settingsFileName = (path: string) => addressOf(path) ?? path
+
+type NoticeParts = { by?: string; user?: string; path?: string; to?: string; space?: string; name?: string; owner?: string; from?: string }
 
 /** A notice's title: its text's key, and what goes in it (names; a path or a space only while they can still see it). */
 function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: NoticeParts } {
   switch (a.code) {
+    case 'moved_out': {
+      const name = fileName(a.from)
+      if (a.space) return { key: 'alerts.movedOutTo', parts: { by: a.by, name, space: a.space.name ?? '' } }
+      if (a.owner && a.owner.normalize('NFC').toLowerCase() !== a.by.normalize('NFC').toLowerCase()) return { key: 'alerts.movedOutToOf', parts: { by: a.by, name, owner: a.owner } }
+      return { key: 'alerts.movedOutToTheirs', parts: { by: a.by, name } }
+    }
+    case 'removed_from': {
+      if (a.kind === 'space') return { key: 'alerts.removedFromSpace', parts: { by: a.by, space: a.name ?? '' } }
+      if (a.owner && a.owner.normalize('NFC').toLowerCase() !== a.by.normalize('NFC').toLowerCase()) return { key: 'alerts.removedFromFolderOf', parts: { by: a.by, name: a.name ?? '', owner: a.owner } }
+      if (a.space) return { key: 'alerts.removedFromFolderIn', parts: { by: a.by, name: a.name ?? '', space: a.space } }
+      return { key: 'alerts.removedFromFolder', parts: { by: a.by, name: a.name ?? '' } }
+    }
+    case 'space_deleted': return { key: 'alerts.spaceWasDeleted', parts: { by: a.by, space: a.name } }
+    case 'space_restored': return a.name ? { key: 'alerts.spaceWasRestored', parts: { by: a.by, space: a.name } } : { key: 'alerts.spaceWasRestoredNeutral', parts: { by: a.by } }
+    case 'space_renamed': return { key: 'alerts.spaceWasRenamed', parts: { by: a.by, from: a.from, space: a.name ?? '' } }
+    case 'account_key_added': return { key: a.kind === 'app' ? 'alerts.appAdded' : 'alerts.keyAdded', parts: { name: a.name } }
     case 'links_not_updated': return { key: 'alerts.linksNotUpdated', parts: {} }
     case 'retention_ran': return { key: a.failed ? 'alerts.retentionFailed' : 'alerts.retentionRan', parts: {} }
+    case 'settings_migrated': return { key: 'alerts.settingsMigrated', parts: {} }
     case 'space_changed': {
       const space = a.space?.name ?? undefined
       const known = { by: a.by, ...(a.user ? { user: a.user } : {}), ...(a.to ? { to: a.to } : {}), ...(space ? { space } : {}) }
@@ -59,7 +83,9 @@ function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: NoticeParts }
       parts: { by: a.by },
     }
     case 'user_account_changed': return {
-      key: a.change === 'reset_link' ? 'alerts.userResetLink' : a.change === 'two_factor_reset' ? 'alerts.userTwoFactor' : a.role === 'admin' ? 'alerts.userPromoted' : 'alerts.userDemoted',
+      key: a.change === 'reset_link' ? 'alerts.userResetLink' : a.change === 'two_factor_reset' ? 'alerts.userTwoFactor'
+        : a.change === 'invite_link' ? 'alerts.userInviteLink' : a.change === 'disabled' ? 'alerts.userDisabled' : a.change === 'deleted' ? 'alerts.userDeleted'
+        : a.role === 'admin' ? 'alerts.userPromoted' : 'alerts.userDemoted',
       parts: { by: a.by, user: a.user },
     }
     case 'history_purged_authored': return a.path === null
@@ -170,6 +196,44 @@ function RelinkDialog({ alert, onClose, onDone, onStarted }: {
   )
 }
 
+/** «Restore previous permissions»: what it does, confirmed at the moment with the admin's code or password. */
+function RestorePermissionsDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const t = useT()
+  const how = useConfirmWith()
+  const [secret, setSecret] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy || !confirmReady(how, secret)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.restorePermissions(secret.trim())
+      onDone()
+    } catch (err) {
+      setError(codeError(t, err))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog className="dialog dialog-narrow" role="alertdialog">
+      <form onSubmit={(e) => void submit(e)}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('alerts.restorePermissionsTitle')}</Heading>
+          <p className="dialog-text">{t('alerts.restorePermissionsBody')}</p>
+          <ConfirmField how={how} value={secret} onChange={setSecret} hint={t('alerts.restorePermissionsHint')} />
+          {error && <p className="error-text" role="alert">{error}</p>}
+        </div>
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !confirmReady(how, secret)}>{t('alerts.restorePermissionsConfirm')}</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 /** Replaces `{key}` placeholders in a translated text with elements (paths in monospace, names in bold). */
@@ -177,10 +241,12 @@ function rich(text: string, parts: Record<string, ReactNode>): ReactNode[] {
   return text.split(/\{(\w+)\}/).map((chunk, i) => (i % 2 ? <Fragment key={i}>{parts[chunk] ?? `{${chunk}}`}</Fragment> : chunk))
 }
 
-export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
+export function AlertsPage({ onOpen, onSpaces, onSettings, onChanged, onUnauthorized }: {
   onOpen: (path: string) => void
   /** The admin's «Spaces» page, where a deleted person's space is decided. */
   onSpaces: () => void
+  /** Opens the note settings where a settings alert can be fixed: the person's own (null), or a shared space's. */
+  onSettings?: (space: { path: string; name: string } | null) => void
   /** After loading or after an action: the alert count, for the sidebar. */
   onChanged: (count: number) => void
   onUnauthorized: () => void
@@ -198,6 +264,8 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
   const [relink, setRelink] = useState<ExternalMove | null>(null)
   const [relinkJob, setRelinkJob] = useState<MoveJob | null>(null)
   const [relinked, setRelinked] = useState<{ ok: boolean; text: string } | null>(null)
+  /** «Restore previous permissions»: its confirmation. */
+  const [restoringPermissions, setRestoringPermissions] = useState(false)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -245,13 +313,13 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
   const mono = (path: string) => <span className="mono">{label(path)}</span>
   const adminOnly = <span className="alert-hint">{t('alerts.adminOnly')}</span>
 
-  /** vihko.yaml problems: line and key path, then what's wrong. */
-  const configList = (list: ConfigError[]) => (
+  /** A settings file's problems (vihko.yaml's, or a space's settings): the file, line and key path, then what's wrong. */
+  const configList = (list: ConfigError[], file: string) => (
     <ul className="alert-paths alert-config">
       {list.map((e, j) => (
         <li key={j}>
           {(e.line !== null || e.at) && (
-            <span className="mono">{t('alerts.inConfig', { at: [e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ') })}</span>
+            <span className="mono">{t('alerts.inConfig', { file, at: [e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ') })}</span>
           )}
           {' '}{t(`config.${e.code}`, { detail: e.detail ?? '' })}
         </li>
@@ -312,6 +380,15 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
             </>
           ),
         })
+      case 'note_not_saved':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: a.path ? t('alerts.notSavedTitle', { note: noteName(a.path) }) : t('alerts.notSavedTitleHidden', { space: a.space ? label(a.space) : '' }),
+          body: `${t(`editor.cantSave.${a.reason}`)} ${t(a.volume === 'notes' ? 'alerts.notSavedNotes' : 'alerts.notSavedState')}`,
+          extra: a.path && <ul className="alert-paths"><li>{noteLink(a.path)}</li></ul>,
+          actions: null,
+        })
       case 'external_move': {
         const one = a.moves.length === 1 ? a.moves[0]! : null
         return frame({
@@ -351,7 +428,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: rich(t('alerts.configTitle'), { file: <span className="mono">{a.file}</span> }),
           body: t(a.fallback === 'last_good' ? 'alerts.configLastGood' : 'alerts.configNone'),
-          extra: configList(a.errors),
+          extra: configList(a.errors, a.file),
           actions: null,
         })
       case 'config_warnings':
@@ -359,7 +436,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           icon: icons.config,
           title: rich(t('alerts.configWarningsTitle'), { file: <span className="mono">{a.file}</span> }),
           body: t('alerts.configWarningsBody'),
-          extra: configList(a.warnings),
+          extra: configList(a.warnings, a.file),
           actions: null,
         })
       case 'settings_invalid':
@@ -368,8 +445,20 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: a.space ? t('alerts.spaceSettingsInvalidTitle', { name: a.space.name }) : t('alerts.settingsInvalidTitle'),
           body: t('alerts.settingsInvalidBody'),
-          extra: configList(a.errors),
-          actions: null,
+          extra: configList(a.errors, settingsFileName(a.file)),
+          // Fixed where they're set: the form writes over wrong values and removes the keys chosen.
+          actions: onSettings && <Button className="btn" onPress={() => onSettings(a.space)}>{t(a.space ? 'alerts.openSpaceSettings' : 'alerts.openOwnSettings')}</Button>,
+        })
+      case 'settings_migrated':
+        return frame({
+          icon: icons.config,
+          title: t('alerts.settingsMigrated'),
+          body: rich(t(a.file === null ? 'alerts.settingsMigratedBodyHidden' : a.marked === 1 ? 'alerts.settingsMigratedBodyOne' : 'alerts.settingsMigratedBody', { when: dates.dateTime(a.at), n: a.marked }), { file: a.file === null ? null : <span className="mono">{settingsFileName(a.file)}</span> }),
+          extra: a.missing.length > 0 && (<>
+            <p className="alert-hint">{t('alerts.settingsMigratedMissing')}</p>
+            <ul className="alert-paths">{a.missing.map((f) => <li key={f} className="mono">{f}</li>)}</ul>
+          </>),
+          actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissNotice(a.id))}>{t('alerts.dismiss')}</Button>,
         })
       case 'config_migrated':
         return frame({
@@ -471,24 +560,45 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
       case 'links_not_updated':
       case 'space_changed':
       case 'shared_with_you':
-      case 'retention_ran': {
+      case 'retention_ran':
+      case 'moved_out':
+      case 'removed_from':
+      case 'space_deleted':
+      case 'space_restored':
+      case 'space_renamed':
+      case 'account_key_added': {
         const when = dates.dateTime(a.at)
         const n = noticeTitle(a)
-        const body = a.code === 'account_changed'
+        const restorable = a.code === 'space_deleted' && a.deleted !== null && a.actions.includes('restore_space')
+        const body = a.code === 'moved_out' ? t('alerts.movedOutBody', { when })
+          : a.code === 'removed_from' ? t('alerts.removedFromBody', { when })
+          : a.code === 'space_deleted' ? t(restorable ? 'alerts.spaceWasDeletedRestorable' : 'alerts.spaceWasDeletedBody', { when })
+          : a.code === 'space_restored' ? t('alerts.spaceRestoredBody', { when })
+          : a.code === 'space_renamed' ? t('alerts.spaceRenamedBody', { when, by: a.by })
+          : a.code === 'account_key_added' ? t('alerts.keyAddedBody', { when })
+          : a.code === 'account_changed'
           ? t(a.change === 'reset_link' ? 'alerts.accountResetLinkBody' : a.change === 'two_factor_reset' ? 'alerts.accountTwoFactorBody' : 'alerts.accountRoleBody', { when })
           : a.code === 'user_account_changed'
-            ? t(a.user === a.by ? 'alerts.userChangedSelfBody' : 'alerts.userChangedBody', { when, user: a.user })
+            // The person isn't told of an invitation, nor of being disabled or deleted.
+            ? t(a.user === a.by || a.change === 'invite_link' || a.change === 'disabled' || a.change === 'deleted' ? 'alerts.userChangedSelfBody' : 'alerts.userChangedBody', { when, user: a.user })
             : a.code === 'links_not_updated' ? t('alerts.linksNotUpdatedBody', { when })
             : a.code === 'retention_ran' ? t(a.failed ? 'alerts.retentionFailedBody' : 'alerts.retentionBody', { when, entries: a.trashEntries, versions: a.versions })
             : a.code === 'space_changed' ? t('alerts.spaceChangedBody', { when })
             : a.code === 'shared_with_you' ? t(a.path === null ? 'alerts.sharedWithYouGoneBody' : a.kind === 'space' ? 'alerts.sharedWithYouBody' : 'alerts.sharedFolderBody', { when })
             : t('alerts.purgedAuthoredBody', { when })
+        const spaced = a.code === 'shared_with_you' || a.code === 'space_changed' || a.code === 'removed_from' || a.code === 'space_deleted' || a.code === 'space_restored' || a.code === 'space_renamed' || a.code === 'moved_out'
         return frame({
-          icon: a.code === 'history_purged_authored' || a.code === 'links_not_updated' || a.code === 'retention_ran' ? icons.config : a.code === 'shared_with_you' || a.code === 'space_changed' ? icons.people : icons.person,
-          tone: a.code === 'account_changed' || a.code === 'shared_with_you' ? 'accent' : undefined,
-          title: rich(t(n.key), { by: <b>{n.parts.by}</b>, user: <b>{n.parts.user}</b>, path: n.parts.path ? mono(n.parts.path) : null, to: <b>{n.parts.to}</b>, space: <b>{n.parts.space}</b>, name: <b>{n.parts.name}</b>, owner: <b>{n.parts.owner}</b> }),
+          icon: a.code === 'history_purged_authored' || a.code === 'links_not_updated' || a.code === 'retention_ran' ? icons.config : spaced ? icons.people : icons.person,
+          tone: a.code === 'account_changed' || a.code === 'shared_with_you' || a.code === 'account_key_added' || restorable ? 'accent' : undefined,
+          title: rich(t(n.key), { by: <b>{n.parts.by}</b>, user: <b>{n.parts.user}</b>, path: n.parts.path ? mono(n.parts.path) : null, to: <b>{n.parts.to}</b>, space: <b>{n.parts.space}</b>, name: <b>{n.parts.name}</b>, owner: <b>{n.parts.owner}</b>, from: <b>{n.parts.from}</b> }),
           body,
-          actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissNotice(a.id))}>{t('alerts.dismiss')}</Button>,
+          actions: (
+            <>
+              {/* A deleted space back whole, for who managed it: the notice goes when it's back. */}
+              {restorable && <Button className="btn btn-primary" isDisabled={busy} onPress={() => act(async () => { await api.restoreSpace(a.deleted!); await api.dismissNotice(a.id) })}>{t('alerts.restoreSpace')}</Button>}
+              <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissNotice(a.id))}>{t('alerts.dismiss')}</Button>
+            </>
+          ),
         })
       }
       case 'two_factor_unreadable':
@@ -523,6 +633,34 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           body: t(a.fallback === 'closed' ? 'alerts.permissionsRejectedClosed' : 'alerts.permissionsRejectedLastGood'),
           actions: null,
         })
+      case 'permissions_missing':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.permissionsMissingTitle'),
+          body: rich(t('alerts.permissionsMissingBody'), { file: <span className="mono">{a.file}</span> }),
+          actions: (
+            <>
+              {a.actions.includes('restore_permissions') && <Button className="btn btn-primary" isDisabled={busy} onPress={() => setRestoringPermissions(true)}>{t('alerts.restorePermissions')}</Button>}
+              {a.actions.includes('dismiss') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissMissingPermissions())}>{t('alerts.dismiss')}</Button>}
+            </>
+          ),
+        })
+      case 'notes_too_large':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.notesTooLargeTitle'),
+          body: t('alerts.notesTooLargeBody', { limit: a.limitMb }),
+          extra: (
+            <ul className="alert-paths">
+              {a.paths.slice(0, 10).map((p) => <li key={p}>{noteLink(p)}</li>)}
+              {a.paths.length > 10 && <li>{t('alerts.movedMore', { n: a.paths.length - 10 })}</li>}
+              {a.elsewhere.map((p) => <li key={`in:${p}`}>{rich(t('alerts.notesTooLargeIn'), { path: <span className="mono">{p}</span> })}</li>)}
+            </ul>
+          ),
+          actions: null,
+        })
       case 'permissions_held':
         return frame({
           icon: icons.moved,
@@ -548,6 +686,22 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           body: t('alerts.outsideSpacesBody'),
           // Where each one is on the server's disk (the only place it is): labelled as such.
           extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{t('alerts.onDisk', { path: p })}</span></li>)}</ul>,
+          actions: null,
+        })
+      case 'unreadable_notes':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.unreadableNotesTitle'),
+          body: t('alerts.unreadableNotesBody'),
+          // Where each one is on the server's disk; a note the admin doesn't read, only by the space that holds it.
+          extra: (
+            <ul className="alert-paths">
+              {a.paths.slice(0, 10).map((p) => <li key={p}><span className="mono">{t('alerts.onDisk', { path: p })}</span></li>)}
+              {a.paths.length > 10 && <li>{t('alerts.movedMore', { n: a.paths.length - 10 })}</li>}
+              {a.elsewhere.map((p) => <li key={`in:${p}`}>{rich(t('alerts.unreadableNotesIn'), { path: <span className="mono">{p}</span> })}</li>)}
+            </ul>
+          ),
           actions: null,
         })
       case 'closed_spaces':
@@ -639,6 +793,11 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
             <RelinkDialog alert={relink} onClose={() => setRelink(null)} onDone={relinkDone}
               onStarted={(job) => { setRelink(null); setRelinkJob(job) }} />
           )}
+        </Modal>
+      </ModalOverlay>
+      <ModalOverlay className="modal-overlay" isOpen={restoringPermissions} onOpenChange={(o) => { if (!o) setRestoringPermissions(false) }} isDismissable>
+        <Modal className="modal">
+          {restoringPermissions && <RestorePermissionsDialog onClose={() => setRestoringPermissions(false)} onDone={() => { setRestoringPermissions(false); void load() }} />}
         </Modal>
       </ModalOverlay>
       {relinkJob && <MoveProgress key={relinkJob.id} job={relinkJob} onFinished={relinkEnded} />}

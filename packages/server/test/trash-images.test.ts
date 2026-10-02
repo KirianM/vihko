@@ -4,7 +4,7 @@
 // aren't notes can go to the trash whole, notes and files, in one step.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { readFrontmatter, type AttachmentsConfig } from '@vihko/core'
 import { Indexer, NoteError, NoteService, openIndex, type Actor } from '@vihko/server'
@@ -193,7 +193,9 @@ test('a folder\'s contents, by what deleting it means for each', () => {
   const c = notes.folderContents(DIR)
   assert.deepEqual(c.notes, [`${NOTE}.md`])
   assert.deepEqual(c.files, [`.keep`, `${NOTE}.md~`, `${PDF}.pdf`, `${SUB}/${IMG}.png`].sort())
-  assert.deepEqual(c.kept, ['.git/', 'link'].sort())
+  assert.deepEqual(c.hidden, ['.git/'])
+  assert.deepEqual(c.hiddenFiles, ['.git/HEAD'])
+  assert.deepEqual(c.kept, ['link'])
   assert.deepEqual(c.junk, ['.DS_Store', `._${IMG}.png`, `${SUB}/Thumbs.db`].sort())
 })
 
@@ -243,10 +245,20 @@ test('a folder goes to the trash whole: each note with its images, the rest as f
   assert.deepEqual(notes.trash(), [])
 })
 
-test('what vihko never touches stops a folder from going to the trash, before anything moves', async () => {
-  const [DIR, NOTE] = [token(), token()]
-  const { notes, has, trashDirs } = setup({ [`${DIR}/${NOTE}.md`]: m.aSentence(), [`${DIR}/.obsidian/app.json`]: '{}' })
+test('a link vihko never follows stops a folder from going to the trash, before anything moves; hidden folders go with it, and come back', async () => {
+  const [DIR, NOTE, LINK] = [token(), token(), token()]
+  // Literal: another tool's folder is the case under test.
+  const app = `{"x":"${m.aWord()}"}`
+  const { notes, has, trashDirs, notesDir } = setup({ [`${DIR}/${NOTE}.md`]: m.aSentence(), [`${DIR}/.obsidian/app.json`]: app, [`${DIR}/.obsidian/plugins/x/main.js`]: m.aSentence() })
+  symlinkSync(join(notesDir, DIR, `${NOTE}.md`), join(notesDir, DIR, '.obsidian', LINK))
   await assert.rejects(notes.trashFolder(DIR, me), code('not_empty'))
   assert.ok(has(`${DIR}/${NOTE}.md`) && has(`${DIR}/.obsidian/app.json`))
   assert.deepEqual(trashDirs(), [])
+  rmSync(join(notesDir, DIR, '.obsidian', LINK))
+  const r = await notes.trashFolder(DIR, me)
+  assert.ok(!has(DIR))
+  for (const e of r.trashed) await notes.restore(e.id, me)
+  assert.equal(readFileSync(join(notesDir, DIR, '.obsidian', 'app.json'), 'utf8'), app)
+  assert.ok(has(`${DIR}/.obsidian/plugins/x/main.js`))
+  assert.deepEqual(notes.trash(), [])
 })

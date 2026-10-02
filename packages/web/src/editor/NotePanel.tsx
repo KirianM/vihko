@@ -23,6 +23,7 @@ import { ResolvedSection, useHistoryState, useResolved } from './ResolvedThreads
 import { useViewState } from './viewUpdates.ts'
 import { useBackClose } from '../mobile.ts'
 import type { AmbiguousLink } from './AmbiguousPicker.tsx'
+import { openFile } from './files.ts'
 import './panel.css'
 
 export type PanelTab = 'comments' | 'links' | 'toc' | 'history'
@@ -451,7 +452,7 @@ function LinksTab({ links, onNavigate, onPickAmbiguous, onOpenCandidate }: {
         {outgoing.map((l) => (
           <li key={l.raw} className={`link link-${l.status}`}>
             {l.status === 'resolved' && l.dstPath ? (
-              <Button className="link-btn" onPress={() => onNavigate(l.dstPath!)}>
+              <Button className="link-btn" onPress={() => (l.file ? openFile(l.dstPath!) : onNavigate(l.dstPath!))}>
                 <span className="link-name">{linkLabel(l)}</span>
                 <span className="link-path">{labels.label(l.dstPath)}</span>
               </Button>

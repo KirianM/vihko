@@ -20,7 +20,8 @@ import { bodyLimit } from 'hono/body-limit'
 import type { User } from '../auth.ts'
 import type { Access } from '../access.ts'
 import type { Integrations } from '../integrations.ts'
-import { OAuthRequestError, type AuthorizeCheck, type OAuthServer } from '../oauth.ts'
+import { OAuthRequestError, nameFitsDomain, type AuthorizeCheck, type OAuthServer } from '../oauth.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -36,6 +37,8 @@ export interface OAuthRoutesDeps {
    * password without one), even with a session: null if so, the response otherwise.
    */
   confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
+  /** An app was authorized on someone's account: they're told (notices.ts `account_key_added`), whoever did it. */
+  onAppAuthorized?: (userId: string, name: string) => void
 }
 
 const MAX_BODY = 64 * 1024
@@ -68,7 +71,7 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
   app.post('/oauth/register', limit, async (c) => {
     if (!oauth.registrationOpen()) return none(c)
     let body: unknown
-    try { body = await c.req.json() } catch { return oauthFail(c, new OAuthRequestError('invalid_client_metadata', 'expected a JSON object')) }
+    try { body = await jsonBody(c) } catch { return oauthFail(c, new OAuthRequestError('invalid_client_metadata', 'expected a JSON object')) }
     try {
       return c.json(oauth.register(body, deps.clientAddress(c)), 201, { 'Cache-Control': 'no-store' })
     } catch (err) {
@@ -137,6 +140,8 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
       error: 'description' in check ? 'invalid' : check.error, message: 'not a valid authorization request',
       // A metadata document that can't be used: why, and whose (the page names the host).
       ...(check.error === 'invalid_client_metadata' && 'reason' in check ? { reason: check.reason, host: check.host } : {}),
+      // An app from a domain vihko.yaml doesn't allow: which one.
+      ...(check.error === 'client_not_allowed' ? { host: check.host } : {}),
     }, 400)
 
   // Whoever asks here is signed in: a client named by a URL is fetched now (cimd.ts).
@@ -145,12 +150,16 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
     const check = await oauth.checkAuthorize((name) => c.req.query(name))
     if (!check.ok) return refused(c, check)
     const { client, redirectUri } = check.req
-    return c.json({ client: { id: client.id, name: client.name, redirectUri, host: client.host }, canAuthorize: mayAuthorize(c) })
+    // Where it comes from: its metadata document's host, or, for one that registered itself, where the code goes.
+    // While vihko.yaml lists no domains, the page warns when its name doesn't fit that.
+    const domain = client.host ?? new URL(redirectUri).hostname
+    const nameMatchesDomain = oauth.domainsListed() || nameFitsDomain(client.name, domain)
+    return c.json({ client: { id: client.id, name: client.name, redirectUri, host: client.host, domain, nameMatchesDomain }, canAuthorize: mayAuthorize(c) })
   })
 
   app.post('/api/oauth/authorize', async (c) => {
     if (!oauth.available() || c.get('access').isAgent) return none(c)
-    const b = await c.req.json<{ query?: unknown; approve?: unknown; canWrite?: unknown; folders?: unknown; confirm?: unknown }>()
+    const b = await jsonBody<{ query?: unknown; approve?: unknown; canWrite?: unknown; folders?: unknown; confirm?: unknown }>(c)
     if (typeof b !== 'object' || b === null || typeof b.query !== 'string' || typeof b.approve !== 'boolean') {
       return c.json({ error: 'invalid', message: 'expected { query, approve, canWrite?, folders?, confirm? }' }, 400)
     }
@@ -165,6 +174,8 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
     if (unconfirmed) return unconfirmed
     // Read-only and every folder unless the person chose otherwise.
     const folders = b.folders ?? []
-    return c.json({ redirect: oauth.approve(check.req, c.get('user').id, { canWrite: b.canWrite === true, folders: folders as string[] }) })
+    const redirect = oauth.approve(check.req, c.get('user').id, { canWrite: b.canWrite === true, folders: folders as string[] })
+    deps.onAppAuthorized?.(c.get('user').id, check.req.client.name)
+    return c.json({ redirect })
   })
 }

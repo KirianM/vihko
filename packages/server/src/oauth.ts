@@ -181,6 +181,8 @@ export type AuthorizeCheck =
   | { ok: false; error: 'invalid_client_metadata'; reason: CimdErrorCode | 'invalid_redirect_uri' | 'invalid_client_metadata'; host: string }
   // A known client and redirect URI, but a request that isn't valid.
   | { ok: false; error: 'invalid_request' | 'unsupported_response_type' | 'invalid_target'; description: string }
+  // A client from a domain vihko.yaml's `mcp.client_domains` doesn't list: which one (its metadata document's host, or its redirect URI's).
+  | { ok: false; error: 'client_not_allowed'; host: string }
 
 /** What the person decided on the consent screen. */
 export interface Grant {
@@ -219,6 +221,8 @@ export interface OAuthOptions {
   now?: () => Date
   /** Fetches clients' metadata documents (cimd.ts). One of its own by default; tests pass one that may reach a local server. */
   clientMetadata?: ClientMetadataFetcher
+  /** The domains OAuth apps may come from (vihko.yaml `mcp.client_domains`), read at each request; empty: any. */
+  clientDomains?: () => readonly string[]
 }
 
 export class OAuthServer {
@@ -228,6 +232,7 @@ export class OAuthServer {
   private integrations: Integrations
   private now: () => Date
   private clientMetadata: ClientMetadataFetcher
+  private clientDomains: () => readonly string[]
   private registrations = new WindowLimit({ max: REGISTRATIONS_PER_HOUR, windowMs: 3_600_000, addresses: REGISTRATION_ADDRESSES })
 
   constructor(opts: OAuthOptions) {
@@ -237,6 +242,18 @@ export class OAuthServer {
     this.publicUrl = opts.publicUrl
     this.now = opts.now ?? (() => new Date())
     this.clientMetadata = opts.clientMetadata ?? new ClientMetadataFetcher()
+    this.clientDomains = opts.clientDomains ?? (() => [])
+  }
+
+  /** Whether apps may come from `host` (vihko.yaml `mcp.client_domains`): any while the list is empty. */
+  domainAllowed(host: string): boolean {
+    const list = this.clientDomains()
+    return list.length === 0 || domainIn(host, list)
+  }
+
+  /** Whether vihko.yaml lists the domains apps may come from (then the consent page needn't warn about a name). */
+  domainsListed(): boolean {
+    return this.clientDomains().length > 0
   }
 
   /** Whether OAuth exists now: a public URL, and the MCP server on. */
@@ -311,6 +328,9 @@ export class OAuthServer {
     const method = b.token_endpoint_auth_method ?? 'client_secret_basic'
     if (!AUTH_METHODS.includes(method as AuthMethod)) throw new OAuthRequestError('invalid_client_metadata', `token_endpoint_auth_method must be one of ${AUTH_METHODS.join(', ')}`)
     checkTypes(b.grant_types, b.response_types)
+    // Only from the domains vihko.yaml allows, if it lists them: every address the code may go to.
+    const outside = redirectUris.map(hostOf).find((h) => !this.domainAllowed(h))
+    if (outside !== undefined) throw new OAuthRequestError('invalid_redirect_uri', `${outside} isn't among the domains this server allows apps from`)
     const name = clientName(b.client_name, redirectUris[0]!)
     this.prune()
     const waiting = (this.db.prepare('select count(*) n from oauth_clients c where not exists (select 1 from api_keys k where k.oauth_client = c.id)').get() as { n: number }).n
@@ -380,6 +400,8 @@ export class OAuthServer {
   async checkAuthorize(param: (name: string) => string | null | undefined): Promise<AuthorizeCheck> {
     const id = param('client_id') ?? ''
     if (!isMetadataClientId(id)) return this.checkWith(this.client(id), param)
+    // A domain vihko.yaml doesn't allow isn't fetched at all.
+    if (!this.domainAllowed(hostOf(id))) return { ok: false, error: 'client_not_allowed', host: hostOf(id) }
     const client = await this.metadataClient(id)
     return 'ok' in client ? client : this.checkWith(client, param)
   }
@@ -392,6 +414,7 @@ export class OAuthServer {
   precheckAuthorize(param: (name: string) => string | null | undefined): AuthorizeCheck | { ok: 'later' } {
     const id = param('client_id') ?? ''
     if (!isMetadataClientId(id)) return this.checkWith(this.client(id), param)
+    if (!this.domainAllowed(hostOf(id))) return { ok: false, error: 'client_not_allowed', host: hostOf(id) }
     try {
       this.clientMetadata.checkUrl(id)
       return { ok: 'later' }
@@ -405,6 +428,9 @@ export class OAuthServer {
     if (!client) return { ok: false, error: 'invalid_client' }
     const redirectUri = param('redirect_uri') ?? ''
     if (!redirectUri || !client.redirectUris.some((r) => sameRedirect(r, redirectUri))) return { ok: false, error: 'invalid_redirect_uri' }
+    // One that registered itself before the list said otherwise: its address decides.
+    const domain = client.host ?? hostOf(redirectUri)
+    if (!this.domainAllowed(domain)) return { ok: false, error: 'client_not_allowed', host: domain }
     const rawState = param('state')
     const state = rawState === undefined || rawState === null || rawState === '' ? null : rawState.slice(0, MAX_STATE)
     if (param('response_type') !== 'code') return { ok: false, error: 'unsupported_response_type', description: 'only response_type=code' }
@@ -593,7 +619,7 @@ export class OAuthServer {
    * token is the credential, never a cookie, so a page elsewhere can't ride
    * on it; this keeps the check the MCP transport asks for (DNS rebinding).
    */
-  authenticate(token: string, foreignOrigin?: string): AgentPrincipal | 'origin' | null {
+  authenticate(token: string, foreignOrigin?: string): AgentPrincipal | 'origin' | 'suspended' | null {
     if (!this.available() || !OAuthServer.isAccessToken(token)) return null
     const row = this.db.prepare(`select * from oauth_tokens where token_hash = ? and kind = 'access'`).get(sha256hex(token)) as TokenRow | undefined
     if (!row || row.resource !== this.resource || Date.parse(row.expires_at) <= this.now().getTime()) return null
@@ -698,6 +724,32 @@ function originOf(url: string): string | null {
 /** A URL's host, or '' if it isn't one. */
 function hostOf(url: string): string {
   try { return new URL(url).hostname } catch { return '' }
+}
+
+/** Whether `host` is one of `domains` or under one (`app.claude.ai` under `claude.ai`). */
+export function domainIn(host: string, domains: readonly string[]): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  return domains.some((d) => h === d || h.endsWith(`.${d}`))
+}
+
+/**
+ * Whether a client's declared name fits the domain it comes from: the name,
+ * letters and digits only, holds the domain's own label (`Claude` and
+ * `claude.ai`, `Example Notes` and `app.example.com`; not `Claude` and
+ * `claude-phish.example`).
+ * A program on this computer has no domain: it fits. Only a hint, for the
+ * consent page to warn: a name is whatever the app says.
+ */
+export function nameFitsDomain(name: string, host: string): boolean {
+  const h = host.toLowerCase().replace(/\.$/, '')
+  if (LOOPBACK.has(h) || h === '::1' || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h)) return true
+  const labels = h.split('.')
+  // The label before the public suffix, roughly: `example` in example.com and example.co.uk.
+  let i = labels.length - 2
+  if (i > 0 && labels[i]!.length <= 3 && labels[labels.length - 1]!.length === 2) i--
+  const label = (labels[Math.max(i, 0)] ?? h).replace(/[^a-z0-9]/g, '')
+  const plain = name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return label.length > 0 && plain.includes(label)
 }
 
 /** The client's name as people will see it: its `client_name`, or its redirect URI's host. One line, 100 characters at most. */

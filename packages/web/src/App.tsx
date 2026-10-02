@@ -9,6 +9,8 @@ import { Shell } from './Shell.tsx'
 import { Consent } from './Consent.tsx'
 import { useAccountLanguage } from './language.ts'
 import { endSession } from './session.ts'
+import { setRecentOwner } from './recent.ts'
+import { dropRescues } from './editor/rescue.ts'
 
 /** The OAuth authorization page: the server checked the request and serves the UI there. */
 const consent = location.pathname === '/oauth/authorize'
@@ -63,11 +65,13 @@ export function App() {
     case 'login':
       return <Login notice={state.notice} intro={consent ? t('consent.signIn') : undefined} onDone={(user) => setState({ kind: 'app', user })} />
     case 'app':
+      // Their recently opened notes are theirs (recent.ts): known before anything of the shell asks.
+      setRecentOwner(state.user.id)
       if (consent) return <Consent user={state.user} onSignOut={() => { void api.logout().finally(() => setState({ kind: 'login', notice: null })) }} />
       return (
         <Shell
           user={state.user}
-          onLogout={() => { void api.logout().finally(() => setState({ kind: 'login', notice: null })) }}
+          onLogout={() => { dropRescues(); void api.logout().finally(() => setState({ kind: 'login', notice: null })) }}
           onUnauthorized={() => setState({ kind: 'login', notice: t('error.unauthorized') })}
         />
       )
