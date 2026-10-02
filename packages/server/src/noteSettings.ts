@@ -26,7 +26,7 @@ import {
   NoteSettingsFileError, contentHash, noteSettingsPath, parseNoteSettings, personalRoot, resolveNoteSettings, seriesPattern, spaceRootOf, writeNoteSettings,
   type AttachmentsConfig, type ConfigError, type NoteSettings, type ResolvedNoteSettings, type Series,
 } from '@vihko/core'
-import { commitText, readText } from './fsutil.ts'
+import { commitText, followable, readText } from './fsutil.ts'
 import { NoteError } from './notes.ts'
 
 interface Cached {
@@ -64,7 +64,18 @@ export class NoteSettingsStore {
     return join(this.notesDir, noteSettingsPath(root))
   }
 
+  /**
+   * Whether vihko may follow the settings file's path: never through a
+   * symbolic link (fsutil.ts followable), which would read or write another
+   * space's settings, or any file of the server. One that goes through a
+   * link isn't there for vihko.
+   */
+  private followable(root: string): boolean {
+    return followable(this.notesDir, noteSettingsPath(root))
+  }
+
   private stamp(root: string): string {
+    if (!this.followable(root)) return ''
     try {
       const s = statSync(this.file(root))
       return s.isFile() ? `${s.size}:${s.mtimeMs}` : ''
@@ -99,6 +110,7 @@ export class NoteSettingsStore {
     const r = root.normalize('NFC')
     const now = this.read(r)
     if (opts.ifMatch !== undefined && opts.ifMatch !== now.etag) throw new NoteError('precondition_failed', 'the settings have changed', now.etag)
+    if (!this.followable(r)) throw new NoteError('invalid_path', `vihko doesn't follow a symbolic link: ${noteSettingsPath(r)}`)
     const before = now.etag === contentHash('') && this.stamp(r) === '' ? null : readText(this.file(r))
     const text = writeNoteSettings(before, next)
     mkdirSync(dirname(this.file(r)), { recursive: true })

@@ -92,6 +92,24 @@ test('nothing behind a symbolic link enters the history', async (t) => {
   for (const path of s.reported) assert.ok(!paths.includes(path), path)
 })
 
+test('a person\'s settings are never read or written through a symbolic link', async (t) => {
+  const s = await withLinks()
+  t.after(() => s.close())
+  // Their own `.vihko` leads outside, where a settings file names a series.
+  const label = m.aWord()
+  writeFileSync(join(s.outside, 'settings.yaml'), `daily:\n  ${m.anId()}:\n    label: ${JSON.stringify(label)}\n    folder: diary\n    name: "{YYYY}-{MM}-{DD}"\n`)
+  mkdirSync(join(s.notesDir, `people/${s.users.member.username}`), { recursive: true })
+  symlinkSync(s.outside, join(s.notesDir, `people/${s.users.member.username}/.vihko`))
+  const read = await s.member('GET', '/api/settings')
+  assert.equal(read.status, 200)
+  assert.ok(!JSON.stringify(read.body).includes(label), 'what is behind the link is not read')
+  const written = await s.member('PUT', '/api/settings', { settings: { version: 1, daily: [], attachments: null, agents: null }, ifMatch: read.body.etag })
+  assert.equal(written.status, 400, JSON.stringify(written.body))
+  assert.equal(written.body.error, 'invalid_path')
+  assert.deepEqual(readdirSync(s.outside).sort(), ['secret.md', 'secret.png', 'settings.yaml'])
+  assert.ok(readFileSync(join(s.outside, 'settings.yaml'), 'utf8').includes(label), 'nothing written there')
+})
+
 test('nothing is written through a symbolic link', async (t) => {
   const s = await withLinks()
   t.after(() => s.close())

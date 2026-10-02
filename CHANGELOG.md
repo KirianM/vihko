@@ -51,6 +51,11 @@ small team meets after months of use.
 
 ### Fixed
 
+- A space's settings (`.vihko/settings.yaml`) are never read or written
+  through a symbolic link, as nothing else in the notes folder is: a link
+  made on the disk (or by a sync tool) could write another space's settings
+  or a file outside the notes folder. Saving them there is `400
+  invalid_path`.
 - Finding a note by its `uid` (the MCP `get_note` with `uid`) looks only
   among the notes its person reads: someone copying that `uid` into a note
   of theirs can no longer make the lookup miss, or land on their note. The
