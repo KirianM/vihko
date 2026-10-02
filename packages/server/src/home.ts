@@ -100,7 +100,9 @@ export async function homeView(access: Access, deps: HomeDeps): Promise<HomeView
 
   // The index: when each note's file last changed.
   const own = personalRoot(me.username)
-  const rows = deps.index.prepare('select path, title, mtime_ms from notes order by mtime_ms desc limit ?').all(INDEX_PAGE) as { path: string; title: string; mtime_ms: number }[]
+  // Only among what they read, in the query: notes they can't read, however many changed, never push theirs out.
+  const w = access.notesWhere('n')
+  const rows = deps.index.prepare(`select n.path, n.title, n.mtime_ms from notes n where ${w.sql} order by n.mtime_ms desc limit ?`).all(...w.params, INDEX_PAGE) as { path: string; title: string; mtime_ms: number }[]
   for (const r of rows) {
     if (!access.canRead(r.path) || deps.excluded?.(r.path)) continue
     const inOwn = parseSpacePath(r.path)?.space.root === own

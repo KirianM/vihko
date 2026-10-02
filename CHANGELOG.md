@@ -51,6 +51,9 @@ small team meets after months of use.
 
 ### Fixed
 
+- Home's «what others changed» looks only among the notes the person
+  reads: many changes elsewhere in the installation no longer push what
+  they read out of it.
 - A space's settings (`.vihko/settings.yaml`) are never read or written
   through a symbolic link, as nothing else in the notes folder is: a link
   made on the disk (or by a sync tool) could write another space's settings
