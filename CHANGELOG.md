@@ -283,6 +283,10 @@ small team meets after months of use.
 - Notes held after a move outside vihko are released only by whoever could
   have made that move from vihko; the guide and the error when deleting a
   folder with them say so.
+- The compatibility page says that version ids are opaque and change when a
+  purge or a retention run rewrites the history (a kept id then answers
+  `404 not_found`), and that vihko is served at the root of its domain, which
+  its addresses count on.
 
 ### Upgrade notes
 

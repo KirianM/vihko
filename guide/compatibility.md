@@ -103,6 +103,9 @@ note. Every path vihko serves is inside a space:
   as a rename from vihko would, and removes `name`; when another space or
   folder has that name, it's left as it is and the admins get
   `space_not_renamed` until a start can.
+- **vihko is served at the root of its domain** (`https://notes.example.com/`),
+  never under a path, and its addresses count on it: a note's address, and
+  the links to one by its address, start at the domain's root (`/?note=…`).
 - The UI never shows `people/` nor `spaces/`. A note's address in the
   browser is `?note=<address>`, the same for everyone who can open it: a
   shared space by its name (`?note=Home/plan.md`), a person's space by `~`
@@ -135,6 +138,7 @@ The [API guide](api.md) explains how to use it.
 | Dates | ISO 8601, UTC |
 | A note's ETag | `sha256:<hex>` of its text, in the body and in the `ETag` header (quoted) |
 | Cursors | `next`, passed back as `cursor`: opaque (encrypted), valid until vihko restarts |
+| Version ids | Opaque text (in 0.1.0, 40 hex digits). They change when the history is rewritten: a purge, or a retention run that removed something, gives new ids to every later version of the installation, with no table from old to new. A version id kept from before (a `version` or `against`, the `since` of `changes_since`) then answers `404 not_found`, or `base_known: false` for `since`: read the versions again |
 | Conditional writes | `If-Match` (quoted or bare), `ifMatch` in the body where a route takes it, `If-None-Match: *` on `PUT /api/note` |
 | An ETag a note open in the editor had a moment ago | A write planned on it (`PUT /api/note`, `POST /api/note/edit`, `POST /api/history/restore`) goes in, applied to the text as it is now, when nothing changed since in what it replaces or right next to it (a whole text counts from the first character it changes to the last); otherwise `412 precondition_failed`. "A moment ago": the texts vihko handed out with their ETag in the last 10 minutes, the last 32 of each open note (0.1.0-rc.6) |
 | Errors | `{ "error": <code>, "message": <hint> }`, with `etag` on `precondition_failed`, `reason` on `agent_denied`, `audience` on `audience_widens`, `path` on an `exists` that names the disk's spelling, `movedTo` on a `not_found` for a note vihko moved from there in the last two minutes (only to whoever reads it where it went), `contents` on `not_empty`, `group` on `leave_via_group`, `retryAfter` on `too_many_attempts`; `Retry-After` on `429` |
