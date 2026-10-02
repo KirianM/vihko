@@ -534,9 +534,10 @@ export function rulesInFile(text: string): Map<string, RuleValue> {
  * folder that didn't exist: a forgotten audience) go: the folder
  * brings its own. `extra`: rules to write as well. With `keepFrom`, the rules
  * stay at `from` too (the first step of a move that never leaves the folder
- * without its rules).
+ * without its rules). With `grants: false`, only `ai: false` travels: the
+ * moved folders take the audience of where they go.
  */
-export function moveRules(text: string, from: string, to: string, opts: { extra?: readonly (RuleValue & { folder: string })[]; keepFrom?: boolean } = {}): string {
+export function moveRules(text: string, from: string, to: string, opts: { extra?: readonly (RuleValue & { folder: string })[]; keepFrom?: boolean; grants?: false } = {}): string {
   const f = from.normalize('NFC')
   const t = to.normalize('NFC')
   const changes: Change[] = []
@@ -546,7 +547,8 @@ export function moveRules(text: string, from: string, to: string, opts: { extra?
   for (const [key, v] of rules) {
     if (!under(key, f)) continue
     if (!opts.keepFrom) changes.push([key, null])
-    changes.push([t + key.slice(f.length), v])
+    // `grants: false`: only what closes travels (`ai: false`); a rule left with nothing isn't written.
+    changes.push([t + key.slice(f.length), opts.grants === false ? { ...v, grants: null, name: null } : v])
   }
   for (const e of opts.extra ?? []) changes.push([e.folder, { grants: e.grants, ai: e.ai, name: e.name ?? null }])
   return changes.length ? applyRules(text, changes) : text

@@ -35,13 +35,13 @@ export interface AudienceChange {
  * vihko.yaml will have them (core `moveRules`): every key under the folder
  * moves, and keys already at the destination go.
  */
-export function ruleMove(engine: PermissionsEngine, from: string, to: string): { rules: PermissionRule[] } {
+export function ruleMove(engine: PermissionsEngine, from: string, to: string, opts: { grants?: false } = {}): { rules: PermissionRule[] } {
   const f = from.normalize('NFC')
   const t = to.normalize('NFC')
   const under = (k: string, root: string) => k === root || k.startsWith(root + '/')
   const rules = rulesOf(engine.section)
     .filter((r) => under(r.folder, f) || !under(r.folder, t))
-    .map((r): PermissionRule => (under(r.folder, f) ? { ...r, folder: t + r.folder.slice(f.length) } : r))
+    .map((r): PermissionRule => (under(r.folder, f) ? { ...r, folder: t + r.folder.slice(f.length), ...(opts.grants === false ? { grants: null } : {}) } : r))
   return { rules }
 }
 

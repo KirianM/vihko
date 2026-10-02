@@ -17,6 +17,15 @@ small team meets after months of use.
 
 ### Security
 
+- **Moving a folder into another space no longer brings its grants along
+  unless you manage where it goes.** With only `edit` in a shared space (or in
+  a folder someone shares from their own space), moving a folder of yours
+  there carried its grants, up to `manage` and to anyone, and so did a note's
+  folder of images in `per-note` mode: a way to share what wasn't yours to
+  share. Now such a folder takes the audience of where it lands; `ai: false`
+  still goes with it, and so do its grants for whoever manages the
+  destination, who could give them there anyway. Within a space nothing
+  changes.
 - Replacing every occurrence of a word in a long note (`find_replace`), a
   search over a note with thousands of matches, and saving a note with very
   long paragraphs no longer keep the server busy for seconds or minutes:
@@ -33,8 +42,20 @@ small team meets after months of use.
   index had it, the server's log names it, and the admins get the new
   `unreadable_notes` alert until it can be read.
 
+### Fixed
+
+- A mistake in the `permissions` of `vihko.yaml` (`grant:` for `grants:`)
+  no longer stops everyone from moving or renaming any folder or space:
+  vihko.yaml is only written when what moves has rules there. Moving a
+  folder (or a note with its folder of images) that has rules while the file
+  has a mistake answers `409 permissions_invalid`, and the UI says to ask
+  whoever runs vihko.
+
 ### Upgrade notes
 
+- A folder (or a note's folder of images) moved into another space where you
+  only edit no longer keeps who it was shared with: it's shared as the
+  folder it lands in. Whoever manages that space can share it again.
 - A script or an agent that searches with more than 20 filters or 32 words,
   or a query over 1,000 characters, now gets `400 query_too_complex`: split
   the search.

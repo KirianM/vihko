@@ -208,6 +208,10 @@ Details that go with them:
   that isn't well formed (an unknown `op`, a field missing or of the wrong
   type, `set_frontmatter` on `uid`) is `400 invalid`, and one that doesn't fit
   the text is `409 edit_mismatch`.
+- **A note's folder of images** (`attachments.mode: per-note`) moves with
+  it. Its grants go along within its space, or into another space where the
+  key's person manages; elsewhere only its `ai: false` does (since
+  0.1.0-rc.6).
 - **Fields the UI uses on these routes**, not in the [API guide](api.md):
   `freshUid` and `fromLink` on `POST /api/note`, and `background` on
   `POST /api/note/move` (a key's move always answers with its report).
@@ -244,6 +248,7 @@ These are the codes a key can meet, with their status:
 | `space_root` | 400 | A space's root named as a folder to create, rename, move or delete |
 | `query_too_complex` | 400 | A search over the [limits](#limits) of a query (since 0.1.0-rc.6) |
 | `exists` | 409 | The name is taken, or isn't available there (see [Known limits](#known-limits)) |
+| `permissions_invalid` | 409 | Moving a note whose folder of images has rules of its own in `vihko.yaml`, while a mistake in the file keeps vihko from changing it (since 0.1.0-rc.6) |
 | `edit_mismatch` | 409 | An edit operation doesn't fit the text |
 | `not_configured` | 409 | The daily note, with no series in `vihko.yaml` |
 | `audience_widens` | 409 | A move would show the note to someone who can't see it now |
@@ -298,7 +303,7 @@ can't call, they can change in any release.
 | `POST /api/folder` | `edit` in the parent | `path` | `201`: `path`. `outside_space`, `space_root` |
 | `POST /api/folder/templates` | `edit` in it | `path` (a folder), `dryRun`? | Since 0.1.0-rc.5: `marked`, `already`, `skipped` (counts, of the notes in the folder and below: those it marks, or would mark, with `template: true`; those already marked; those whose frontmatter can't be read). Each is written as any edit of that note. `404 not_found` for a folder the person doesn't see |
 | `POST /api/note/template` | `edit` where the note is | `path`, `template` (`true` or `false`) | Since 0.1.0-rc.5: `etag`. `true` sets `template: true`, `false` removes the key; nothing else of the note changes |
-| `POST /api/folder/move` | `manage` in it and `edit` in both parents | `from`, `to`, `dryRun`?, `background`? | The folder move's report, with `images.copied` when it changes space. The root of a folder someone shares with you is only theirs to move |
+| `POST /api/folder/move` | `manage` in it and `edit` in both parents | `from`, `to`, `dryRun`?, `background`? | The folder move's report, with `images.copied` when it changes space. The root of a folder someone shares with you is only theirs to move. Into another space, its grants (and those of the folders under it) go along only for whoever manages where it goes; otherwise only `ai: false` does, and it takes the audience of where it lands (since 0.1.0-rc.6). `409 permissions_invalid` when it has rules of its own and `vihko.yaml` can't be changed as it is |
 | `DELETE /api/folder` | `manage` in it | `path`, `trash`? | `path`, `trashed`. `409 held_inside` while notes held after a move made outside vihko are in it |
 | `GET /api/home` | Anyone | — | «Home» (0.1.0-rc.3): `recent` (`path`, `title`, `at`: notes the person changed lately; without a history, those of their own space changed last), `changed` (the same and `by`: what others changed lately in notes the person reads; `by` (`kind` `user`, `agent` or `external`, `name`, `onBehalfOf`) only where they may see the history, null elsewhere), `shared` (`kind` `space` or `folder`, `path`, `name`, `owner`, `by`, `at`: what was shared with them in the last 30 days, while they see it). At most 8 each; nothing the person can't read |
 | `GET /api/events` | Anyone | — | A server-sent event stream (0.1.0-rc.3): `ready` when it opens, then `tree` (data `{}`) whenever a change concerns what the person sees: a note made, renamed, moved or deleted where they read, a folder made or gone there, or what they reach (their spaces, what is shared with them, their levels) changed. It never says what changed. A comment keeps it open every 25 s |

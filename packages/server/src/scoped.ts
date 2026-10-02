@@ -9,7 +9,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { PEOPLE, SPACES, TEMPLATE_KEY, anchorChanged, templateMarked, trimSlashes, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, searchQueryProblem, SEARCH_LIMITS, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
+import { PEOPLE, SPACES, TEMPLATE_KEY, anchorChanged, templateMarked, trimSlashes, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, searchQueryProblem, SEARCH_LIMITS, parseSpacePath, parseThreads, placement, rulesInFile, rulesOf, sameSpace, WORKSPACE_FILE, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -29,7 +29,7 @@ import type { Orphans } from './http/app.ts'
 import type { KeyWithUser } from './keys.ts'
 import type { PermissionsEngine } from './permissions.ts'
 import type { PermissionHolds } from './permissionHolds.ts'
-import type { PermissionsFile } from './permissionsFile.ts'
+import { ConfigInvalidError, type PermissionsFile } from './permissionsFile.ts'
 import type { Profiles } from './profiles.ts'
 import { shiftCode, type LinkState } from './relink.ts'
 import { createFromTemplate } from './templates.ts'
@@ -965,16 +965,18 @@ export class ScopedNotes {
     const suffix = this.deps.attachments(f).perNote
     const assets = suffix !== undefined ? { from: noteAttachmentsDir(f, suffix), to: noteAttachmentsDir(t, suffix) } : null
     const engine = this.deps.permissions
-    const assetRules = engine && assets && assets.from !== assets.to && rulesOf(engine.section).some((r) => r.folder === assets.from || r.folder.startsWith(assets.from + '/'))
+    const assetRules = engine && assets && assets.from !== assets.to && this.hasRules(assets.from)
+    // Its grants go along within its space, or where the person manages; elsewhere only `ai: false` (see grantsTravel).
+    const grants = assets && this.grantsTravel(assets.from, folderOf(t)) ? {} : { grants: false as const }
     const audience = engine && this.deps.keys && (opts.dryRun || this.access.isAgent)
-      ? audienceChange(engine, this.deps.keys(), [{ before: f, after: t }, ...(assetRules ? [{ before: `${assets.from}/_`, after: `${assets.to}/_` }] : [])], assetRules ? ruleMove(engine, assets.from, assets.to).rules : null)
+      ? audienceChange(engine, this.deps.keys(), [{ before: f, after: t }, ...(assetRules ? [{ before: `${assets.from}/_`, after: `${assets.to}/_` }] : [])], assetRules ? ruleMove(engine, assets.from, assets.to, grants).rules : null)
       : undefined
     if (!opts.dryRun && this.access.isAgent && audience && widens(audience) && opts.confirmAudience !== true) throw new AudienceWidens(audience)
     const { confirmAudience: _, ...moveOpts } = opts
     if (!opts.dryRun) await this.clearForgotten(folderOf(t))
     // The folder of images' rules are first written at its new path too (never left without them), then the old ones go.
     const file = this.deps.permissionsFile
-    const copied = !opts.dryRun && assetRules && file ? (await file.moveRules(assets.from, assets.to, { actor: this.access.actor, keepFrom: true })).changed : false
+    const copied = !opts.dryRun && assetRules && file ? (await this.rulesWritable(() => file.moveRules(assets.from, assets.to, { actor: this.access.actor, keepFrom: true, ...grants }))).changed : false
     let report: MoveReport
     try {
       // Images it takes to another space are only those the principal can read.
@@ -985,10 +987,10 @@ export class ScopedNotes {
       if (copied) await file!.removeRules(assets!.to, { actor: this.access.actor }).catch(() => {})
       throw err
     }
-    if (copied) {
+    if (!opts.dryRun && assetRules && file && (copied || report.images.folder)) {
       // The folder of images moved: its old rules go; it stayed: the copies go.
       const stale = report.images.folder ? assets!.from : assets!.to
-      await file!.removeRules(stale, { actor: this.access.actor })
+      await file.removeRules(stale, { actor: this.access.actor })
         .catch((err) => this.deps.log?.(`the rules of ${stale} stay in vihko.yaml after moving ${f}: ${err instanceof Error ? err.message : String(err)}`))
     }
     const masked: ScopedMoveReport = this.maskReport(report)
@@ -1173,6 +1175,46 @@ export class ScopedNotes {
   }
 
   /**
+   * Whether the grants of a folder this person moves (its subfolders' too)
+   * go with it into `dest`: always within its space, where they were given
+   * already; into another space only where the person manages, and could
+   * give them anyway. Otherwise someone with only `edit` there would bring
+   * along, in a folder of their own (or a note's folder of images), grants up
+   * to `manage` for anyone, in a space that isn't theirs to share. `ai:
+   * false` always goes: it only closes.
+   */
+  private grantsTravel(from: string, dest: string): boolean {
+    return spaceRootOf(from) === spaceRootOf(dest) || this.access.canManage(dest)
+  }
+
+  /**
+   * Whether vihko.yaml has rules at any of `folders` or under them: by what
+   * the file says, and by what is in force (all that is known when the file
+   * isn't YAML).
+   */
+  private hasRules(...folders: string[]): boolean {
+    const fs = folders.map((x) => x.normalize('NFC'))
+    const keys = this.deps.permissions ? rulesOf(this.deps.permissions.section).map((r) => r.folder) : []
+    const text = this.deps.permissionsFile?.read().text
+    try { if (text) keys.push(...rulesInFile(text).keys()) } catch { /* not YAML: what is in force */ }
+    return keys.some((k) => fs.some((x) => k === x || k.startsWith(x + '/')))
+  }
+
+  /**
+   * Writing the rules a move carries: when vihko.yaml can't be changed as it
+   * is (a mistake in it, fixed by hand), `409 permissions_invalid`: this
+   * folder has rules of its own, and they can't move with it until then.
+   */
+  private async rulesWritable<T>(write: () => Promise<T>): Promise<T> {
+    try {
+      return await write()
+    } catch (err) {
+      if (err instanceof ConfigInvalidError) throw new RequestError(409, 'permissions_invalid', `${WORKSPACE_FILE} can't be changed as it is, and the rules of what moves are in it: it's fixed by hand first`)
+      throw err
+    }
+  }
+
+  /**
    * An existing folder the person may rename, move or delete (`manage` in it,
    * `edit` where it is): the permissions decide first, `not_found` where they
    * don't see it; where they see it but may not, `forbidden`, unless it
@@ -1298,7 +1340,8 @@ export class ScopedNotes {
     const back = (p: string) => (p === t || p.startsWith(t + '/') ? f + p.slice(t.length) : p)
     const engine = this.deps.permissions
     const under = (this.deps.index.prepare("select path from folders where path = ? or path like ? escape '\\'").all(f, likePrefix(f)) as { path: string }[]).map((r) => r.path)
-    const moved = engine ? ruleMove(engine, f, t) : { rules: null }
+    const grants = space !== null || this.grantsTravel(f, parentFolder(t)!) ? {} : { grants: false as const }
+    const moved = engine ? ruleMove(engine, f, t, grants) : { rules: null }
     // A new space: its root's rule in place of the folder's own.
     const plan = space && moved.rules ? { rules: [...moved.rules.filter((r) => r.folder !== t), space] } : moved
     const mask = (r: FolderMoveReport) => {
@@ -1314,10 +1357,12 @@ export class ScopedNotes {
       const pairs = [...r.notes.map((n) => ({ before: n.from, after: n.to })), ...under.map((d) => ({ before: `${d}/_`, after: `${t}${d.slice(f.length)}/_` }))]
       return { ...r, audience: audienceChange(engine, this.deps.keys(), pairs, plan.rules) }
     }
-    if (!space) await this.clearForgotten(parentFolder(t)!)
-    const file = this.deps.permissionsFile
+    // vihko.yaml is only written when there are rules to carry, or to clear where it goes: a mistake
+    // in the file then never stops moving a folder that has none.
+    const file = space !== null || this.hasRules(f, t) ? this.deps.permissionsFile : undefined
+    if (!space) await this.rulesWritable(() => this.clearForgotten(parentFolder(t)!))
     const before = file?.read().text ?? null
-    const copied = file ? (await file.moveRules(f, t, { actor, keepFrom: true, ...(space ? { extra: [space] } : {}) })).changed : false
+    const copied = file ? (await this.rulesWritable(() => file.moveRules(f, t, { actor, keepFrom: true, ...grants, ...(space ? { extra: [space] } : {}) }))).changed : false
     const afterCopy = copied ? file!.read().text : null
     let report: FolderMoveReport
     try {
@@ -1327,8 +1372,8 @@ export class ScopedNotes {
       if (copied) await file!.update((x) => (x === afterCopy ? before ?? '' : x), { actor }).catch(() => {})
       throw err
     }
-    if (copied) {
-      await file!.removeRules(f, { actor })
+    if (file && this.hasRules(f)) {
+      await file.removeRules(f, { actor })
         .catch((err) => this.deps.log?.(`the old rules of ${f} stay in vihko.yaml after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`))
     }
     try {

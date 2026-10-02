@@ -280,6 +280,92 @@ test('per-note images: the folder of images moves with its note and its grants, 
   } finally { await h.close() }
 })
 
+test('moving into another space with only edit there brings no grants along: neither a folder’s nor a note’s folder of images; ai: false still goes, and a manager’s go', async () => {
+  // The other member is outside the shared space (the group is the member alone), where the member only edits.
+  const plant = `${home(MEMBER.username)}/${m.aFolder()}`
+  const closed = `${plant}/${m.aFolder()}`
+  const inPlant = m.aNotePath(closed)
+  const note = m.aNotePath(home(MEMBER.username))
+  const assets = note.replace(/\.md$/, '.assets')
+  const image = `${assets}/${m.aUniqueWord()}.png`
+  const adminDir = `${home(ADMIN.username)}/${m.aFolder()}`
+  const adminNote = m.aNotePath(adminDir)
+  const config = `attachments:\n  mode: per-note\n` + RULES
+    + `  ${yamlKey(plant)}:\n    grants: { ${yamlKey(OTHER.username)}: manage }\n`
+    + `  ${yamlKey(closed)}:\n    grants: { ${yamlKey(OTHER.username)}: read }\n    ai: false\n`
+    + `  ${yamlKey(assets)}:\n    grants: { ${yamlKey(OTHER.username)}: manage }\n`
+    + `  ${yamlKey(adminDir)}:\n    grants: { ${yamlKey(OTHER.username)}: read }\n`
+  const files = {
+    ...BASE,
+    [inPlant]: `# ${m.aHeading()}\n`,
+    [note]: `# ${m.aHeading()}\n\n![](${image.slice(home(MEMBER.username).length + 1).replace(/ /g, '%20')})\n`,
+    [image]: PNG,
+    [adminNote]: `# ${m.aHeading()}\n`,
+  }
+  const h = await setup({ files, config, groups: { [GROUP]: ['member'] } })
+  try {
+    const yaml = () => readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8')
+    assert.equal((await h.other('GET', h.url('/api/note', { path: inPlant }))).status, 200, 'shared with the other in the member’s own space')
+    // A folder: the preview says the other loses it, and they do.
+    const to = `${DIR.shared}/${m.aFolder()}`
+    const preview = await h.member('POST', '/api/folder/move', { from: plant, to, dryRun: true })
+    assert.equal(preview.status, 200, preview.text)
+    assert.ok(preview.body.audience.users.lose.some((u: { username: string }) => u.username === OTHER.username), JSON.stringify(preview.body.audience))
+    const moved = await h.member('POST', '/api/folder/move', { from: plant, to })
+    assert.equal(moved.status, 200, moved.text)
+    const after = `${to}${inPlant.slice(plant.length)}`
+    assert.equal((await h.other('GET', h.url('/api/note', { path: after }))).status, 404)
+    assert.ok(!h.permissions.spaceRules().rules.some((r) => (r.folder === to || r.folder.startsWith(to + '/')) && r.grants !== null), yaml())
+    // Nothing planted for later: what the admin writes there isn't the other's either.
+    const later = m.aNotePath(to)
+    assert.equal((await h.admin('POST', '/api/note', { path: later, text: `# ${m.aHeading()}\n` })).status, 201)
+    assert.equal((await h.other('GET', h.url('/api/note', { path: later }))).status, 404)
+    assert.equal((await h.other('GET', '/api/permissions/folders')).body.folders.some((f: { path: string }) => f.path.startsWith(to)), false)
+    // ai: false went with it; nothing is left at the old paths.
+    const rules = h.permissions.spaceRules().rules
+    assert.ok(rules.some((r) => r.folder === `${to}${closed.slice(plant.length)}` && r.ai === false && r.grants === null), JSON.stringify(rules))
+    assert.ok(!rules.some((r) => r.folder === plant || r.folder.startsWith(plant + '/')))
+    // A note's folder of images: the same.
+    const notePreview = await h.member('POST', '/api/note/move', { from: note, to: m.aNotePath(DIR.shared), dryRun: true })
+    assert.ok(notePreview.body.audience.users.lose.some((u: { username: string }) => u.username === OTHER.username))
+    const target = m.aNotePath(DIR.shared)
+    assert.equal((await h.member('POST', '/api/note/move', { from: note, to: target })).status, 200)
+    const newImage = `${target.replace(/\.md$/, '.assets')}/${image.slice(assets.length + 1)}`
+    assert.equal((await h.member('GET', h.url('/api/file', { path: newImage }))).status, 200, 'the images went with it')
+    assert.equal((await h.other('GET', h.url('/api/file', { path: newImage }))).status, 404)
+    assert.ok(!h.permissions.spaceRules().rules.some((r) => r.folder === assets || r.folder === target.replace(/\.md$/, '.assets')))
+    // Whoever manages where it goes may bring its grants: they could give them there anyway.
+    const adminTo = `${DIR.shared}/${m.aFolder()}`
+    assert.equal((await h.admin('POST', '/api/folder/move', { from: adminDir, to: adminTo })).status, 200)
+    assert.equal((await h.other('GET', h.url('/api/note', { path: `${adminTo}${adminNote.slice(adminDir.length)}` }))).status, 200)
+  } finally { await h.close() }
+})
+
+test('a mistake in the permissions of vihko.yaml stops only moving what has rules there, with a code of its own', async () => {
+  const mine = `${home(MEMBER.username)}/${m.aFolder()}`
+  const shared = `${home(MEMBER.username)}/${m.aFolder()}`
+  const files = { ...BASE, [m.aNotePath(mine)]: `# ${m.aHeading()}\n`, [m.aNotePath(shared)]: `# ${m.aHeading()}\n` }
+  const config = RULES + `  ${yamlKey(shared)}:\n    grants: { ${yamlKey(OTHER.username)}: read }\n`
+  const h = await setup({ files, config })
+  try {
+    // A typo: `grant` for `grants`. The last valid permissions stay in force.
+    const broken = config.replace(`${yamlKey(shared)}:\n    grants:`, `${yamlKey(shared)}:\n    grant:`)
+    assert.notEqual(broken, config)
+    writeFileSync(join(h.notesDir, 'vihko.yaml'), broken)
+    h.workspace.reload()
+    assert.equal(h.workspace.permissionsFallback, 'last_good')
+    // A folder without rules of its own moves as ever, and vihko.yaml is left as it was.
+    const renamed = `${home(MEMBER.username)}/${m.aFolder()}`
+    const r = await h.member('POST', '/api/folder/move', { from: mine, to: renamed })
+    assert.equal(r.status, 200, r.text)
+    assert.equal(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'), broken)
+    // One with rules can't move without them: a code that says so.
+    const refused = await h.member('POST', '/api/folder/move', { from: shared, to: `${home(MEMBER.username)}/${m.aFolder()}` })
+    assert.deepEqual([refused.status, refused.body.error], [409, 'permissions_invalid'])
+    assert.ok(existsSync(join(h.notesDir, shared)), 'nothing moved')
+  } finally { await h.close() }
+})
+
 test('images go only where the writer may write: an attachments folder they can’t write refuses the upload, and nothing lands there', async () => {
   // The attachments folder is each space's own: for a note of the
   // folder the other member shares with the member, it's in the other's space,

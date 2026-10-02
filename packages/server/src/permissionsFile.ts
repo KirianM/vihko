@@ -137,8 +137,8 @@ export class PermissionsFile {
   }
 
   /** Moves the rules of a folder and those under it (see core `moveRules`). */
-  moveRules(from: string, to: string, opts: { actor: Actor; extra?: (RuleValue & { folder: string })[]; keepFrom?: boolean }) {
-    return this.update((t) => moveRules(t, from, to, { extra: opts.extra, keepFrom: opts.keepFrom }), opts)
+  moveRules(from: string, to: string, opts: { actor: Actor; extra?: (RuleValue & { folder: string })[]; keepFrom?: boolean; grants?: false }) {
+    return this.update((t) => moveRules(t, from, to, { extra: opts.extra, keepFrom: opts.keepFrom, grants: opts.grants }), opts)
   }
 
   /** Removes the rules of a folder and those under it. */
