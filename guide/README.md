@@ -9,8 +9,8 @@ vihko (0.1): the guides in a release describe that release.
   the notes folder with `people/` and `spaces/`, the first start and every
   environment variable.
 - [Configuration](configuration.md): `vihko.yaml`, the workspace settings
-  that live with your notes (shared spaces and sharing, daily notes,
-  templates, images, links, history).
+  that live with your notes (shared spaces and sharing, daily notes, images,
+  links, history).
 - [Spaces, people and sharing](users-and-permissions.md): your own space,
   shared spaces and their settings, folders shared with you, inviting
   people, groups, what the admin can and can't see, sign-in limits and
@@ -24,6 +24,8 @@ vihko (0.1): the guides in a release describe that release.
   creating notes and folders, links, tags, search and the ⌘K box, moving,
   images, comments, history, sharing, preferences, setting up your own
   daily notes, templates and guide for agents, Home, and the phone.
+  Searching by frontmatter fields and templates are explained in [Notes and
+  Markdown](notes.md).
 - [Notes and Markdown](notes.md): what vihko reads and writes in your files
   (frontmatter, links, which stay inside their space, tags, comments, images), the
   trash, and editing with other tools at the same time.

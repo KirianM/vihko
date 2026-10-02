@@ -155,7 +155,7 @@ The lines to know:
 | Line | What it means |
 |---|---|
 | `vihko <version>` | The first line of every start. |
-| `no vihko.yaml: nothing configured` | There's no [`vihko.yaml`](configuration.md): no daily notes or templates, and nothing is shared: each person has only their own space. |
+| `no vihko.yaml: nothing configured` | There's no [`vihko.yaml`](configuration.md): no daily notes, and nothing is shared: each person has only their own space. |
 | `vihko.yaml loaded` | `vihko.yaml` was read and applies. Printed again whenever it changes. |
 | `vihko.yaml loaded without unknown_key at <key>, …` | It applies, except what the line lists: `unknown_key at <key>` is a key vihko doesn't know (a typo, or a setting of a newer vihko), which is ignored; `section_rejected at permissions` means the permissions section was rejected. The admins see each one, with its line, in the workspace alerts. See [When something is wrong](configuration.md#when-something-is-wrong). |
 | `index ready: …` | The first scan of the notes folder is done: notes added, changed, removed and unchanged since the index last saw them. |

@@ -406,7 +406,7 @@ admin's own space, `people/<admin>/`.
 
 - Find your way around the app: [First steps in the app](first-steps.md).
 - Invite people: [Spaces, people and sharing](users-and-permissions.md).
-- Configure the workspace (daily notes, templates, where images go):
+- Configure the workspace (daily notes, where images go):
   [Configuration](configuration.md).
 - Set up [backups](backups.md) now, before you have notes to lose.
 

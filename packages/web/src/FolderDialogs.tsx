@@ -350,7 +350,7 @@ export function MarkTemplatesDialog({ path, onClose, onDone }: { path: string; o
         <p className="dialog-text">{t('templates.markBody')}</p>
         {preview === null && !error && <p className="dialog-text" aria-live="polite">{t('common.loading')}</p>}
         {preview && (
-          <ul className="folder-list" aria-label={t('templates.markSummary')}>
+          <ul className="templates-summary" aria-label={t('templates.markSummary')}>
             <li>{t(preview.marked === 1 ? 'templates.markOne' : 'templates.markMany', { n: preview.marked })}</li>
             {preview.already > 0 && <li>{t(preview.already === 1 ? 'templates.alreadyOne' : 'templates.alreadyMany', { n: preview.already })}</li>}
             {preview.skipped > 0 && <li>{t(preview.skipped === 1 ? 'templates.skippedOne' : 'templates.skippedMany', { n: preview.skipped })}</li>}
