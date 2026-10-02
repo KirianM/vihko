@@ -356,9 +356,14 @@ points to an address on your network is private). Admins always can, and can
 let members too: «Users and groups» → «Settings» → «Members can save copies
 of images from private addresses».
 
-Images from other sites (`![](https://…)`) load directly in the browser, which
-tells that site someone is looking. `VIHKO_EXTERNAL_IMAGES=block` stops that
-for the whole installation (see [Install](install.md)).
+Images from other sites (`![](https://…)`) tell that site someone is looking
+when the browser loads them. On a new installation they don't load on their
+own: the note shows «External image from example.com» with **Show**, which
+loads it for you on this page, and **Save a copy**, which has vihko's server
+download it into the notes folder and points the note to the copy (its text
+kept). `VIHKO_EXTERNAL_IMAGES` decides it for the whole installation: `allow`
+loads them as the note opens (an installation from before 0.1.0-rc.6 keeps
+doing so), `block` never loads them (see [Install](install.md)).
 
 An image can be seen by whoever can read the folder it's in: a person who
 can't read that folder can't see the image, even in a note they can read. New

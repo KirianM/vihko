@@ -608,7 +608,7 @@ explains it.
 | `VIHKO_PUBLIC_URL` | An `https://` origin |
 | `VIHKO_TRUSTED_PROXIES` | Addresses or CIDR ranges, separated by commas or spaces |
 | `VIHKO_INTEGRATIONS` | `off`, or unset. `off` keeps every integration off: the API with keys, the MCP server, and any later release adds |
-| `VIHKO_EXTERNAL_IMAGES` | `allow` (default) or `block` |
+| `VIHKO_EXTERNAL_IMAGES` | `allow`, `ask` (0.1.0-rc.6) or `block`. Unset: the installation's default, kept in `state.db` the first time it starts: `ask` for one started with 0.1.0-rc.6 or later, `allow` for one from before |
 | `VIHKO_MAX_IMAGE_MB` | A number of megabytes, 20 by default |
 | `VIHKO_SECRET_KEY` | A key of 32 characters or more |
 | `VIHKO_SECRET_KEY_FILE` | A file holding that key |

@@ -9,7 +9,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Alert } from '@vihko/core'
-import { Profiles, STATE_VERSION, configFromEnv, dismissStateMigration, openState, start, stateMigrationAlerts, stateMigrations } from '@vihko/server'
+import { Profiles, STATE_VERSION, configFromEnv, dismissStateMigration, externalImagesDefault, openState, start, stateMigrationAlerts, stateMigrations } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -147,4 +147,34 @@ test('state.db: «Open today\'s note on start» of version 10 carries over as «
   const profiles = new Profiles(db)
   assert.deepEqual([profiles.get('01A').onOpen, profiles.get('01B').onOpen], ['daily', 'home'])
   db.close()
+})
+
+test('external images by default: a new installation asks before showing them; one from before keeps showing them, and the choice stays', () => {
+  const dir = tempDir('vihko-state-images-')
+  const fresh = join(dir, 'fresh.db')
+  let db = openState(fresh)
+  assert.equal(externalImagesDefault(db), 'ask')
+  db.close()
+  db = openState(fresh)
+  assert.equal(externalImagesDefault(db), 'ask', 'decided once: opening it again changes nothing')
+  db.close()
+  // A state.db from before this default (no row for it): it keeps showing them.
+  const old = join(dir, 'state.db')
+  openState(old).close()
+  const raw = new Database(old)
+  raw.prepare("delete from settings where key = 'install.externalImages'").run()
+  raw.close()
+  db = openState(old)
+  assert.equal(externalImagesDefault(db), 'allow')
+  db.close()
+  db = openState(old)
+  assert.equal(externalImagesDefault(db), 'allow')
+  db.close()
+})
+
+test('external images: VIHKO_EXTERNAL_IMAGES takes allow, ask or block, or nothing (the installation\'s default)', () => {
+  const base = { VIHKO_NOTES_DIR: tempDir('vihko-env-notes-'), VIHKO_STATE_DIR: tempDir('vihko-env-state-') }
+  assert.equal(configFromEnv(base).externalImages, null)
+  for (const v of ['allow', 'ask', 'block'] as const) assert.equal(configFromEnv({ ...base, VIHKO_EXTERNAL_IMAGES: v }).externalImages, v)
+  assert.throws(() => configFromEnv({ ...base, VIHKO_EXTERNAL_IMAGES: m.aWord() }), /VIHKO_EXTERNAL_IMAGES/)
 })

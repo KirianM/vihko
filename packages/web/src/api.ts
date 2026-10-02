@@ -218,7 +218,7 @@ export interface FolderContents {
 }
 /** Installation settings the UI needs. */
 export interface ServerConfig {
-  externalImages: 'allow' | 'block'
+  externalImages: 'allow' | 'ask' | 'block'
   maxImageBytes: number
   /** The second factor's secrets are stored encrypted (VIHKO_SECRET_KEY). */
   secretsEncrypted?: boolean

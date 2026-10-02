@@ -12,7 +12,7 @@ import { renameLegacySpaces } from './legacySpaces.ts'
 import { NoteSettingsStore } from './noteSettings.ts'
 import { Indexer } from './indexer.ts'
 import { DEFAULT_MAX_IMAGE_BYTES, NoteService } from './notes.ts'
-import { openState } from './state.ts'
+import { externalImagesDefault, openState } from './state.ts'
 import { Profiles } from './profiles.ts'
 import { Workspace } from './workspace.ts'
 import { Watcher } from './watcher.ts'
@@ -53,8 +53,12 @@ export interface Config {
   webDir: string
   /** VIHKO_MAX_IMAGE_MB: largest image stored, from an upload or a URL (20 MB). */
   maxImageBytes: number
-  /** VIHKO_EXTERNAL_IMAGES: `allow` (default) or `block` images linked from other sites. */
-  externalImages: ExternalImages
+  /**
+   * VIHKO_EXTERNAL_IMAGES: `allow`, `ask` or `block` images linked from other
+   * sites; null when not set: the installation's default (state.ts
+   * `externalImagesDefault`: `ask` for a new one, `allow` for one from before).
+   */
+  externalImages: ExternalImages | null
   /**
    * The history's timings, for tests and tuning (vihko.yaml says what matters:
    * its mode and size limit). VIHKO_HISTORY_QUIET_SECONDS: an open version
@@ -134,9 +138,10 @@ function positiveMb(raw: string): number {
   return Math.floor(mb * 1024 * 1024)
 }
 
-function externalImagesFrom(raw: string | undefined): ExternalImages {
-  const v = (raw ?? 'allow').trim().toLowerCase()
-  if (v !== 'allow' && v !== 'block') throw new Error(`VIHKO_EXTERNAL_IMAGES must be "allow" or "block", not "${raw}"`)
+function externalImagesFrom(raw: string | undefined): ExternalImages | null {
+  if (raw === undefined || raw.trim() === '') return null
+  const v = raw.trim().toLowerCase()
+  if (v !== 'allow' && v !== 'ask' && v !== 'block') throw new Error(`VIHKO_EXTERNAL_IMAGES must be "allow", "ask" or "block", not "${raw}"`)
   return v
 }
 
@@ -304,7 +309,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   retention.start()
   const { app, services } = createServer({
     notices, retention,
-    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
+    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages ?? externalImagesDefault(state), externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations, noteSettings,
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log, icons: markIcons(webDir) }) },

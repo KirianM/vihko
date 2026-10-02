@@ -53,6 +53,13 @@ its entries are kept at the end of this file.
   symbolic link still stops a deletion. `not_empty`'s `contents` has
   `hidden`, and `DELETE /api/folder?dryRun=true` says what deleting would
   take without deleting anything.
+- **External images wait for the reader on new installations.** A note's
+  image from another site shows «External image from example.com» with
+  **Show** (loads it, on this page) and **Save a copy** (vihko downloads it
+  into the notes folder and the note points to the copy, its text kept).
+  `VIHKO_EXTERNAL_IMAGES` takes `ask` for this; `allow` and `block` are as
+  before, and `block` also offers **Save a copy**. Unset, an installation
+  started with this version gets `ask`; one from before keeps `allow`.
 - Files opened on their own: images (not SVG) and PDFs are shown in the
   browser (`Content-Disposition: inline`); an SVG, a web page or anything
   else is downloaded.
@@ -66,6 +73,10 @@ its entries are kept at the end of this file.
 - Scripts and agents calling `POST /api/daily` (or `daily_note`) without a
   series may now get `409 series_gone`: pass a `series`, or set
   `dailySeries` in the profile.
+- **External images**: nothing changes for an existing installation. Without
+  `VIHKO_EXTERNAL_IMAGES` it keeps loading them, as before (the default it had
+  is now kept in `state.db`). For the new default, set
+  `VIHKO_EXTERNAL_IMAGES: ask` in `compose.yaml`.
 - The index (`index.db`) is rebuilt on its own the first time this version
   starts (it now lists the files that aren't notes, to find them by name);
   nothing to do.

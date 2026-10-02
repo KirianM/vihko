@@ -288,7 +288,8 @@ test('by URL, a member: only public addresses (also after DNS and redirects), un
 test('external images: exposed to the UI, and the UI CSP follows the setting', async () => {
   const webDir = tempDir('vihko-web-')
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><div id="root"></div>')
-  for (const [setting, allowed] of [['allow', true], ['block', false]] as const) {
+  // `ask` loads them when the reader asks: the page may load them.
+  for (const [setting, allowed] of [['allow', true], ['ask', true], ['block', false]] as const) {
     const { get } = await setup({ webDir, externalImages: setting, maxImageBytes: 1234 })
     assert.deepEqual(await (await get('/api/config')).json(), { externalImages: setting, maxImageBytes: 1234, secretsEncrypted: false, version: VERSION })
     const csp = (await get('/')).headers.get('content-security-policy')!

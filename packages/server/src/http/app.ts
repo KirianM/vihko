@@ -224,12 +224,18 @@ export interface Services {
   spaces: SpaceService
 }
 
-export type ExternalImages = 'allow' | 'block'
+/**
+ * Images notes link from other sites: `allow` loads them; `ask` shows a box
+ * with the site's name until the reader presses «Show» (or saves a copy);
+ * `block` never loads them (the page's policy forbids it), and offers only
+ * to save a copy, which the server downloads.
+ */
+export type ExternalImages = 'allow' | 'ask' | 'block'
 
 // The UI only talks to its own origin: no CDNs or third parties. The one
 // exception is images linked in notes, unless the administrator blocks them.
 function uiHeaders(external: ExternalImages) {
-  const img = external === 'allow' ? "img-src 'self' data: blob: https: http:" : "img-src 'self' data: blob:"
+  const img = external === 'block' ? "img-src 'self' data: blob:" : "img-src 'self' data: blob: https: http:"
   return {
     'Content-Security-Policy': `default-src 'self'; ${img}; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     'X-Content-Type-Options': 'nosniff',

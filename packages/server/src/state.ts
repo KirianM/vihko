@@ -238,7 +238,22 @@ export function openState(file: string, opts: OpenStateOptions = {}): Db {
     })()
     if (upgrade) opts.log?.(`state.db migrated from version ${current} to ${MIGRATIONS.length}; the previous one is in ${join(dirname(file), backup)}`)
   }
+  // External images when VIHKO_EXTERNAL_IMAGES isn't set, decided once: a new
+  // installation asks before showing them (`ask`); one from before that
+  // default keeps showing them (`allow`), as it did.
+  if (!db.prepare('select 1 from settings where key = ?').get(EXTERNAL_IMAGES_KEY)) {
+    db.prepare('insert into settings (key, value) values (?, ?)').run(EXTERNAL_IMAGES_KEY, existed && current > 0 ? 'allow' : 'ask')
+  }
   return db
+}
+
+/** Where state.db keeps the installation's default for external images (see openState). */
+const EXTERNAL_IMAGES_KEY = 'install.externalImages'
+
+/** The installation's default for external images, when VIHKO_EXTERNAL_IMAGES doesn't say: `ask` for a new one, `allow` for one from before. */
+export function externalImagesDefault(db: Db): 'allow' | 'ask' | 'block' {
+  const v = (db.prepare('select value from settings where key = ?').get(EXTERNAL_IMAGES_KEY) as { value: string } | undefined)?.value
+  return v === 'allow' || v === 'block' ? v : 'ask'
 }
 
 /** The migrations of this state.db the admins haven't dismissed, oldest first. */

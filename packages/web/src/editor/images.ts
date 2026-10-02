@@ -4,7 +4,7 @@
 // image hands it to whoever uploads it. The text of the note never changes
 // here; this only decorates it.
 import { syntaxTree } from '@codemirror/language'
-import { Facet, type EditorState, type Range } from '@codemirror/state'
+import { Facet, StateEffect, type EditorState, type Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 import { isExternalUrl, isImageRef, resolveImageRef } from '@vihko/core/images'
@@ -17,14 +17,26 @@ export interface ImageLabels {
   external: string
   missing: string
   blocked: (domain: string) => string
+  /** An external image not loaded until asked: «External image from example.com». */
+  ask: (domain: string) => string
+  show: string
+  saveCopy: string
 }
 
 export interface ImageHost {
-  /** Path of the open note: relative references resolve against its folder. */
+  /**
+   * Path of the open note: relative references resolve against its folder.
+   */
   note: string
-  /** External images: loaded, or replaced by a box with their domain. */
-  external: 'allow' | 'block'
+  /**
+   * External images: loaded (`allow`); a box with their site and «Show» until
+   * the reader asks (`ask`); never loaded (`block`). Both boxes offer «Save a
+   * copy» where the note can be written (`onSaveCopy`).
+   */
+  external: 'allow' | 'ask' | 'block'
   text: ImageLabels
+  /** «Save a copy» of the external image `url` written over `from`–`to` (alt text `alt`); null where the note can't be written. */
+  onSaveCopy: ((url: string, alt: string, from: number, to: number) => void) | null
   /** Image files pasted or dropped, to replace `from`–`to`. */
   onFiles: (files: File[], from: number, to: number) => void
   /** A single image URL pasted: someone decides whether to copy it, link it or paste it as text. */
@@ -36,16 +48,22 @@ export const imageHost = Facet.define<ImageHost, ImageHost | null>({ combine: (v
 type Source =
   | { kind: 'local'; url: string; name: string }
   | { kind: 'external'; url: string; domain: string }
-  | { kind: 'blocked'; domain: string }
+  | { kind: 'ask'; url: string; domain: string }
+  | { kind: 'blocked'; url: string; domain: string }
   | { kind: 'data'; url: string }
   | { kind: 'invalid'; name: string }
+
+/** External images the reader asked to see on this page («Show»): shown from then on, wherever they are. */
+const shown = new Set<string>()
+const showExternal = StateEffect.define<string>()
 
 function sourceOf(host: ImageHost, ref: string, embed: boolean): Source {
   const dest = ref.trim().replace(/^<|>$/g, '')
   if (isExternalUrl(dest)) {
     let domain = dest
     try { domain = new URL(dest).host } catch { return { kind: 'invalid', name: dest } }
-    return host.external === 'allow' ? { kind: 'external', url: dest, domain } : { kind: 'blocked', domain }
+    if (host.external === 'block') return { kind: 'blocked', url: dest, domain }
+    return host.external === 'allow' || shown.has(dest) ? { kind: 'external', url: dest, domain } : { kind: 'ask', url: dest, domain }
   }
   if (/^data:image\//i.test(dest)) return { kind: 'data', url: dest }
   const path = resolveImageRef(host.note, dest, { embed })
@@ -59,14 +77,16 @@ class ImageWidget extends WidgetType {
   readonly source: Source
   readonly alt: string
   readonly text: ImageLabels
-  constructor(source: Source, alt: string, text: ImageLabels) {
+  readonly save: ImageHost['onSaveCopy']
+  constructor(source: Source, alt: string, text: ImageLabels, save: ImageHost['onSaveCopy']) {
     super()
     this.source = source
     this.alt = alt
     this.text = text
+    this.save = save
   }
   eq(o: ImageWidget) {
-    return JSON.stringify(o.source) === JSON.stringify(this.source) && o.alt === this.alt && o.text === this.text
+    return JSON.stringify(o.source) === JSON.stringify(this.source) && o.alt === this.alt && o.text === this.text && (o.save === null) === (this.save === null)
   }
   toDOM(view: EditorView) {
     const wrap = document.createElement('span')
@@ -82,7 +102,28 @@ class ImageWidget extends WidgetType {
       view.focus()
     })
     const s = this.source
-    if (s.kind === 'blocked') return box(wrap, 'cm-image-blocked', this.text.blocked(s.domain))
+    if (s.kind === 'blocked' || s.kind === 'ask') {
+      box(wrap, 'cm-image-blocked', s.kind === 'ask' ? this.text.ask(s.domain) : this.text.blocked(s.domain))
+      const actions = document.createElement('span')
+      actions.className = 'cm-image-actions'
+      const button = (label: string, act: () => void) => {
+        const b = document.createElement('button')
+        b.type = 'button'
+        b.className = 'cm-image-action'
+        b.textContent = label
+        b.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation() })
+        b.addEventListener('click', (e) => { e.preventDefault(); act() })
+        actions.append(b)
+      }
+      if (s.kind === 'ask') button(this.text.show, () => { shown.add(s.url); view.dispatch({ effects: showExternal.of(s.url) }) })
+      const save = this.save
+      if (save) button(this.text.saveCopy, () => {
+        const at = imageRange(view.state, view.posAtDOM(wrap))
+        if (at) save(s.url, this.alt, at.from, at.to)
+      })
+      if (actions.childElementCount) wrap.querySelector('.cm-image-box')!.append(actions)
+      return wrap
+    }
     if (s.kind === 'invalid') return box(wrap, 'cm-image-missing', `${this.text.missing} · ${s.name}`)
     const img = document.createElement('img')
     img.alt = this.alt
@@ -107,8 +148,18 @@ class ImageWidget extends WidgetType {
     }
     return wrap
   }
-  // The click is the widget's own (above); the rest reach the editor.
-  ignoreEvent(e: Event) { return e.type === 'mousedown' }
+  // The click is the widget's own (above), and so are its buttons'; the rest reach the editor.
+  ignoreEvent(e: Event) { return e.type === 'mousedown' || (e.target instanceof Element && e.target.closest('.cm-image-action') !== null) }
+}
+
+/** The whole image at `pos` (`![…](…)` or `![[…]]`), where its widget is. */
+function imageRange(state: EditorState, pos: number): { from: number; to: number } | null {
+  for (const side of [1, -1] as const) {
+    for (let n: SyntaxNode | null = syntaxTree(state).resolveInner(pos, side); n; n = n.parent) {
+      if (n.name === 'Image' || n.name === 'WikiEmbed') return { from: n.from, to: n.to }
+    }
+  }
+  return null
 }
 
 /** The end of the image at `pos` (where its widget is: at its start, or at its end with its source shown). */
@@ -157,10 +208,10 @@ function decorations(view: EditorView): DecorationSet {
         let widget: ImageWidget | null = null
         if (ref.name === 'Image') {
           const img = markdownImage(view, ref.node)
-          if (img) widget = new ImageWidget(sourceOf(host, img.dest, false), img.alt, host.text)
+          if (img) widget = new ImageWidget(sourceOf(host, img.dest, false), img.alt, host.text, host.onSaveCopy)
         } else if (ref.name === 'WikiEmbed') {
           const img = embeddedImage(view.state.doc.sliceString(ref.from, ref.to))
-          if (img) widget = new ImageWidget(sourceOf(host, img.target, true), img.alt, host.text)
+          if (img) widget = new ImageWidget(sourceOf(host, img.target, true), img.alt, host.text, host.onSaveCopy)
         } else return
         if (!widget) return false
         // With the cursor on it, the source shows for editing and the image stays below it.
@@ -180,7 +231,8 @@ const imagePreview = ViewPlugin.fromClass(
     constructor(view: EditorView) { this.decorations = decorations(view) }
     update(u: ViewUpdate) {
       if (u.docChanged || u.viewportChanged || u.selectionSet || syntaxTree(u.state) !== syntaxTree(u.startState) ||
-          u.startState.facet(imageHost) !== u.state.facet(imageHost) || u.transactions.some(focusChanged)) {
+          u.startState.facet(imageHost) !== u.state.facet(imageHost) || u.transactions.some(focusChanged) ||
+          u.transactions.some((tr) => tr.effects.some((e) => e.is(showExternal)))) {
         this.decorations = decorations(u.view)
       }
     }
