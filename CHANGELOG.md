@@ -253,6 +253,9 @@ small team meets after months of use.
 
 ### Upgrade notes
 
+- While vihko is at 0.x the image is published only as `X.Y.Z` and `X.Y`:
+  there is no `:0` or `:latest` tag (a new minor version may change
+  things). Use `:0.1`.
 - A folder (or a note's folder of images) moved into another space where you
   only edit no longer keeps who it was shared with: it's shared as the
   folder it lands in. Whoever manages that space can share it again.

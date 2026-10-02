@@ -100,6 +100,16 @@ test('a stable version newer than every release gets X.Y.Z, X.Y, X and latest', 
   assert.deepEqual(imageTags(version, []), { tags: [version, `${v.major}.${v.minor}`, `${v.major}`, 'latest'], latest: true }, 'the first release')
 })
 
+test('before 1.0, a version gets only X.Y.Z and X.Y: never 0 or latest', () => {
+  const minor = m.anInt(1, 20)
+  const version = `0.${minor}.${n()}`
+  const older = [`v0.${minor - 1}.${n()}`, `v0.${minor + 1}.0-rc.1`]
+  assert.deepEqual(imageTags(version, m.shuffle(older)), { tags: [version, `0.${minor}`], latest: true })
+  assert.deepEqual(imageTags(version, []), { tags: [version, `0.${minor}`], latest: true }, 'the first release')
+  // A fix for an older minor: only its exact tag and its own minor's, if it is the newest there.
+  assert.deepEqual(imageTags(version, [`v0.${minor + 1}.0`]), { tags: [version, `0.${minor}`], latest: false })
+})
+
 test('a fix for an older line never takes a moving tag back', () => {
   const major = m.anInt(1, 20)
   const minor = m.anInt(0, 20)

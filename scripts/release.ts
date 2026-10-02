@@ -10,8 +10,10 @@
 // and, on GitHub Actions, writes the step's outputs: `version`, `prerelease`,
 // `latest` and `tags` (the image tags, as docker/metadata-action lines).
 //
-// The image tags: a stable 1.2.3 gets 1.2.3, 1.2, 1 and latest; a
-// pre-release (any `-…` suffix) only its exact tag. A moving tag goes only
+// The image tags: a stable 1.2.3 gets 1.2.3, 1.2, 1 and latest; a 0.x
+// version only 0.2.3 and 0.2 (before 1.0 a minor version may change things
+// incompatibly, so nothing moves anyone across minors); a pre-release (any
+// `-…` suffix) only its exact tag. A moving tag goes only
 // forward: a fix for an older line (1.1.5 once 1.2.0 is out) doesn't take 1
 // or latest back to it. The functions are pure, so test/release.test.ts
 // checks them without git, GitHub or files.
@@ -88,8 +90,9 @@ export function imageTags(version: string, released: string[]): { tags: string[]
   const newest = (covers: (r: Version) => boolean) => stable.every((r) => !covers(r) || compare(r, v) <= 0)
   const tags = [version]
   if (newest((r) => r.major === v.major && r.minor === v.minor)) tags.push(`${v.major}.${v.minor}`)
-  if (newest((r) => r.major === v.major)) tags.push(`${v.major}`)
   const latest = newest(() => true)
+  if (v.major === 0) return { tags, latest }
+  if (newest((r) => r.major === v.major)) tags.push(`${v.major}`)
   if (latest) tags.push('latest')
   return { tags, latest }
 }

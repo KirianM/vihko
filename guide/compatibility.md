@@ -648,7 +648,7 @@ each one does. Other `VIHKO_*` variables in the source code are for tests.
 | What | In 0.1.0 |
 |---|---|
 | Image | `ghcr.io/kirianm/vihko` |
-| Tags | `0.1.0` (never changes), `0.1` and `0` and `latest` (move forward only), and release candidates under their exact tag only. In 0.x, pin the minor line: `:0.1` |
+| Tags | `0.1.0` (never changes), `0.1` (moves forward only), and release candidates under their exact tag only. No `0` or `latest` while vihko is at 0.x (since 0.1.0-rc.6): they arrive with 1.0 |
 | Platforms | `linux/amd64` and `linux/arm64` |
 | Volumes | `/data/notes` (the notes) and `/data/state` (vihko's state) |
 | Port | 8080, plain HTTP |

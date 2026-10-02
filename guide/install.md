@@ -115,9 +115,11 @@ services:
 |---|---|
 | `0.1` | The latest 0.1.x release: fixes only. Recommended while vihko is at 0.x. |
 | `0.1.0` | Exactly that release. It never changes. |
-| `0` | The latest 0.x release. In 0.x a new minor version may change things ([Upgrading](upgrading.md#what-a-version-number-promises)): avoid it. |
-| `latest` | The latest release, whatever its version. Avoid it. |
 | `0.2.0-rc.1` | A release candidate, only under its exact tag. |
+
+There is no `0` or `latest` tag while vihko is at 0.x: a new minor version
+may change things ([Upgrading](upgrading.md#what-a-version-number-promises)),
+so no tag moves anyone from one to the next. They arrive with 1.0.
 
 [Upgrading](upgrading.md) explains what a minor and a patch version mean
 while vihko is at 0.x, and how to move between versions.

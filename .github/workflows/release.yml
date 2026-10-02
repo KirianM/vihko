@@ -3,6 +3,7 @@ name: Release
 # Pushing a tag v* (DEVELOPMENT.md, Releasing) publishes that version:
 #
 #   v1.2.3       image ghcr.io/kirianm/vihko:1.2.3, :1.2, :1 and :latest; a Release
+#   v0.2.3       image ghcr.io/kirianm/vihko:0.2.3 and :0.2 only (never :0 or :latest); a Release
 #   v1.0.0-rc.1  image ghcr.io/kirianm/vihko:1.0.0-rc.1 only; a pre-release
 #
 # for linux/amd64 and linux/arm64 (arm64 emulated with QEMU, the slow part).
