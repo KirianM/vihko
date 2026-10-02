@@ -60,6 +60,7 @@ export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => s
   const d = n.data
   if (d.code === 'links_not_updated') return { code: d.code, id: n.id, at: n.at, actions: ['dismiss'] }
   if (d.code === 'retention_ran') return { code: d.code, id: n.id, at: n.at, trashEntries: d.trashEntries, versions: d.versions, failed: d.failed, actions: ['dismiss'] }
+  if (d.code === 'account_key_added') return { code: d.code, id: n.id, at: n.at, kind: d.kind, name: d.name, actions: ['dismiss'] }
   const base = { id: n.id, at: n.at, by: nameOf(d.by), actions: ['dismiss' as const] }
   switch (d.code) {
     case 'account_changed': return { code: d.code, ...base, change: d.change, role: d.role }
@@ -141,6 +142,8 @@ export type NoticeData =
   | { code: 'space_restored'; by: string; path: string }
   /** `by` renamed the shared space they're in from `from` (its name then) to the one at `path`. */
   | { code: 'space_renamed'; by: string; from: string; path: string }
+  /** A key (`key`) was made, or an app (`app`) authorized, on their account, named `name`: never unnoticed. */
+  | { code: 'account_key_added'; kind: 'key' | 'app'; name: string }
 
 export type NoticeCode = NoticeData['code']
 
@@ -154,7 +157,7 @@ export interface Notice {
 /** The most notices a person keeps: older ones go first. */
 const MAX_PER_USER = 100
 
-const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran', 'moved_out', 'removed_from', 'space_deleted', 'space_restored', 'space_renamed']
+const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran', 'moved_out', 'removed_from', 'space_deleted', 'space_restored', 'space_renamed', 'account_key_added']
 
 export class Notices {
   private db: Db

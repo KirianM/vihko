@@ -30,6 +30,8 @@ export interface KeyRoutesDeps {
    * password without one): null if so, the response otherwise.
    */
   confirm: (c: Context<Env>, confirm: unknown) => Promise<Response | null>
+  /** A key was made on someone's account: they're told (notices.ts `account_key_added`), whoever made it. */
+  onKeyAdded?: (userId: string, name: string) => void
 }
 
 export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
@@ -81,7 +83,10 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
     const refused = await deps.confirm(c, b.confirm)
     if (refused) return refused
     const input: KeyInput = { name: b.name, canWrite: b.canWrite, folders: b.folders, expiresAt: b.expiresAt }
-    return c.json(keys.create(c.get('user'), input), 201)
+    const made = keys.create(c.get('user'), input)
+    // Told even of their own: a session taken by someone else would make one unnoticed otherwise.
+    deps.onKeyAdded?.(c.get('user').id, made.key.name)
+    return c.json(made, 201)
   })
 
   /** A key of this user's; someone else's doesn't exist for them. */

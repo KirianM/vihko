@@ -340,6 +340,13 @@ export type Alert =
    * otherwise.
    */
   | { code: 'space_deleted'; id: string; by: string; name: string; deleted: string | null; at: string; actions: ('restore_space' | 'dismiss')[] }
+  /**
+   * Addressed to one person: a key (`kind: 'key'`) was made, or an app
+   * (`kind: 'app'`) authorized, on their account at `at`, named `name`.
+   * Even when they did it: a session someone else took would make one
+   * unnoticed otherwise.
+   */
+  | { code: 'account_key_added'; id: string; kind: 'key' | 'app'; name: string; at: string; actions: 'dismiss'[] }
   /** Addressed to the members of a shared space: `by` restored it at `at`; `path` and `name` while they're in it. */
   | { code: 'space_restored'; id: string; by: string; path: string | null; name: string | null; at: string; actions: 'dismiss'[] }
   /** Addressed to the members of a shared space: `by` renamed it from `from` to `name` at `at` (`path`: its root, while they're in it). */

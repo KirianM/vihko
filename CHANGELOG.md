@@ -79,6 +79,14 @@ small team meets after months of use.
   note there) may still move it to another space, and the owner gets the new
   `moved_out` notice: what moved, who moved it, and where it went (the space,
   and the path while they read there).
+- **A new password can shut out whatever got in with the old one.** «Change
+  password» has a box, ticked by default: «Also sign out other sessions and
+  revoke keys and authorised apps». `POST /api/auth/password` takes
+  `revokeOthers` (true by default) and answers `sessionsEnded` and
+  `keysRevoked`; with `false`, the other sessions and the keys stay.
+- **A key made, or an app authorised, on your account is never unnoticed:**
+  you get the `account_key_added` notice, even when you did it yourself (a
+  session someone else took would do it unseen otherwise).
 - **Moving a folder into another space no longer brings its grants along
   unless you manage where it goes.** With only `edit` in a shared space (or in
   a folder someone shares from their own space), moving a folder of yours
@@ -228,6 +236,9 @@ small team meets after months of use.
   `vihko.yaml` when 0.1.0-rc.6 first starts count from the start, and so do
   the groups' members then: nobody loses a past they could see. From then on,
   whoever is given access sees the past only from that moment.
+- Changing your password now revokes your keys and authorised apps too,
+  unless you untick the box (or send `revokeOthers: false`): a script or an
+  app that used one needs a new key afterwards.
 - A folder (or a note's folder of images) moved into another space where you
   only edit no longer keeps who it was shared with: it's shared as the
   folder it lands in. Whoever manages that space can share it again.

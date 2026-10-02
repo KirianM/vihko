@@ -10,7 +10,8 @@
 //   GET    /api/account/sessions               own sessions, `current` marked
 //   DELETE /api/account/sessions               ends every other session of one's own
 //   DELETE /api/account/sessions/:id           ends one
-//   POST   /api/auth/password                  { current, password }: other sessions end
+//   POST   /api/auth/password                  { current, password, revokeOthers? } → { ok, sessionsEnded, keysRevoked }:
+//                                               with revokeOthers (true by default), other sessions end and keys and apps are revoked
 //   DELETE /api/account/notices/:id            one of one's own notices (notices.ts), dismissed
 // The vihko admin:
 //   GET    /api/admin/users                    everyone (state, role, groups, pending link, sessions)
@@ -53,6 +54,7 @@ import type { AttemptResult, LoginLimiter } from '../loginLimit.ts'
 import { UsersError, type NewLink, type Users } from '../users.ts'
 import type { Notices } from '../notices.ts'
 import { POLICIES, type TwoFactorPolicy } from '../twoFactor.ts'
+import type { ApiKeys } from '../keys.ts'
 import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
@@ -84,6 +86,8 @@ export interface UserRoutesDeps {
   managedHistory?: () => boolean
   /** The server's log: what the admins do to accounts stays on record there too. */
   log?: (msg: string) => void
+  /** Agent keys and authorized apps: a new password revokes them (with `revokeOthers`). */
+  keys?: ApiKeys
 }
 
 const fail = (c: Context, status: 400 | 403 | 404, error: string, message: string) => c.json({ error, message }, status)
@@ -168,7 +172,10 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   })
 
   // A new password: the current one is asked for (a session left open is not
-  // enough), and every other session ends. Wrong guesses count as failed logins.
+  // enough). With `revokeOthers` (the default), every other session ends and
+  // every key and authorized app of theirs is revoked: a new password after a
+  // stolen one shuts out whatever was got in with it. Wrong guesses count as
+  // failed logins.
   app.post('/api/auth/password', async (c) => {
     const b = await body(c)
     const user = c.get('user')
@@ -180,11 +187,21 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     }
     a.passed()
     if (typeof b.password !== 'string') throw new AuthError('weak_password', 'password must be text')
+    if (b.revokeOthers !== undefined && typeof b.revokeOthers !== 'boolean') throw new UsersError('invalid', 'revokeOthers must be true or false')
     await auth.setPassword(user.id, b.password)
-    const keep = current(c)
-    auth.endSessions(user.id, keep)
+    let sessions = 0
+    let keys = 0
+    if (b.revokeOthers !== false) {
+      sessions = auth.endSessions(user.id, current(c))
+      for (const k of deps.keys?.list(user.id) ?? []) {
+        if (k.status !== 'active') continue
+        deps.keys!.revoke(k.id)
+        keys++
+      }
+    }
+    // A confirmation of before doesn't outlive the old password, whatever else stays.
     users.hooks.onSessionsEnded?.(user.id)
-    return c.json({ ok: true })
+    return c.json({ ok: true, sessionsEnded: sessions, keysRevoked: keys })
   })
 
   app.delete('/api/account/notices/:id', (c) => {

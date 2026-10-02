@@ -488,8 +488,12 @@ both password and phone. `reset-link` prints the full link when
   default, uses your browser's language. Your choice is saved in your
   account.
 - **Changing your password:** Preferences → Account → Password. It asks for the
-  current one, signs out your other sessions, and ends any reset link made for
-  you.
+  current one and ends any reset link made for you. Unless you untick «Also
+  sign out other sessions and revoke keys and authorised apps», it signs out
+  your other sessions and revokes your agent keys and the apps you authorised:
+  whatever got in with the old password is out.
+- **Keys and apps:** every key made, or app authorised, on your account
+  leaves you a notice, even when you did it yourself.
 - **Sessions:** Account lists the browsers you're signed in from. A session
   unused for 30 days expires. You can sign out any of them, or all the others.
 - **A forgotten password:** the admin makes a reset link (the user's

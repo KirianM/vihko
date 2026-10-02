@@ -210,6 +210,9 @@ test('the full flow: discovery, registration, consent with PKCE, tokens, refresh
     // Approved as it comes: read-only, every folder.
     const ok = await consent(h, query)
     assert.equal(ok.status, 200, ok.text)
+    // Its person is told an app was authorized on their account, by its name.
+    const told = (await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'account_key_added')
+    assert.deepEqual(told.map((a: any) => [a.kind, a.name]), [['app', CLIENT]])
     const back = new URL(ok.body.redirect)
     const code = back.searchParams.get('code')!
     assert.ok(code)

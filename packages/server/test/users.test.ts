@@ -346,6 +346,38 @@ test('one\'s own account: sessions (the current one marked), closing the others,
   }
 })
 
+test('a new password signs out the other sessions and revokes keys and apps unless asked not to; a new key is always told to its person', async () => {
+  const s = await setup()
+  try {
+    await s.enableApi()
+    assert.equal((await s.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
+    const { username, password } = s.users.member
+    const told = async () => (await s.member('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'account_key_added')
+    // A key made on their account: they're told, even of their own (a session taken would make one unnoticed otherwise).
+    const name = m.aKeyName()
+    const key = await s.newKey({ name }, 'member')
+    assert.deepEqual((await told()).map((a: any) => [a.kind, a.name]), [['key', name]])
+    assert.equal((await s.withKey(key.token)('GET', '/api/tree')).status, 200)
+    // Keeping the rest: other sessions and the key go on.
+    const other = await login(s.app, username, password) as string
+    const kept = m.aPassword()
+    const r = await s.member('POST', '/api/auth/password', { current: password, password: kept, revokeOthers: false })
+    assert.deepEqual([r.status, r.body.sessionsEnded, r.body.keysRevoked], [200, 0, 0])
+    assert.equal((await s.app.request('/api/tree', { headers: { cookie: other } })).status, 200)
+    assert.equal((await s.withKey(key.token)('GET', '/api/tree')).status, 200)
+    assert.equal((await s.member('POST', '/api/auth/password', { current: kept, password: m.aPassword(), revokeOthers: 'no' })).status, 400)
+    // By default: all of it goes.
+    const renewed = m.aPassword()
+    const all = await s.member('POST', '/api/auth/password', { current: kept, password: renewed })
+    assert.deepEqual([all.status, all.body.sessionsEnded, all.body.keysRevoked], [200, 1, 1])
+    assert.equal((await s.app.request('/api/tree', { headers: { cookie: other } })).status, 401)
+    assert.equal((await s.withKey(key.token)('GET', '/api/tree')).status, 401)
+    assert.equal((await s.member('GET', '/api/tree')).status, 200, 'this one stays')
+  } finally {
+    await s.close()
+  }
+})
+
 test('a new password of one\'s own ends a reset link made for them: nobody gets in with it afterwards', async () => {
   const s = await setup()
   try {

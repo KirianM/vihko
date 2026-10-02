@@ -564,7 +564,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     auth, users, settings: adminSettings, limiter, ipOf, tooMany, publicUrl: deps.publicUrl ?? null,
     deviceOf: (c, username) => limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username),
     passwordAccepted: tf.passwordAccepted, confirm: tf.confirmIdentity, notices,
-    retention, managedHistory: () => deps.history?.status().mode === 'managed', log,
+    retention, managedHistory: () => deps.history?.status().mode === 'managed', log, keys,
   }
   // A one-time link (an invitation or a reset): no session yet.
   app.use('/api/invite/*', authBody)
@@ -1171,7 +1171,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   if (deps.history) historyRoutes(app, { history: deps.history, notes, auth, keyName: (id) => keys.nameOf(id), notices, confirm: tf.confirmIdentity })
 
   // Creating a key, and approving an OAuth client, confirm who is there: a session left open isn't enough.
-  keyRoutes(app, { keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity })
+  keyRoutes(app, {
+    keys, integrations, publicUrl: oauth.publicUrl, confirm: tf.confirmIdentity,
+    onKeyAdded: (userId, name) => { notices.add(userId, { code: 'account_key_added', kind: 'key', name }) },
+  })
 
   permissionRoutes(app, { engine: permissions, file: permissionsFile, index, keys, policy, holds: deps.holds })
 
@@ -1179,7 +1182,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   spaceRoutes(app, { spaces, confirm: tf.confirmIdentity })
 
   // OAuth for the MCP server: its addresses for clients, and the consent page's (session).
-  oauthRoutes(app, { oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf, confirm: tf.confirmIdentity })
+  oauthRoutes(app, {
+    oauth, integrations, ui: deps.webDir !== undefined, clientAddress: ipOf, confirm: tf.confirmIdentity,
+    onAppAuthorized: (userId, name) => { notices.add(userId, { code: 'account_key_added', kind: 'app', name }) },
+  })
 
   app.all('/api/*', (c) => fail(c, 404, 'not_found', 'does not exist'))
 
