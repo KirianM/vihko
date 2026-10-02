@@ -325,19 +325,26 @@ term, the last one also a prefix), and filters, each a word of its own:
 |---|---|
 | `tag:<tag>` | Notes with that tag or one nested under it |
 | `path:<folder or note>` | Notes in that folder and below, or that note |
-| `<key>:<value>` | Since 0.1.0-rc.5. Notes whose frontmatter has that top-level key with that value, for any key that starts with a letter or `_` (then letters, digits, `_`, `.`, `-`) and isn't `tag`, `path`, `prop` or `has`. A value that starts with `//` isn't one (an address stays a word) |
-| `prop:<key>=<value>` | Since 0.1.0-rc.5. The same, for any key at all; `prop:<key>` alone is `has:<key>` |
-| `has:<key>` | Since 0.1.0-rc.5. Notes whose frontmatter has that key, with any value or none |
+| `<key>:<value>` | Since 0.1.0-rc.5. Notes whose frontmatter has that top-level key with that value, for any key that starts with a letter or `_` (then letters, digits, `_`, `.`, `-`) and isn't a reserved name (below). A value that starts with `//` isn't one (an address stays a word) |
+| `prop:<key>=<value>` | Since 0.1.0-rc.5. The same, for any key at all, a reserved name included |
+| `prop:<key>` | Since 0.1.0-rc.5. With no value: notes whose frontmatter has that key, with any value or none |
 
+- **Reserved names**: `tag`, `path`, `is`, `has`, `in`, `prop`, `before` and `after` are vihko's own
+  filters, now or later, never a frontmatter field: a field with one of those
+  names is searched only as `prop:<key>=<value>` (or `prop:<key>`). `is:`,
+  `has:`, `in:`, `before:` and `after:` mean nothing yet: a filter with one
+  matches no note (and, with `-`, every note) until a version gives it a
+  meaning. Any other name is free for your frontmatter (`type:`, `status:`,
+  `created:`, `modified:`…).
 - `-` in front of any filter excludes instead; `"…"` quotes a value (or a
-  `prop:` or `has:` key) with spaces. Several filters all apply.
+  `prop:` key) with spaces. Several filters all apply.
 - Keys and values compare case-insensitively (full case folding, NFC), whole.
   A list matches when any of its items does. A number matches the same number
   however it's written (`5`, `5.0`). Only simple values are searched: text,
   numbers, `true`/`false`, dates (as written) and lists of them; a key whose
   value is a map isn't.
 - Templates (`template: true`) are left out unless a filter on `template`
-  that doesn't exclude asks for them (`template:true`, `has:template`).
+  that doesn't exclude asks for them (`template:true`, `prop:template`).
 - Only notes the principal reads are ever searched or counted.
 
 A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,

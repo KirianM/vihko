@@ -43,7 +43,7 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
     assert.ok(secretUid, 'the hidden note has a uid (its first write gave it one)')
     /** Every tool the key has, and how it's called. */
     const scenarios: Record<string, Call[]> = {
-      search: [WORD.secret, WORD.other, WORD.broken, WORD.onlyHidden, WORD.revealed, WORD.moving, TAG.shared, `tag:${TAG.shared}`, `tag:${TAG.hidden}`, `path:"${DIR.outside}"`, `path:"${DIR.key}"`, NAME.dup, WORD.visible, NAME.visible, `${FIELD.key}:${FIELD.value}`, `has:${FIELD.key}`, `-has:${FIELD.key}`, `prop:${FIELD.key}=${FIELD.value}`, 'template:true', `has:template`]
+      search: [WORD.secret, WORD.other, WORD.broken, WORD.onlyHidden, WORD.revealed, WORD.moving, TAG.shared, `tag:${TAG.shared}`, `tag:${TAG.hidden}`, `path:"${DIR.outside}"`, `path:"${DIR.key}"`, NAME.dup, WORD.visible, NAME.visible, `${FIELD.key}:${FIELD.value}`, `prop:${FIELD.key}`, `-prop:${FIELD.key}`, `prop:${FIELD.key}=${FIELD.value}`, 'template:true', `prop:template`, `has:${FIELD.key}`]
         .map((q) => ({ args: { query: q }, ok: true })),
       get_note: [
         { args: { path: PATH.visible }, ok: true },

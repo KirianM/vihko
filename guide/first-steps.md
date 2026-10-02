@@ -126,8 +126,8 @@ instead):
   | `tag:projects` | Notes with that tag, or one nested under it |
   | `path:recipes/` | Notes in that folder and below |
   | `type:decision` | Notes whose frontmatter has `type: decision` (any key, written as it is; in a list, any item) |
-  | `has:due` | Notes whose frontmatter has a `due` key, whatever its value |
-  | `prop:tag=urgent` | The same as `key:value`, for any key: also `tag` or `path`, which are filters of their own |
+  | `prop:due` | Notes whose frontmatter has a `due` key, whatever its value |
+  | `prop:tag=urgent` | The same as `key:value`, for any key: also a name vihko keeps for its own filters (`tag`, `path`, `is`, `has`, `in`, `prop`, `before`, `after`) |
   | `-tag:done`, `-path:archive/`, `-status:done` | Leaves those out |
   | `path:"my notes/"`, `status:"in progress"` | Quotes for values with spaces |
 

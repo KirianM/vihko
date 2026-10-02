@@ -34,7 +34,7 @@ const LOOSE = `${LOOSE_DIR}/${m.aTitle()}.md`
 const LOOSE_WORD = m.aUniqueWord()
 /**
  * A frontmatter field on notes each person has and others can't read
- * (searched by `key:value`, `has:`), and a template in each place (its name
+ * (searched by `key:value`, `prop:`), and a template in each place (its name
  * a word only it has; searched by `template:true`).
  */
 const FIELD = { key: m.aUniqueWord(), value: m.aUniqueWord() }
@@ -213,7 +213,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'PUT /api/settings', method: 'PUT', path: '/api/settings', body: { space: DIR.shared, settings: { version: 1, daily: [], attachments: null, agents: null }, ifMatch: 'x' } },
         { route: 'GET /api/tags', method: 'GET', path: '/api/tags', expect: 200 },
         ...[WORD.diary, WORD.cake, WORD.other, WORD.admin, WORD.settings, WORD.nobody, NAME.list, SURPRISE_WORD, NAME.plan, `tag:${TAG.intimate}`, `tag:${TAG.home}`, `path:"${DIR.people}"`, `path:"${DIR.admin}"`, `path:"${DIR.shared}"`, COPY,
-          `${FIELD.key}:${FIELD.value}`, `has:${FIELD.key}`, `-has:${FIELD.key}`, `prop:${FIELD.key}=${FIELD.value}`, 'template:true', 'has:template', `-${FIELD.key}:${FIELD.value} tag:${TAG.home}`]
+          `${FIELD.key}:${FIELD.value}`, `prop:${FIELD.key}`, `-prop:${FIELD.key}`, `prop:${FIELD.key}=${FIELD.value}`, 'template:true', 'prop:template', `-is:${FIELD.value}`, `-${FIELD.key}:${FIELD.value} tag:${TAG.home}`]
           .map((s) => ({ route: 'GET /api/search', method: 'GET', path: q('/api/search', { q: s }), expect: 200 })),
         { route: 'GET /api/trash', method: 'GET', path: '/api/trash' },
         { route: 'GET /api/alerts', method: 'GET', path: '/api/alerts' },
@@ -366,7 +366,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
     const marks = hiddenMarks('agent')
     const theirs = hidden.agent
     const toolCalls: [string, Record<string, unknown>][] = [
-      ...[WORD.diary, WORD.cake, WORD.other, WORD.nobody, NAME.list, SURPRISE_WORD, `tag:${TAG.intimate}`, `path:"${DIR.people}"`, `${FIELD.key}:${FIELD.value}`, `has:${FIELD.key}`, `-has:${FIELD.key}`, 'template:true'].map((query): [string, Record<string, unknown>] => ['search', { query }]),
+      ...[WORD.diary, WORD.cake, WORD.other, WORD.nobody, NAME.list, SURPRISE_WORD, `tag:${TAG.intimate}`, `path:"${DIR.people}"`, `${FIELD.key}:${FIELD.value}`, `prop:${FIELD.key}`, `-prop:${FIELD.key}`, 'template:true'].map((query): [string, Record<string, unknown>] => ['search', { query }]),
       ['get_note', { path: theirs }], ['get_note', { path: shared }], ['get_note', { uid: UID.cake }],
       ['list_folder', { folder: '' , recursive: true }], ['list_folder', { folder: DIR.people }], ['list_folder', { folder: member }],
       ['related', { path: shared }], ['related', { path: theirs }],

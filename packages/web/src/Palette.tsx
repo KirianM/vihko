@@ -6,7 +6,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import {
   Autocomplete, Button, Dialog, Header, Input, ListBox, ListBoxItem, ListBoxSection, Modal, ModalOverlay, TextField, type Key,
 } from 'react-aria-components'
-import { hasSearchFilter } from '@vihko/core/query'
+import { RESERVED_FILTERS, hasSearchFilter } from '@vihko/core/query'
 import { api, type SearchResult, type TreeNote } from './api.ts'
 import { commands, type CommandContext } from './commands.ts'
 import { errorText, useLanguageChoice, useT, type LangChoice } from './i18n.tsx'
@@ -294,6 +294,7 @@ export function Palette({ mode, folder: current, openPath, notes, templates, onT
                     <span key={key} className="palette-chip palette-filter"><code>{t(example)}</code> {t(key)}</span>
                   ))}
                 </span>
+                <span className="palette-reserved">{t('palette.reserved')} {RESERVED_FILTERS.map((n) => <code key={n}>{n}:</code>)}</span>
               </div>
             )}
             {mode === 'search' && !commandMode && (

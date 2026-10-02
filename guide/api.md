@@ -295,23 +295,25 @@ as a prefix. Filters narrow it:
 |---|---|
 | `path:spaces/Home/projects` | Notes in that folder and below, or that one note (quote a path with spaces: `path:"my notes"`) |
 | `tag:work` | Notes with that tag, or a tag nested under it (`work/meetings`) |
-| `type:decision` | Notes whose frontmatter has that key with that value, for any key other than `tag`, `path`, `prop` and `has`. In a list, any item matches; a number, however it's written (`5`, `5.0`); quote a value with spaces: `status:"in progress"` |
-| `prop:tag=urgent` | The same, for any key at all (here the frontmatter's `tag`, not the tag filter); quotes for a key or a value with spaces: `prop:"due date"=today` |
-| `has:due` | Notes whose frontmatter has that key, whatever its value (or none) |
-| `-path:…`, `-tag:…`, `-type:…`, `-prop:…`, `-has:…` | Excludes instead |
+| `type:decision` | Notes whose frontmatter has that key with that value, for any key whose name isn't reserved (`tag`, `path`, `is`, `has`, `in`, `prop`, `before` and `after`). In a list, any item matches; a number, however it's written (`5`, `5.0`); quote a value with spaces: `status:"in progress"` |
+| `prop:tag=urgent` | The same, for any key at all, a reserved name included (here the frontmatter's `tag`, not the tag filter); quotes for a key or a value with spaces: `prop:"due date"=today` |
+| `prop:due` | With no value: notes whose frontmatter has that key, whatever its value (or none) |
+| `-path:…`, `-tag:…`, `-type:…`, `-prop:…` | Excludes instead |
 
 Keys and values ignore case, and are compared whole, as written. Only simple
 frontmatter values count: text, numbers, `true`/`false`, dates and lists of
 them; nested maps don't. A word with a colon in it is a filter (`re:x` looks
 for a key `re`); times (`10:30`) and addresses (`https://…`) stay words.
 Templates (notes with `template: true`) are left out unless the query asks
-for them by their mark: `template:true`, `has:template`.
+for them by their mark: `template:true`, `prop:template`. The reserved
+names are vihko's own filters, now or later: `is:`, `has:`, `in:`, `before:`
+and `after:` mean nothing yet, and match no note.
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/search" \
   --data-urlencode "q=budget path:spaces/Home/projects -tag:done"
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/search" \
-  --data-urlencode 'q=type:decision -status:done has:owner'
+  --data-urlencode 'q=type:decision -status:done prop:owner'
 ```
 
 ```json

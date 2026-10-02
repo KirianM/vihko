@@ -402,13 +402,13 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     description: 'Full-text search over the notes you can read, best matches first. The words are looked for in each note\'s title, aliases and text; not in its path or file name (unless it is the title), its frontmatter or its comments. '
       + 'To search within a folder, add a `path:` filter to the query: `budget path:projects/2026` finds "budget" in the notes under projects/2026 (quote a folder with spaces: `path:"my notes"`; a note\'s path also works). '
       + '`tag:name` keeps the notes with that tag or one nested under it. '
-      + 'Frontmatter fields: `key:value` keeps the notes whose frontmatter has that key with that value (`type:decision`, `status:"in progress"`; key and value in any case; in a list, any item; a number however written), for any key but tag, path, prop and has; '
-      + '`prop:key=value` does the same for any key at all (`prop:tag=x` is the frontmatter\'s `tag`), and `has:key` keeps the notes that have the key, whatever its value. Only simple values count: text, numbers, true/false, dates and lists of them, not nested maps. '
-      + '`-` before a filter excludes it (`-path:archive`, `-status:done`, `-has:due`). Filters alone, without words, list every note they match. '
+      + 'Frontmatter fields: `key:value` keeps the notes whose frontmatter has that key with that value (`type:decision`, `status:"in progress"`; key and value in any case; in a list, any item; a number however written), for any key but the reserved names tag, path, is, has, in, prop, before and after; '
+      + '`prop:key=value` does the same for any key at all (`prop:tag=x` is the frontmatter\'s `tag`), and `prop:key` with no value keeps the notes that have the key, whatever its value. Only simple values count: text, numbers, true/false, dates and lists of them, not nested maps. '
+      + '`-` before a filter excludes it (`-path:archive`, `-status:done`, `-prop:due`). Filters alone, without words, list every note they match. '
       + 'Templates (notes with `template: true`) are left out unless the query asks for them: `template:true`. '
       + 'Snippets mark the hits with **. Paged: pass next_offset back as offset.',
     inputSchema: input(z.object({
-      query: z.string().min(1).describe('Words to find (the last one also as a prefix), with optional filters: path:, tag:, key:value, prop:key=value, has:key, - to exclude; e.g. "budget path:projects/2026 -tag:done type:decision".'),
+      query: z.string().min(1).describe('Words to find (the last one also as a prefix), with optional filters: path:, tag:, key:value, prop:key=value, prop:key, - to exclude; e.g. "budget path:projects/2026 -tag:done type:decision".'),
       limit: z.number().int().min(1).max(50).default(20).describe('Results per page (at most 50).'),
       offset: z.number().int().min(0).default(0).describe('Where the page starts.'),
     }), NAME_ALIASES),

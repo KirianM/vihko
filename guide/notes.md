@@ -82,14 +82,15 @@ exactly as they were.
 ### Searching by frontmatter
 
 Every other key is yours, and the search box finds notes by it: `type:decision`
-lists the notes with `type: decision` in their frontmatter, `has:due` those
+lists the notes with `type: decision` in their frontmatter, `prop:due` those
 with a `due` key, `-status:done` leaves out those with `status: done`. Only
 simple values count: text, numbers, `true`/`false`, dates and lists of them
 (a list matches when any of its items does); a nested map doesn't. Keys and
 values ignore case, a number matches however it's written (`5` and `5.0`),
 and values are compared whole, as written: vihko doesn't normalise or
-configure anything. For a key that is also a filter's name (`tag`, `path`,
-`prop`, `has`), write `prop:tag=urgent`. The whole syntax is in
+configure anything. Some names are vihko's own filters, now or later
+(`tag`, `path`, `is`, `has`, `in`, `prop`, `before` and `after`): for a key with one of those names,
+write `prop:tag=urgent`. The whole syntax is in
 [Search](first-steps.md#search-and-the-k-box).
 
 ## Templates

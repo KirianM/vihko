@@ -1,8 +1,8 @@
-// Frontmatter fields, for searching by them (`type:decision`, `has:due`;
+// Frontmatter fields, for searching by them (`type:decision`, `prop:due`;
 // query.ts in core): every top-level key whose value is simple (text, a
 // number, true/false, a date, or a list of those), as written. Nested maps,
 // and maps inside lists, are left out. A key with no value (`due:`) or an
-// empty list is kept too, with no value: `has:` finds it, nothing else does.
+// empty list is kept too, with no value: `prop:due` finds it, nothing else does.
 //
 // The same table says which notes are templates (`template: true`):
 // `templateSql`.

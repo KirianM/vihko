@@ -70,7 +70,7 @@ test('templates are left out of search, tags and Home, not out of the tree (mark
   // Its folder named is no longer asking for templates: only its mark is.
   assert.deepEqual(await found(`${word} path:"${template.slice(0, template.lastIndexOf('/'))}"`), [])
   assert.deepEqual(await found(`${word} template:true`), [template])
-  assert.deepEqual(await found(`has:template tag:${tag}`), [template])
+  assert.deepEqual(await found(`prop:template tag:${tag}`), [template])
   assert.deepEqual(await found(`tag:${tag} -template:true`), [note])
   // Tags count only the note.
   const tags = (await admin('GET', '/api/tags')).body.tags as { tag: string; count: number }[]

@@ -1,5 +1,5 @@
 // Searching by frontmatter fields (`type:decision`, `prop:key=value`,
-// `has:key`): what the index keeps of each kind of value, how a query
+// `prop:key`): what the index keeps of each kind of value, how a query
 // matches it, and that only notes the principal reads ever count.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -26,7 +26,7 @@ test('fields: simple values as written, each item of a list; maps left out; a ke
   ])
 })
 
-test('search by frontmatter fields: key and value in any case, any item of a list, numbers however written, has:, -, quotes, with text and tags', async () => {
+test('search by frontmatter fields: key and value in any case, any item of a list, numbers however written, prop:, -, quotes, reserved names, with text and tags', async () => {
   const h = await setup()
   try {
     const home = h.home('member')
@@ -49,11 +49,17 @@ test('search by frontmatter fields: key and value in any case, any item of a lis
     assert.deepEqual(await q('done:FALSE'), [one])
     assert.deepEqual(await q('due:2026-10-01'), [one])
     assert.deepEqual(await q(`people:${other}`), [one], 'any item of a list')
-    assert.deepEqual(await q(`has:empty`), [one], 'a key with no value is there')
-    assert.deepEqual(await q(`has:meta`), [], 'a map is no field')
-    assert.deepEqual(await q(`has:${key}`), [], 'nor are the keys inside it')
-    assert.deepEqual(await q(`has:type -type:${idea}`), [one])
-    assert.deepEqual(await q(`-has:type`), [three])
+    assert.deepEqual(await q(`prop:empty`), [one], 'a key with no value is there')
+    assert.deepEqual(await q(`prop:meta`), [], 'a map is no field')
+    assert.deepEqual(await q(`prop:${key}`), [], 'nor are the keys inside it')
+    assert.deepEqual(await q(`prop:type -type:${idea}`), [one])
+    assert.deepEqual(await q(`-prop:type`), [three])
+    // The reserved names: a field named so only through prop:; one with no meaning yet matches nothing.
+    h.write(three, `---\nin: ${idea}\n---\n# ${m.aHeading()}\n`)
+    assert.deepEqual(await q(`prop:in=${idea}`), [three])
+    assert.deepEqual(await q(`in:${idea}`), [])
+    assert.deepEqual(await q(`${word} has:type`), [])
+    assert.deepEqual(await q(`${word} -is:${idea}`), sorted(one, two))
     assert.deepEqual(await q(`${word} type:${decision}`), [one], 'with text')
     assert.deepEqual(await q(`${word} type:${m.aWord()}`), [])
     assert.deepEqual(await q(`tag:${tag} rating:5`), [two], 'with a tag')
@@ -79,10 +85,10 @@ test('search by frontmatter fields counts only what the principal reads: another
     h.write(theirs, `---\n${key}: ${value}\n${theirsOnly}: ${value}\ntemplate: true\n---\n# ${m.aHeading()}\n`)
     const q = async (s: string) => ((await h.member('GET', `/api/search?q=${encodeURIComponent(s)}`)).body.results as { path: string }[]).map((r) => r.path).sort()
     assert.deepEqual(await q(`${key}:${value}`), [hidden, mine].sort())
-    assert.deepEqual(await q(`has:${theirsOnly}`), [])
+    assert.deepEqual(await q(`prop:${theirsOnly}`), [])
     assert.deepEqual(await q(`prop:${theirsOnly}=${value}`), [])
     assert.deepEqual(await q('template:true'), [], 'nobody else\'s templates either')
-    assert.deepEqual(await q(`-has:${theirsOnly}`), [hidden, mine].sort())
+    assert.deepEqual(await q(`-prop:${theirsOnly}`), [hidden, mine].sort())
     assert.deepEqual((await h.other('GET', `/api/search?q=${encodeURIComponent(`${key}:${value}`)}`)).body.results.map((r: { path: string }) => r.path), [], 'their template stays out of their search')
     // An agent of the member's: not what is hidden from agents.
     const key2 = await h.newKey('member', { name: m.aKeyName(), canWrite: false })
@@ -90,7 +96,7 @@ test('search by frontmatter fields counts only what the principal reads: another
     assert.deepEqual(agent.body.results.map((r: { path: string }) => r.path), [mine])
     const c = await h.mcp(key2.token)
     try {
-      const r = await c.call('search', { query: `has:${key}` })
+      const r = await c.call('search', { query: `prop:${key}` })
       assert.deepEqual(r.data.results.map((x: { path: string }) => x.path), [mine])
     } finally { await c.close() }
   } finally {

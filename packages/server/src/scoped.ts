@@ -709,14 +709,14 @@ export class ScopedNotes {
   }
 
   /**
-   * Full text plus the filters (`tag:`, `path:`, frontmatter fields, `has:`),
+   * Full text plus the filters (`tag:`, `path:`, frontmatter fields, `prop:`),
    * over what the principal can read. Templates are left out (skeletons,
    * `{{title}}` and all) unless the query asks for them by their mark
-   * (`template:true`, `has:template`).
+   * (`template:true`, `prop:template`).
    */
   search(q: string): SearchResult[] {
     const w = this.access.notesWhere('n')
-    const asked = parseSearchQuery(q).filters.some((f) => (f.kind === 'field' || f.kind === 'has') && !f.negate && f.key === TEMPLATE_KEY)
+    const asked = parseSearchQuery(q).filters.some((f) => (f.kind === 'field' || f.kind === 'exists') && !f.negate && f.key === TEMPLATE_KEY)
     return search(this.deps.index, q, asked ? w : { sql: `${w.sql} and not ${templateSql('n')}`, params: w.params })
   }
 

@@ -50,7 +50,7 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
         .map(([p, e]) => ({ method: 'GET', path: q('/api/note/links', { path: p as string }), ...expect(e as number | DenyReason) })),
       'GET /api/note/headings': [{ method: 'GET', path: q('/api/note/headings', { path: PATH.visible }), expect: 200 }, { method: 'GET', path: q('/api/note/headings', { path: PATH.secret }), ...expect(AI) }],
       'GET /api/note/comments': [{ method: 'GET', path: q('/api/note/comments', { path: PATH.visible }), expect: 200 }, { method: 'GET', path: q('/api/note/comments', { path: PATH.broken }), ...expect(AI) }],
-      'GET /api/search': [WORD.secret, WORD.other, WORD.broken, WORD.onlyHidden, WORD.revealed, WORD.moving, TAG.shared, `tag:${TAG.shared}`, `tag:${TAG.hidden}`, `path:"${DIR.outside}"`, `path:"${DIR.key}"`, NAME.dup, WORD.visible, NAME.visible, `${FIELD.key}:${FIELD.value}`, `has:${FIELD.key}`, `-has:${FIELD.key}`, `prop:${FIELD.key}=${FIELD.value}`, 'template:true', `has:template`]
+      'GET /api/search': [WORD.secret, WORD.other, WORD.broken, WORD.onlyHidden, WORD.revealed, WORD.moving, TAG.shared, `tag:${TAG.shared}`, `tag:${TAG.hidden}`, `path:"${DIR.outside}"`, `path:"${DIR.key}"`, NAME.dup, WORD.visible, NAME.visible, `${FIELD.key}:${FIELD.value}`, `prop:${FIELD.key}`, `-prop:${FIELD.key}`, `prop:${FIELD.key}=${FIELD.value}`, 'template:true', `prop:template`, `has:${FIELD.key}`]
         .map((s) => ({ method: 'GET', path: q('/api/search', { q: s }), expect: 200 })),
       'GET /api/tree': [{ method: 'GET', path: '/api/tree', expect: 200 }],
       'GET /api/tags': [{ method: 'GET', path: '/api/tags', expect: 200 }],

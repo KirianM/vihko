@@ -19,12 +19,16 @@ field.
 
 - **Search by frontmatter fields**, in the search box, `GET /api/search` and
   the MCP `search` tool: `type:decision` keeps the notes whose frontmatter has
-  `type: decision` (any key that isn't a filter of its own; in a list, any
-  item; a number however it's written), `prop:key=value` does the same for
-  any key at all, `has:key` keeps the notes that have the key, and `-` in
-  front excludes. Keys and values ignore case; quotes for spaces. Only
-  simple values count (text, numbers, true/false, dates and lists of them),
-  never those of notes you can't read.
+  `type: decision` (any key whose name isn't reserved; in a list, any item;
+  a number however it's written), `prop:key=value` does the same for any key
+  at all, `prop:key` keeps the notes that have the key, and `-` in front
+  excludes. Keys and values ignore case; quotes for spaces. Only simple
+  values count (text, numbers, true/false, dates and lists of them), never
+  those of notes you can't read.
+- Reserved filter names: `tag:`, `path:`, `is:`, `has:`, `in:`, `prop:`,
+  `before:` and `after:` are vihko's own, now or later, and never a
+  frontmatter field (reach one with `prop:`). `is:`, `has:`, `in:`,
+  `before:` and `after:` mean nothing yet and match no note.
 - **Templates are notes marked `template: true`**, wherever they are. A
   note's menu in the tree has «Make a template» and «Stop being a template»;
   a folder's menu, «Mark notes as templates…», which says how many notes it
@@ -42,8 +46,8 @@ field.
   templates folder with `path:` no longer brings its notes into search.
 - `GET /api/workspace` no longer has `templates`, and the note settings
   (`GET/PUT /api/settings`) no longer have `templates`.
-- A query word with a colon in it (`re:budget`) is now a frontmatter filter;
-  times (`10:30`) and addresses (`https://…`) stay words.
+- A query word with a colon in it (`re:budget`) is now a frontmatter filter,
+  or a reserved one; times (`10:30`) and addresses (`https://…`) stay words.
 - The admin setting for saving copies of images from private addresses says
   what it guards, in plain words, and the notes guide explains it.
 
