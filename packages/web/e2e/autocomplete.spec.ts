@@ -165,6 +165,17 @@ test('[[note# suggests its headings; [[note| its title and aliases', async () =>
   await expect.poll(() => disk()).toContain(`[[${DEST}|${ALIAS}]]`)
 })
 
+test('[[/ suggests notes by their path from the root of the space, and their headings from there', async () => {
+  await typeAtEnd(k, ` [[/${fold(NAME)}/${fold(DEST)}`)
+  await accept(k, starts(DEST))
+  await expect.poll(() => disk()).toContain(`[[${DEST}]]`)
+  await k.keyboard.type(` [[/${NAME}/${DEST}#`)
+  await expect(option(k, H1)).toBeVisible()
+  await expect(option(k, H2)).toBeVisible()
+  await option(k, H1).click()
+  await expect.poll(() => disk()).toContain(`[[/${NAME}/${DEST}#${H1}]]`)
+})
+
 test('an alias finds the note and becomes the visible text', async () => {
   await typeAtEnd(k, ` [[${fold(ALIAS)}`)
   await accept(k, starts(ALIAS), 'Tab')
