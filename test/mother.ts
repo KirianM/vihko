@@ -34,6 +34,8 @@ export const SEED = testSeed()
 
 /** vihko's rules the values follow; mother.test.ts checks they are still the server's and core's. */
 export const NAME_PATTERN = /^[\p{L}\p{N}._-]{2,64}$/u
+/** Group names vihko keeps for grants to everyone (server users.ts `RESERVED_GROUPS`): never a group's. */
+const RESERVED_GROUPS = ['everyone', 'all', 'public', 'anyone']
 export const MIN_PASSWORD = 10
 /** How vihko compares user and group names (core's subjectKey). */
 export const subjectKey = (s: string) => s.normalize('NFC').toLowerCase()
@@ -232,7 +234,7 @@ export function mother(scope: string | URL, opts: MotherOptions = {}) {
       return draw('group name', () => {
         const name = pick([() => pick(TEXT_WORDS), () => `${pick(TEXT_WORDS)}-${pick(TEXT_WORDS)}`, () => `${pick(TEXT_WORDS)}${int(2, 99)}`])()
         return (chance(0.3) ? capital(name) : name) + suffix
-      }, (n) => NAME_PATTERN.test(n) && fresh(taken.names, caseFold(subjectKey(n))))
+      }, (n) => NAME_PATTERN.test(n) && !RESERVED_GROUPS.includes(caseFold(n)) && fresh(taken.names, caseFold(subjectKey(n))))
     },
 
     /** A person's full name, as shown (not a username), unique in this process. */
