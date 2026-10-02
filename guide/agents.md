@@ -488,8 +488,11 @@ tokens only work on `/mcp`: the HTTP API takes keys, never OAuth tokens.
    works without registration.
 3. Connect. claude.ai sends you to vihko's authorization page.
 4. Sign in to vihko, if you aren't already.
-5. Check the page: which app asks (Claude, from `claude.ai`), and the address
-   it goes back to (`https://claude.ai/api/mcp/auth_callback`).
+5. Check the page: which app asks (Claude), its domain, in large type
+   (`claude.ai`), and the address it goes back to
+   (`https://claude.ai/api/mcp/auth_callback`). If the name an app gives
+   doesn't fit its domain (an app calling itself Claude from another domain),
+   the page warns you.
 6. Choose what it may do: tick **Can write** or leave it read-only, and give it
    every folder you see or only some. The default is read-only and every
    folder.
@@ -528,8 +531,8 @@ ways, and neither gives access to any note: only a person approving it does.
 
 **Registration.** The app registers itself (OAuth dynamic client registration,
 at `/oauth/register`) with its name and the addresses it goes back to. This is
-what `mcp-remote` does. Anyone can register, so the approval page marks the name
-as not checked and shows the address the app goes back to. Registration is
+what `mcp-remote` does. Anyone can register, so the approval page says the
+name is the app's own and shows, as its domain, where it goes back to. Registration is
 limited to 5 apps an hour from each address (then `429` with `Retry-After`;
 behind a proxy, set `VIHKO_TRUSTED_PROXIES` so each client counts apart). An
 app registered but never approved is forgotten after a day. It's off until the
@@ -555,6 +558,23 @@ vihko ever makes to an address someone else chose, and it's fenced in:
 
 The approval page then shows the app's domain: that is who publishes it. This
 way in isn't affected by the registration switch.
+
+**Only some domains.** By default any app can ask, and the approval page shows
+its domain prominently and warns when its name doesn't fit it. To accept apps
+from some domains only, list them in `vihko.yaml`:
+
+```yaml
+mcp:
+  client_domains: [claude.ai]
+```
+
+A domain covers its subdomains. An app named by a metadata document must be
+served from one of them (vihko doesn't even fetch it otherwise), and one that
+registers itself must go back only to addresses on them (for `mcp-remote`,
+which goes back to this computer, add `localhost` or `127.0.0.1`). Any other
+gets an error on vihko's page, naming its domain; one registered before the
+list keeps the tokens it already has (revoke it in Agents and API) but can't
+be authorized again. See [Configuration](configuration.md#mcpclient_domains).
 
 **Where an app may go back to.** An `https` address, `http` only to the same
 computer (`127.0.0.1`, `[::1]` or `localhost`, on any port), or an app's own

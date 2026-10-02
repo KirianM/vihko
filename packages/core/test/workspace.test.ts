@@ -86,10 +86,10 @@ test('vihko.yaml: history is managed with a 20 MB limit unless it says otherwise
 })
 
 test('vihko.yaml: mcp.instructions names a note of the workspace, none by default', () => {
-  assert.deepEqual(EMPTY_WORKSPACE.mcp, { instructions: null })
+  assert.deepEqual(EMPTY_WORKSPACE.mcp, { instructions: null, clientDomains: [] })
   const r = parseWorkspaceConfig('mcp:\n  instructions: Agentes/Instrucciones\n')
   assert.ok(r.ok)
-  assert.deepEqual(r.config.mcp, { instructions: 'Agentes/Instrucciones.md' })
+  assert.deepEqual(r.config.mcp, { instructions: 'Agentes/Instrucciones.md', clientDomains: [] })
   const md = parseWorkspaceConfig('mcp:\n  instructions: Guía.md\n')
   assert.ok(md.ok && md.config.mcp.instructions === 'Guía.md')
   assert.deepEqual(errors('mcp:\n  instructions: ../fuera\n'), [['invalid_path', 'mcp.instructions', 2]])
@@ -267,4 +267,16 @@ test('vihko.yaml: attachments modes', () => {
   for (const bad of ['a/b', '.md', '', ' x']) {
     assert.deepEqual(errors(`attachments:\n  mode: per-note\n  suffix: "${bad}"\n`), [['invalid_path', 'attachments.suffix', 3]], bad)
   }
+})
+
+test('vihko.yaml: mcp.client_domains lists the domains OAuth apps may come from; none (any) by default', () => {
+  const [a, b] = [m.aHost(), m.aHost()]
+  const r = parseWorkspaceConfig(`mcp:\n  client_domains: [${a.toUpperCase()}, "*.${b}", ${a}]\n`)
+  assert.ok(r.ok)
+  assert.deepEqual(r.config.mcp.clientDomains, [a, b], 'lower case, a leading *. dropped, each once')
+  const one = parseWorkspaceConfig(`mcp:\n  client_domains: ${a}\n`)
+  assert.ok(one.ok && one.config.mcp.clientDomains.join() === a)
+  // Literals: the wrong values are the case under test.
+  assert.deepEqual(errors('mcp:\n  client_domains: ["https://claude.ai/x"]\n'), [['invalid_value', 'mcp.client_domains', 2]])
+  assert.deepEqual(errors('mcp:\n  client_domains: { a: 1 }\n'), [['invalid_type', 'mcp.client_domains', 2]])
 })

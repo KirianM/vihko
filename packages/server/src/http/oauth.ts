@@ -20,7 +20,7 @@ import { bodyLimit } from 'hono/body-limit'
 import type { User } from '../auth.ts'
 import type { Access } from '../access.ts'
 import type { Integrations } from '../integrations.ts'
-import { OAuthRequestError, type AuthorizeCheck, type OAuthServer } from '../oauth.ts'
+import { OAuthRequestError, nameFitsDomain, type AuthorizeCheck, type OAuthServer } from '../oauth.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -137,6 +137,8 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
       error: 'description' in check ? 'invalid' : check.error, message: 'not a valid authorization request',
       // A metadata document that can't be used: why, and whose (the page names the host).
       ...(check.error === 'invalid_client_metadata' && 'reason' in check ? { reason: check.reason, host: check.host } : {}),
+      // An app from a domain vihko.yaml doesn't allow: which one.
+      ...(check.error === 'client_not_allowed' ? { host: check.host } : {}),
     }, 400)
 
   // Whoever asks here is signed in: a client named by a URL is fetched now (cimd.ts).
@@ -145,7 +147,11 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
     const check = await oauth.checkAuthorize((name) => c.req.query(name))
     if (!check.ok) return refused(c, check)
     const { client, redirectUri } = check.req
-    return c.json({ client: { id: client.id, name: client.name, redirectUri, host: client.host }, canAuthorize: mayAuthorize(c) })
+    // Where it comes from: its metadata document's host, or, for one that registered itself, where the code goes.
+    // While vihko.yaml lists no domains, the page warns when its name doesn't fit that.
+    const domain = client.host ?? new URL(redirectUri).hostname
+    const nameMatchesDomain = oauth.domainsListed() || nameFitsDomain(client.name, domain)
+    return c.json({ client: { id: client.id, name: client.name, redirectUri, host: client.host, domain, nameMatchesDomain }, canAuthorize: mayAuthorize(c) })
   })
 
   app.post('/api/oauth/authorize', async (c) => {

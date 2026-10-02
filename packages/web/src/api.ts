@@ -301,7 +301,13 @@ export interface KeyWithUser extends KeyInfo { user: { id: string; username: str
 export interface KeyInput { name?: string; canWrite?: boolean; folders?: string[]; expiresAt?: string | null }
 /** An OAuth client asking for access (the consent page): its name, where it goes back to, and whether this person may authorize it. */
 /** An authorization request: who asks (`host`: the domain that described it, for a client named by its metadata document; null if it registered itself) and whether this person may authorize. */
-export interface OAuthRequest { client: { id: string; name: string; redirectUri: string; host: string | null }; canAuthorize: boolean }
+/**
+ * An authorization request as the consent page shows it. `domain`: where the
+ * app comes from (its metadata document's host, or, for one that registered
+ * itself, where it goes back to); `nameMatchesDomain`: false when its declared
+ * name doesn't fit that domain (and vihko.yaml lists no domains).
+ */
+export interface OAuthRequest { client: { id: string; name: string; redirectUri: string; host: string | null; domain: string; nameMatchesDomain: boolean }; canAuthorize: boolean }
 
 /** A user as the vihko admin sees them (M4). `invited`: never chose a password. */
 export interface UserInfo {

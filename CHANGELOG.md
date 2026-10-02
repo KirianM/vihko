@@ -24,6 +24,14 @@ its entries are kept at the end of this file.
   note to create. `GET /api/file?note=…&name=…` gets a file as a note names
   it; links to files carry `file: true` (`GET /api/note/links`, and the MCP
   `get_note` and `related`).
+- **OAuth apps from chosen domains only**, if you want:
+  `mcp.client_domains` in `vihko.yaml` lists the domains remote MCP apps may
+  come from (each with its subdomains). An app from elsewhere can't register
+  or be authorized, and the page names its domain. Empty or left out, any
+  app may ask, as before.
+- The authorization page shows the app's domain in large type, for one that
+  registered itself too (where it goes back to), and warns when the name an
+  app gives doesn't fit its domain.
 
 ### Changed
 

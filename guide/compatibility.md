@@ -499,6 +499,7 @@ Every key vihko reads. [Configuration](configuration.md) explains each one.
 | `history.maxFileSize` | number of MB | The largest file that enters the history |
 | `history.exclude` | pattern, or list of patterns | Paths kept out of the history |
 | `mcp.instructions` | note | A note served to agents as instructions; may hold `{user}` |
+| `mcp.client_domains` | list of domains (or one) | Since 0.1.0-rc.6: the domains OAuth apps may come from, with their subdomains (a metadata document's host, or every redirect URI of an app that registers itself). Empty: any. An app from elsewhere can't register (`invalid_redirect_uri`) or be authorized (`client_not_allowed`, with `host`, on `GET/POST /api/oauth/authorize`) |
 | `permissions.<folder>.name` | text | A shared space's name, only at its root |
 | `permissions.<folder>.grants` | map of subject to level | Who gets what in that folder and below |
 | `permissions.<folder>.ai` | `false` | Closes the folder and everything below it to agents |

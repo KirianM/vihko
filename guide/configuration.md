@@ -319,8 +319,24 @@ mcp:
 ```
 
 Someone without that note gets vihko's instructions alone. A shared space and
-a person can add a guide of their own after this one (`agents` in their
-[settings](#settings-of-a-person-or-a-space)).
+a person can add a guide of their own after this one (`guide` in a shared
+space's [settings](#settings-of-a-person-or-a-space), `agents` in a person's).
+
+### `mcp.client_domains`
+
+```yaml
+mcp:
+  client_domains: [claude.ai, example.com]
+```
+
+The domains OAuth apps (remote MCP clients such as claude.ai) may come from,
+each with its subdomains: the host of the document an app names itself by, or
+every address an app that registers itself goes back to. Empty or left out
+(the default), any app may ask, and the authorization page shows its domain
+prominently and warns when the name it gives doesn't fit that domain. A name
+that isn't a domain or an IP address is an `invalid_value`, and the list is
+left as it was. Only matters with `VIHKO_PUBLIC_URL` and the MCP server on. See
+[Agents](agents.md#how-apps-introduce-themselves).
 
 ### `permissions`
 

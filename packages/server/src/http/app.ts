@@ -331,7 +331,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const notices = deps.notices ?? new Notices(auth.state, { now })
   const retention = deps.retention ?? new Retention({ stateDir: notes.stateDir, settings: adminSettings, trash: () => notes.trash(), history: deps.history, notices, now: () => now().getTime() })
-  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
+  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata, clientDomains: () => workspace.config.mcp.clientDomains })
   // Keys' folders, pins and the trash follow a folder moved from vihko (folderRefs.ts).
   const refs = new FolderRefs({ state: auth.state, stateDir: notes.stateDir })
   const scopedDeps: ScopedDeps = {
