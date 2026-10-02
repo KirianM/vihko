@@ -1,7 +1,51 @@
 // Templates: a plain `.md` note whose text is copied into a new note, with a
 // fixed set of variables filled in. Never any code: a template can't run
 // anything, loop or read other notes.
+//
+// A note is a template when its frontmatter says `template: true`, wherever
+// it is: no folder makes one. The new note gets the template's frontmatter
+// (`type: decision`, its tags…) without that mark, so it isn't a template
+// in turn.
 import { formatDate, type CivilDateTime } from './dates.ts'
+import { FrontmatterError, readFrontmatter, removeFrontmatterKey, setFrontmatterKey } from './frontmatter.ts'
+
+/** The frontmatter key that marks a note as a template (`template: true`). */
+export const TEMPLATE_KEY = 'template'
+
+/** Whether a note's frontmatter data marks it as a template: `template: true`, a YAML true, nothing else. */
+export const isTemplate = (data: Record<string, unknown>) => data[TEMPLATE_KEY] === true
+
+/**
+ * `text` marked as a template (`on`: `template: true`, the block created if
+ * there's none) or without the mark (the key goes), every other byte as it
+ * is. Already so: `text` itself. null if its frontmatter can't be read (a
+ * note like that is never written).
+ */
+export function templateMarked(text: string, on: boolean): string | null {
+  const fm = readFrontmatter(text)
+  if (fm.error) return null
+  if (on === isTemplate(fm.data) && (on || !(TEMPLATE_KEY in fm.data))) return text
+  try {
+    return on ? setFrontmatterKey(text, TEMPLATE_KEY, true) : removeFrontmatterKey(text, TEMPLATE_KEY)
+  } catch (err) {
+    if (err instanceof FrontmatterError) return null
+    throw err
+  }
+}
+
+/**
+ * A template's text without its mark (TEMPLATE_KEY), every other byte as it
+ * is: its other keys in their order, comments, quoting. A frontmatter that
+ * can't be read is left as it is (such a note isn't a template anyway).
+ */
+export function withoutTemplateMark(text: string): string {
+  try {
+    return removeFrontmatterKey(text, TEMPLATE_KEY)
+  } catch (err) {
+    if (err instanceof FrontmatterError) return text
+    throw err
+  }
+}
 
 export interface TemplateVars {
   /** Now, in the timezone of the person creating the note. */

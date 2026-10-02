@@ -76,12 +76,14 @@ test('search by frontmatter fields counts only what the principal reads: another
     const theirs = `${h.home('other')}/${m.aTitle()}.md`
     h.write(mine, `---\n${key}: ${value}\n---\n# ${m.aHeading()}\n`)
     h.write(hidden, `---\n${key}: ${value}\nai: false\n---\n# ${m.aHeading()}\n`)
-    h.write(theirs, `---\n${key}: ${value}\n${theirsOnly}: ${value}\n---\n# ${m.aHeading()}\n`)
+    h.write(theirs, `---\n${key}: ${value}\n${theirsOnly}: ${value}\ntemplate: true\n---\n# ${m.aHeading()}\n`)
     const q = async (s: string) => ((await h.member('GET', `/api/search?q=${encodeURIComponent(s)}`)).body.results as { path: string }[]).map((r) => r.path).sort()
     assert.deepEqual(await q(`${key}:${value}`), [hidden, mine].sort())
     assert.deepEqual(await q(`has:${theirsOnly}`), [])
     assert.deepEqual(await q(`prop:${theirsOnly}=${value}`), [])
+    assert.deepEqual(await q('template:true'), [], 'nobody else\'s templates either')
     assert.deepEqual(await q(`-has:${theirsOnly}`), [hidden, mine].sort())
+    assert.deepEqual((await h.other('GET', `/api/search?q=${encodeURIComponent(`${key}:${value}`)}`)).body.results.map((r: { path: string }) => r.path), [], 'their template stays out of their search')
     // An agent of the member's: not what is hidden from agents.
     const key2 = await h.newKey('member', { name: m.aKeyName(), canWrite: false })
     const agent = await h.withKey(key2.token)('GET', `/api/search?q=${encodeURIComponent(`${key}:${value}`)}`)

@@ -12,6 +12,7 @@ import type { Db } from './db.ts'
 import { followable, isPlainFile } from './fsutil.ts'
 import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
 import { builtinExtensions, type LinksExtension } from './extensions/index.ts'
+import { templateSql } from './extensions/fields.ts'
 import { matchMoves, type DetectedMove, type MoveCandidate } from './moves.ts'
 
 export interface IndexerOptions {
@@ -122,7 +123,7 @@ export class Indexer {
 
   /**
    * Hears the paths whose change shows in a tree: a note added, removed,
-   * moved (both paths) or whose title changed, and a folder made, moved or
+   * moved (both paths) or whose title or template mark changed, and a folder made, moved or
    * removed. Never anything else of them. Returns how to stop.
    */
   onTreeChange(listener: (paths: string[]) => void): () => void {
@@ -138,13 +139,19 @@ export class Indexer {
     }
   }
 
-  /** The titles of these notes as indexed now, to tell which a batch retitles. */
+  /**
+   * What the tree shows of these notes as indexed now (the title, and whether
+   * it is a template), to tell which a batch changes there.
+   */
   private titlesOf(paths: readonly string[]): Map<string, string> {
-    const get = this.db.prepare('select title from notes where path = ?')
-    return new Map(paths.map((p) => [p, (get.get(p) as { title: string } | undefined)?.title ?? '']))
+    const get = this.db.prepare(`select title, ${templateSql('n')} as template from notes n where path = ?`)
+    return new Map(paths.map((p) => {
+      const r = get.get(p) as { title: string; template: number } | undefined
+      return [p, r ? `${r.template ? 't' : 'n'}${r.title}` : '']
+    }))
   }
 
-  /** The notes of a report whose tree changes: added, removed, moved, and changed with another title than `before`. */
+  /** The notes of a report whose tree changes: added, removed, moved, and changed with another title (or template mark) than `before`. */
   private treePaths(report: ScanReport, before: Map<string, string>): string[] {
     const now = this.titlesOf(report.changed)
     return [

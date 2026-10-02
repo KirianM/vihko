@@ -32,8 +32,24 @@ const SURPRISE_WORD = m.aUniqueWord()
 const LOOSE_DIR = `${home(OTHER.username)}/${m.aFolder()}`
 const LOOSE = `${LOOSE_DIR}/${m.aTitle()}.md`
 const LOOSE_WORD = m.aUniqueWord()
+/**
+ * A frontmatter field on notes each person has and others can't read
+ * (searched by `key:value`, `has:`), and a template in each place (its name
+ * a word only it has; searched by `template:true`).
+ */
+const FIELD = { key: m.aUniqueWord(), value: m.aUniqueWord() }
+const withField = (text: string) => (text.startsWith('---\n') ? text.replace('---\n', `---\n${FIELD.key}: ${FIELD.value}\n`) : `---\n${FIELD.key}: ${FIELD.value}\n---\n${text}`)
+const TEMPLATE = { member: m.aUniqueWord(), other: m.aUniqueWord(), admin: m.aUniqueWord(), space: m.aUniqueWord() }
+const TEMPLATE_PATH = {
+  member: `${home(MEMBER.username)}/${TEMPLATE.member}.md`,
+  other: `${home(OTHER.username)}/${TEMPLATE.other}.md`,
+  admin: `${home(ADMIN.username)}/${TEMPLATE.admin}.md`,
+  space: `${DIR.admin}/${TEMPLATE.space}.md`,
+}
 const FILES = {
   ...BASE,
+  ...Object.fromEntries([PATH.diary, PATH.cake, PATH.otherNotes, PATH.adminPlan, PATH.nobodyNote, PATH.settings].map((p) => [p, withField(BASE[p] as string)])),
+  ...Object.fromEntries(Object.values(TEMPLATE_PATH).map((p) => [p, `---\ntemplate: true\n${FIELD.key}: ${FIELD.value}\n---\n# {{title}}\n`])),
   [LOGO_PATH]: PNG,
   [CONFLICT]: `# ${m.aHeading()}\n\n${m.aSentence()} ${COPY}.\n`,
   [SURPRISE]: `# ${m.aHeading()}\n\n${m.aSentence()} ${SURPRISE_WORD}.\n`,
@@ -62,6 +78,7 @@ const MARKS: Record<string, string[]> = {
   [LOGO_PATH]: [`${LOGO}.png`],
   [PATH.rootPlan]: [WORD.root],
   [SURPRISE]: [`${SURPRISE_DIR}/`, SURPRISE_WORD],
+  ...Object.fromEntries((Object.keys(TEMPLATE_PATH) as (keyof typeof TEMPLATE_PATH)[]).map((k) => [TEMPLATE_PATH[k], [TEMPLATE[k]]])),
 }
 
 /**
@@ -193,9 +210,10 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         // Note settings: one's own; a space's, what they don't read as missing.
         { route: 'GET /api/settings', method: 'GET', path: '/api/settings', expect: who === 'agent' ? 404 : 200 },
         { route: 'GET /api/settings', method: 'GET', path: q('/api/settings', { space: DIR.shared }) },
-        { route: 'PUT /api/settings', method: 'PUT', path: '/api/settings', body: { space: DIR.shared, settings: { version: 1, daily: [], templates: [], attachments: null, agents: null }, ifMatch: 'x' } },
+        { route: 'PUT /api/settings', method: 'PUT', path: '/api/settings', body: { space: DIR.shared, settings: { version: 1, daily: [], attachments: null, agents: null }, ifMatch: 'x' } },
         { route: 'GET /api/tags', method: 'GET', path: '/api/tags', expect: 200 },
-        ...[WORD.diary, WORD.cake, WORD.other, WORD.admin, WORD.settings, WORD.nobody, NAME.list, SURPRISE_WORD, NAME.plan, `tag:${TAG.intimate}`, `tag:${TAG.home}`, `path:"${DIR.people}"`, `path:"${DIR.admin}"`, `path:"${DIR.shared}"`, COPY]
+        ...[WORD.diary, WORD.cake, WORD.other, WORD.admin, WORD.settings, WORD.nobody, NAME.list, SURPRISE_WORD, NAME.plan, `tag:${TAG.intimate}`, `tag:${TAG.home}`, `path:"${DIR.people}"`, `path:"${DIR.admin}"`, `path:"${DIR.shared}"`, COPY,
+          `${FIELD.key}:${FIELD.value}`, `has:${FIELD.key}`, `-has:${FIELD.key}`, `prop:${FIELD.key}=${FIELD.value}`, 'template:true', 'has:template', `-${FIELD.key}:${FIELD.value} tag:${TAG.home}`]
           .map((s) => ({ route: 'GET /api/search', method: 'GET', path: q('/api/search', { q: s }), expect: 200 })),
         { route: 'GET /api/trash', method: 'GET', path: '/api/trash' },
         { route: 'GET /api/alerts', method: 'GET', path: '/api/alerts' },
@@ -232,6 +250,11 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'DELETE /api/folder', method: 'DELETE', path: q('/api/folder', { path: folder }) },
         { route: 'POST /api/folder/move', method: 'POST', path: '/api/folder/move', body: { from: folder, to: `${DIR.shared}/${m.aFolder()}`, dryRun: true } },
         { route: 'POST /api/folder/move', method: 'POST', path: '/api/folder/move', body: { from: DIR.shared, to: m.aFolder(), dryRun: true } },
+        // Templates: marking what they can't see is as marking what doesn't exist; counts only ever of what they write.
+        ...[folder, DIR.people, DIR.shared].map((f) => ({ route: 'POST /api/folder/templates', method: 'POST', path: '/api/folder/templates', body: { path: f, dryRun: true } })),
+        { route: 'POST /api/folder/templates', method: 'POST', path: '/api/folder/templates', body: { path: folder }, expect: 404 },
+        { route: 'POST /api/note/template', method: 'POST', path: '/api/note/template', body: { path: theirs, template: true }, expect: 404 },
+        { route: 'POST /api/note/template', method: 'POST', path: '/api/note/template', body: { path: theirs, template: false }, expect: 404 },
 
         ...[mine, shared, theirs].map((p) => ({ route: 'GET /api/history/versions', method: 'GET', path: q('/api/history/versions', { path: p }) })),
         ...[mine, theirs].map((p) => ({ route: 'GET /api/history/version', method: 'GET', path: q('/api/history/version', { path: p, id: version }) })),
@@ -343,7 +366,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
     const marks = hiddenMarks('agent')
     const theirs = hidden.agent
     const toolCalls: [string, Record<string, unknown>][] = [
-      ...[WORD.diary, WORD.cake, WORD.other, WORD.nobody, NAME.list, SURPRISE_WORD, `tag:${TAG.intimate}`, `path:"${DIR.people}"`].map((query): [string, Record<string, unknown>] => ['search', { query }]),
+      ...[WORD.diary, WORD.cake, WORD.other, WORD.nobody, NAME.list, SURPRISE_WORD, `tag:${TAG.intimate}`, `path:"${DIR.people}"`, `${FIELD.key}:${FIELD.value}`, `has:${FIELD.key}`, `-has:${FIELD.key}`, 'template:true'].map((query): [string, Record<string, unknown>] => ['search', { query }]),
       ['get_note', { path: theirs }], ['get_note', { path: shared }], ['get_note', { uid: UID.cake }],
       ['list_folder', { folder: '' , recursive: true }], ['list_folder', { folder: DIR.people }], ['list_folder', { folder: member }],
       ['related', { path: shared }], ['related', { path: theirs }],
@@ -407,6 +430,9 @@ test('with read or comment in a folder, nothing is written there through any rou
       { route: 'POST /api/folder', method: 'POST', path: '/api/folder', body: { path: `${folder}/${m.aFolder()}` } },
       { route: 'DELETE /api/folder', method: 'DELETE', path: h.url('/api/folder', { path: folder }) },
       { route: 'POST /api/folder/move', method: 'POST', path: '/api/folder/move', body: { from: folder, to: `${DIR.shared}/${m.aFolder()}` } },
+      { route: 'POST /api/folder/templates', method: 'POST', path: '/api/folder/templates', body: { path: folder } },
+      { route: 'POST /api/folder/templates', method: 'POST', path: '/api/folder/templates', body: { path: folder, dryRun: true } },
+      { route: 'POST /api/note/template', method: 'POST', path: '/api/note/template', body: { path: note, template: true } },
       { route: 'GET /api/history/versions', method: 'GET', path: h.url('/api/history/versions', { path: note }) },
       { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: note, id: version } },
       { route: 'POST /api/history/revert', method: 'POST', path: '/api/history/revert', body: { path: note, id: version } },

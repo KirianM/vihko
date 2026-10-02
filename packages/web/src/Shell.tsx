@@ -36,7 +36,7 @@ import { MAC, WINDOWS, keys, modKTaken } from './keys.ts'
 import { useBackClose, useMobile, useVisualViewport } from './mobile.ts'
 import { PreferencesDialog, browserTimeZone } from './Preferences.tsx'
 import { ancestors, buildTree, type FolderInfoOf, type Node, type TreeAction } from './FolderTree.tsx'
-import { DeleteFolderDialog, FolderMoveDialog, MoveToNewSpaceDialog, NewFolderDialog } from './FolderDialogs.tsx'
+import { DeleteFolderDialog, FolderMoveDialog, MarkTemplatesDialog, MoveToNewSpaceDialog, NewFolderDialog } from './FolderDialogs.tsx'
 import { RenameDialog, TrashDialog } from './editor/NoteActions.tsx'
 import { TagsView } from './TagsView.tsx'
 import type { RestoreReport } from './history/api.ts'
@@ -50,6 +50,7 @@ type TreeDialog =
   | { kind: 'moveFolder'; path: string; parent?: string }
   | { kind: 'toNewSpace'; path: string }
   | { kind: 'deleteFolder'; path: string }
+  | { kind: 'markTemplates'; path: string }
   | { kind: 'permissions'; path: string }
   | { kind: 'members'; path: string }
   | { kind: 'moveNote'; path: string; folder?: string }
@@ -174,7 +175,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [expanded, setExpanded] = useState<Set<Key>>(() => new Set(openPath ? ancestors(openPath) : []))
   useBackClose(mobile && navOpen, () => setNavOpen(false))
   useVisualViewport(mobile)
-  /** vihko.yaml as the server has it now: daily-note series and the templates folder. */
+  /** vihko.yaml as the server has it now: daily-note series. */
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [prefsOpen, setPrefsOpen] = useState(false)
@@ -346,13 +347,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     can: (folder: string) => !!locks.get(folder)?.canEdit && folder !== spaces?.personal?.path,
     open: (folder: string) => setTreeDialog({ kind: 'permissions', path: folder }),
   } : null), [locks, spaces])
-  // Template notes: those in the templates folders of vihko.yaml, subfolders included.
+  // Template notes: those marked `template: true` that the person reads, wherever they are (the tree marks them).
   const templates = useMemo(() => {
-    const dirs = workspace?.templates ?? []
-    if (!dirs.length || !notes) return []
+    if (!notes) return []
     const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
-    return notes.map((n) => n.path).filter((p) => dirs.some((dir) => p.startsWith(`${dir}/`))).sort(collator.compare)
-  }, [workspace, notes])
+    return notes.filter((n) => n.template).map((n) => n.path).sort(collator.compare)
+  }, [notes])
   // Previous and next in the header when the open note belongs to a daily-note series.
   const dailyNav = useMemo(() => {
     if (!openPath || !notes || !workspace) return null
@@ -387,7 +387,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     else if (action === 'toMine') setTreeDialog({ kind: 'moveFolder', path: node.path, parent: mine })
     else if (action === 'deleteFolder') setTreeDialog({ kind: 'deleteFolder', path: node.path })
     else if (action === 'permissions') setTreeDialog({ kind: 'permissions', path: node.path })
+    else if (action === 'markTemplates') setTreeDialog({ kind: 'markTemplates', path: node.path })
     else if (action === 'moveNote') setTreeDialog({ kind: 'moveNote', path: node.path })
+    // A template or not: only its `template: true` changes; the tree marks it.
+    else if (action === 'makeTemplate' || action === 'stopTemplate') {
+      setSpaceIssue(null)
+      api.markTemplate(node.path, action === 'makeTemplate').then(() => loadTree(), (err) => setSpaceIssue(errorText(t, err)))
+    }
     else setTreeDialog({ kind: 'trashNote', path: node.path })
   }
   /** A note is in place; the report comes now or, for a move in the background, when it ends. */
@@ -772,6 +778,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
                 if (openPath !== null && openPath.startsWith(`${path}/`)) setOpenPath(null)
                 setTrashed({ id: entries[0]!.id, path, by: null, folder: entries.map((e) => e.id) })
               }
+              void loadTree()
+            }} />
+          )}
+          {treeDialog?.kind === 'markTemplates' && (
+            <MarkTemplatesDialog path={treeDialog.path} onClose={closeTreeDialog} onDone={() => {
+              closeTreeDialog()
               void loadTree()
             }} />
           )}

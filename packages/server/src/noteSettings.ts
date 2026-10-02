@@ -8,8 +8,6 @@
 //   two that give the same path are one (the first: vihko.yaml's, then a
 //   space's, then theirs). A daily note is its path: nothing is duplicated or
 //   moved by declaring a series twice.
-// - templates folders: vihko.yaml's, their spaces' and their own, those they
-//   read.
 // - where new images go: a space's setting for the notes of that space,
 //   otherwise vihko.yaml's.
 // - the guide for agents: vihko.yaml's, then that of each shared space the
@@ -136,11 +134,6 @@ export class NoteSettingsStore {
     const fromSpaces = keep(spaces.flatMap((root) => this.read(root).resolved.daily))
     const fromOwn = keep(this.read(own).resolved.daily)
     return [...fromOwn, ...fromSpaces, ...fromInstallation]
-  }
-
-  /** Templates folders of `spaces` and the person's own space (`own`), in that order. */
-  templates(spaces: readonly string[], own: string): string[] {
-    return [...spaces.flatMap((root) => this.read(root).resolved.templates), ...this.read(own).resolved.templates]
   }
 
   /** The guides for agents of `spaces` and of the person's own space, as notes: [where it's from, the note]. */

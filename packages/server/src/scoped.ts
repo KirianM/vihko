@@ -9,7 +9,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { PEOPLE, SPACES, anchorChanged, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
+import { PEOPLE, SPACES, TEMPLATE_KEY, anchorChanged, templateMarked, trimSlashes, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -18,9 +18,10 @@ import { diskSpelling, isPlainFile } from './fsutil.ts'
 import { diskSpaceFolders } from './spaceFolders.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
-import { MAX_EDIT_OPS, planEdits, type EditOp } from './edits.ts'
+import { MAX_EDIT_OPS, planEdits, spliceOf, type EditOp } from './edits.ts'
 import { CommentError, commentSplices, type CommentOp } from './commenting.ts'
 import { HIGHLIGHT_END, HIGHLIGHT_START, search, type SearchResult } from './http/search.ts'
+import { templateSql } from './extensions/fields.ts'
 import { ExistsAs, FolderNotEmpty, MovedAway, NoteError, NoteService, type FolderContents, type FolderMoveReport, type MoveHooks, type MoveReport, type NoteRead, type TrashEntry, type TrashRestoreReport } from './notes.ts'
 import { audienceChange, ruleMove, type AudienceChange } from './audience.ts'
 import type { ExternalMoves, PendingExternalMove } from './externalMoves.ts'
@@ -40,11 +41,6 @@ export { HIGHLIGHT_END, HIGHLIGHT_START }
 
 export interface ScopedDeps {
   notes: NoteService
-  /**
-   * The templates folders for a person (vihko.yaml's `templates`, `{user}` theirs): their notes are
-   * left out of search, tags and Home (they are skeletons, `{{title}}` and all), never out of the tree or of opening them.
-   */
-  templateFolders?: (user: { id: string; username: string }) => string[]
   /** The rules of vihko.yaml, for what moves with a folder and the audience of a move. */
   permissions?: PermissionsEngine
   /** vihko.yaml's permissions, rewritten when a folder moves or is deleted from vihko. */
@@ -226,6 +222,12 @@ interface MaskableReport {
  * nothing it didn't know.
  */
 export interface Written { etag?: string; nowHidden?: NowHidden }
+
+/** A note in the tree. `template`: it is a template (`template: true` in its frontmatter); left out otherwise. */
+export interface TreeNote { path: string; title: string; uid: string | null; aliases: string[]; template?: true }
+
+/** What marking a folder's notes as templates does, or would do (`dryRun`): `marked`, `already` marked, `skipped` (a frontmatter that can't be read). */
+export interface TemplatesMarked { marked: number; already: number; skipped: number }
 
 /** A revert's report (history/revert.ts) with what its write left (`Written`). */
 export type ScopedRevertReport = Omit<RevertReport, 'etag'> & Written
@@ -661,10 +663,10 @@ export class ScopedNotes {
    * its key reaches, and not a folder that only holds notes hidden from it
    * (a folder with no notes at all, just created or emptied, still shows).
    */
-  tree(): { notes: { path: string; title: string; uid: string | null; aliases: string[] }[]; folders: string[]; pathOnly: string[] } {
+  tree(): { notes: TreeNote[]; folders: string[]; pathOnly: string[] } {
     const { index } = this.deps
     const w = this.access.notesWhere('n')
-    const rows = index.prepare(`select path, title, uid, aliases from notes n where ${w.sql} order by path`).all(...w.params) as { path: string; title: string; uid: string | null; aliases: string }[]
+    const rows = index.prepare(`select path, title, uid, aliases, ${templateSql('n')} as template from notes n where ${w.sql} order by path`).all(...w.params) as { path: string; title: string; uid: string | null; aliases: string; template: number }[]
     const all = (index.prepare('select path from folders order by path').all() as { path: string }[]).map((r) => r.path)
     const readable = new Set(all.filter((f) => this.access.level(f) !== null && this.access.folderInScope(f)))
     const shown = new Set(readable)
@@ -678,7 +680,8 @@ export class ScopedNotes {
       for (const { path } of rows) for (const a of ancestors(path)) holdsVisible.add(a)
       folders = folders.filter((f) => this.access.folderInScope(f) && (!holds.has(f) || holdsVisible.has(f)))
     }
-    return { notes: rows.map((r) => ({ ...r, aliases: JSON.parse(r.aliases) as string[] })), folders, pathOnly: folders.filter((f) => !readable.has(f)) }
+    const notes = rows.map(({ template, ...r }): TreeNote => ({ ...r, aliases: JSON.parse(r.aliases) as string[], ...(template ? { template: true as const } : {}) }))
+    return { notes, folders, pathOnly: folders.filter((f) => !readable.has(f)) }
   }
 
   /**
@@ -689,9 +692,8 @@ export class ScopedNotes {
   tags(): { tag: string; count: number; total: number }[] {
     const { index } = this.deps
     const w = this.access.notesWhere('n')
-    const t = this.notInTemplates('n')
-    const join = `join notes n on n.path = t.path where ${w.sql} and ${t.sql}`
-    const params = [...w.params, ...t.params]
+    const join = `join notes n on n.path = t.path where ${w.sql} and not ${templateSql('n')}`
+    const params = w.params
     const rows = index.prepare(`select t.tag, count(distinct t.path) as count from tags t ${join} group by t.tag order by count desc, t.tag`).all(...params) as { tag: string; count: number }[]
     const under = new Map<string, Set<string>>()
     for (const r of index.prepare(`select distinct t.path, t.tag from tags t ${join}`).all(...params) as { path: string; tag: string }[]) {
@@ -706,40 +708,27 @@ export class ScopedNotes {
     return rows.map((r) => ({ ...r, total: under.get(r.tag)?.size ?? r.count }))
   }
 
-  /** Full text plus `tag:` and `path:` filters, over what the principal can read. */
+  /**
+   * Full text plus the filters (`tag:`, `path:`, frontmatter fields, `has:`),
+   * over what the principal can read. Templates are left out (skeletons,
+   * `{{title}}` and all) unless the query asks for them by their mark
+   * (`template:true`, `has:template`).
+   */
   search(q: string): SearchResult[] {
     const w = this.access.notesWhere('n')
-    // A templates folder named with `path:` is searched: that is asking for templates.
-    const asked = parseSearchQuery(q).filters.flatMap((f) => (f.kind === 'path' && !f.negate ? [f.value.normalize('NFC').toLowerCase()] : []))
-    const t = this.notInTemplates('n', (folder) => asked.some((p) => p === folder.toLowerCase() || p.startsWith(folder.toLowerCase() + '/')))
-    return search(this.deps.index, q, { sql: `${w.sql} and ${t.sql}`, params: [...w.params, ...t.params] })
-  }
-
-  /** The templates folders of this person (ScopedDeps `templateFolders`). */
-  templateFolders(): string[] {
-    return this.deps.templateFolders?.(this.access.user) ?? []
-  }
-
-  /** Whether a path is in one of this person's templates folders. */
-  inTemplates(path: string): boolean {
-    return this.inTemplatesTest()(path)
+    const asked = parseSearchQuery(q).filters.some((f) => (f.kind === 'field' || f.kind === 'has') && !f.negate && f.key === TEMPLATE_KEY)
+    return search(this.deps.index, q, asked ? w : { sql: `${w.sql} and not ${templateSql('n')}`, params: w.params })
   }
 
   /**
-   * `inTemplates` for many paths at once: the folders are found once (each
-   * time costs the person's spaces and their settings files, from the disk).
+   * The templates this principal can read (`template: true` in their
+   * frontmatter), by path. Home leaves them out; the UI offers them when
+   * creating a note (from the tree, which marks them).
    */
-  inTemplatesTest(): (path: string) => boolean {
-    const folders = this.templateFolders()
-    return (path) => folders.some((f) => path === f || path.startsWith(f + '/'))
-  }
-
-  /** SQL condition on `alias.path`: not in a templates folder of this person (but those `keep` says). */
-  private notInTemplates(alias: string, keep: (folder: string) => boolean = () => false): { sql: string; params: unknown[] } {
-    const folders = this.templateFolders().filter((f) => !keep(f))
-    if (!folders.length) return { sql: '1', params: [] }
-    const esc = (s: string) => s.replace(/[\\%_]/g, (c) => '\\' + c)
-    return { sql: folders.map(() => `${alias}.path not like ? escape '\\'`).join(' and '), params: folders.map((f) => `${esc(f)}/%`) }
+  templates(): Set<string> {
+    const w = this.access.notesWhere('n')
+    const rows = this.deps.index.prepare(`select n.path from notes n where ${templateSql('n')} and ${w.sql}`).all(...w.params) as { path: string }[]
+    return new Set(rows.map((r) => r.path))
   }
 
   /** Whether the principal may be served a file that isn't a note (an image): `not_found` otherwise. */
@@ -820,6 +809,59 @@ export class ScopedNotes {
     if (!opts.ifMatch) throw new RequestError(428, 'precondition_required', "missing If-Match: a note that hasn't been read won't be overwritten")
     const r = await this.edit(p, () => text, { ifMatch: opts.ifMatch })
     return { created: false, ...this.written(p, r.etag, true) }
+  }
+
+  /**
+   * Makes a note a template (`template: true` in its frontmatter) or stops it
+   * being one (the key goes), touching nothing else of it: a frontmatter
+   * patch through the normal write, on the open document if someone is
+   * editing it. Already so: nothing is written. A frontmatter that can't be
+   * read: `edit_mismatch`, as any frontmatter patch.
+   */
+  async markTemplate(path: string, on: boolean): Promise<Written> {
+    const p = this.writable(path)
+    const r = await this.edit(p, (t) => {
+      const next = templateMarked(t, on)
+      if (next === null) throw new NoteError('edit_mismatch', `the frontmatter of ${p} can't be read`)
+      return next === t ? [] : [spliceOf(t, 0, t.length, next)]
+    }, {})
+    return this.written(p, r.etag, false)
+  }
+
+  /**
+   * Marks every note of a folder (its subfolders included) as a template,
+   * each through the normal write (`markTemplate`), as the person; or, with
+   * `dryRun`, counts what it would do. Only where they can write: the folder
+   * is theirs to change (`forbidden` otherwise, `not_found` for one they don't
+   * see). Notes already marked are left as they are; one whose frontmatter
+   * can't be read is skipped and counted.
+   */
+  async markFolderTemplates(path: string, opts: { dryRun?: boolean } = {}): Promise<TemplatesMarked> {
+    const folder = typeof path === 'string' ? trimSlashes(path.normalize('NFC')) : ''
+    if (!folder || classifyPath(folder) === 'note') throw new RequestError(400, 'invalid', 'a folder\'s path')
+    if (this.access.level(folder) === null || !this.access.folderInScope(folder)) throw new NoteError('not_found', `no such folder: ${folder}`)
+    if (!this.access.canWrite(`${folder}/_.md`)) throw new AccessError('no permission to change the notes of this folder')
+    const w = this.access.notesWhere('n')
+    const esc = folder.replace(/[\\%_]/g, (c) => '\\' + c)
+    const paths = (this.deps.index.prepare(`select n.path from notes n where n.path like ? escape '\\' and ${w.sql} order by n.path`).all(`${esc}/%`, ...w.params) as { path: string }[])
+      .map((r) => r.path).filter((p) => this.access.canWrite(p))
+    const out: TemplatesMarked = { marked: 0, already: 0, skipped: 0 }
+    for (const p of paths) {
+      let text: string
+      try { text = this.visible(p).text } catch { continue }
+      const next = templateMarked(text, true)
+      if (next === null) { out.skipped++; continue }
+      if (next === text) { out.already++; continue }
+      if (opts.dryRun) { out.marked++; continue }
+      try {
+        await this.markTemplate(p, true)
+        out.marked++
+      } catch (err) {
+        if (err instanceof NoteError && (err.code === 'edit_mismatch' || err.code === 'not_found')) { out.skipped++; continue }
+        throw err
+      }
+    }
+    return out
   }
 
   /**

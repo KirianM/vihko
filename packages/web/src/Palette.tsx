@@ -79,7 +79,7 @@ interface Props {
   folder: string
   openPath: string | null
   notes: TreeNote[] | null
-  /** Template notes (from the templates folder in vihko.yaml), offered when creating. */
+  /** Template notes (marked `template: true`, those the person reads), offered when creating. */
   templates: string[]
   /** Opens today's note; null while daily notes are off. */
   onToday: (() => void) | null

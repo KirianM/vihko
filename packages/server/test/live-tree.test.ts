@@ -74,6 +74,17 @@ test('live tree: a note made, moved or deleted where someone reads tells them; w
     assert.ok(await other.next(seen), 'a note made where they read')
     assert.deepEqual(other.events.filter((e) => e.event === 'tree').map((e) => e.data), ['{}'])
     assert.ok(!other.raw.join('').includes(note) && !other.raw.join('').includes(secret))
+    // Made a template and back (the tree marks templates): told each time; other edits, not.
+    seen = other.trees()
+    assert.equal((await h.member('POST', '/api/note/template', { path: note, template: true })).status, 200)
+    assert.ok(await other.next(seen), 'made a template')
+    seen = other.trees()
+    assert.equal((await h.member('POST', '/api/note/template', { path: note, template: false })).status, 200)
+    assert.ok(await other.next(seen), 'a template no more')
+    seen = other.trees()
+    assert.equal((await h.member('POST', '/api/note/edit', { path: note, ops: [{ op: 'append', text: m.aSentence() }] })).status, 200)
+    await sleep(QUIET)
+    assert.equal(other.trees(), seen, 'an edit the tree doesn\'t show')
     // Moved within it, and deleted: told each time.
     seen = other.trees()
     const moved = `${space}/${m.aFolder()}/${m.aTitle()}.md`

@@ -10,7 +10,7 @@ export function settingsFromBody(raw: unknown): NoteSettings | null {
   const b = raw as Record<string, unknown>
   const str = (v: unknown): v is string => typeof v === 'string'
   const optional = (v: unknown): v is string | null | undefined => v === null || v === undefined || typeof v === 'string'
-  if (!Array.isArray(b.daily) || !Array.isArray(b.templates) || !b.templates.every(str) || !optional(b.agents)) return null
+  if (!Array.isArray(b.daily) || !optional(b.agents)) return null
   const daily: NoteSettings['daily'] = []
   for (const d of b.daily) {
     if (typeof d !== 'object' || d === null) return null
@@ -27,5 +27,5 @@ export function settingsFromBody(raw: unknown): NoteSettings | null {
     else if (a.mode === 'per-note' && str(a.suffix)) attachments = { mode: 'per-note', suffix: a.suffix }
     else return null
   }
-  return { version: NOTE_SETTINGS_VERSION, daily, templates: b.templates, attachments, agents: b.agents || null }
+  return { version: NOTE_SETTINGS_VERSION, daily, attachments, agents: b.agents || null }
 }

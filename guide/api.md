@@ -235,9 +235,10 @@ curl -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/tree"
 }
 ```
 
-`uid` is `null` for a note vihko hasn't needed to give one yet. A folder in
-`pathOnly` is shown only as the way to something below it that the key can
-see.
+`uid` is `null` for a note vihko hasn't needed to give one yet. A note that
+is a template (`template: true` in its frontmatter) has `"template": true`;
+others don't have the field. A folder in `pathOnly` is shown only as the way
+to something below it that the key can see.
 
 ### Read a note
 
@@ -303,6 +304,8 @@ Keys and values ignore case, and are compared whole, as written. Only simple
 frontmatter values count: text, numbers, `true`/`false`, dates and lists of
 them; nested maps don't. A word with a colon in it is a filter (`re:x` looks
 for a key `re`); times (`10:30`) and addresses (`https://…`) stay words.
+Templates (notes with `template: true`) are left out unless the query asks
+for them by their mark: `template:true`, `has:template`.
 
 ```sh
 curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/search" \
@@ -330,7 +333,10 @@ with that tag, `total` those with it or a tag nested under it.
 
 `POST /api/note` with `{ "path", "text" }`, or `{ "path", "template" }` to
 create it from a template note (its `{{title}}`, `{{date}}` and the like filled
-in). It never overwrites: `409 exists` if the note is there.
+in, and its frontmatter copied without `template: true`; see
+[Templates](notes.md#templates)). Any note the key can read works as a
+template; `GET /api/search?q=template:true` lists the marked ones. It never
+overwrites: `409 exists` if the note is there.
 
 ```sh
 curl -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \

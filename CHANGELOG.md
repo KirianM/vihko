@@ -12,6 +12,9 @@ its entries are kept at the end of this file.
 
 ## [0.1.0-rc.5] - unreleased
 
+Templates marked in the notes themselves, and searching by any frontmatter
+field.
+
 ### Added
 
 - **Search by frontmatter fields**, in the search box, `GET /api/search` and
@@ -22,17 +25,44 @@ its entries are kept at the end of this file.
   front excludes. Keys and values ignore case; quotes for spaces. Only
   simple values count (text, numbers, true/false, dates and lists of them),
   never those of notes you can't read.
+- **Templates are notes marked `template: true`**, wherever they are. A
+  note's menu in the tree has «Make a template» and «Stop being a template»;
+  a folder's menu, «Mark notes as templates…», which says how many notes it
+  will mark before it does. The tree shows a small mark on each template, and
+  `GET /api/tree` gives `template: true` for them.
+- A note made from a template gets the template's frontmatter (`type`, tags,
+  any key) without its `template: true`, every other byte as it was.
+- `POST /api/folder/templates` and `POST /api/note/template`, for the UI.
 - The search box's filter hints list the new filters.
 
 ### Changed
 
+- Templates are offered from every space you read, marked, not from
+  configured folders; `template:true` in the search box lists them. Naming a
+  templates folder with `path:` no longer brings its notes into search.
+- `GET /api/workspace` no longer has `templates`, and the note settings
+  (`GET/PUT /api/settings`) no longer have `templates`.
 - A query word with a colon in it (`re:budget`) is now a frontmatter filter;
   times (`10:30`) and addresses (`https://…`) stay words.
+- The admin setting for saving copies of images from private addresses says
+  what it guards, in plain words, and the notes guide explains it.
 
 ### Upgrade notes
 
+- Test it with `ghcr.io/kirianm/vihko:0.1.0-rc.5` (the new `compose.yaml` names it).
+- **Templates folders are no longer configured.** The `templates` key of
+  `vihko.yaml` and of a person's or a space's settings (`.vihko/settings.yaml`)
+  is now an unknown key: ignored, with a warning, until you remove it. Your
+  templates stay where they are, but aren't offered until you **mark them**:
+  open the menu of each templates folder in the tree → **Mark notes as
+  templates…** → **Mark as templates**. That writes `template: true` into the
+  frontmatter of each note in it, and nothing else. vihko doesn't mark them
+  on its own. A daily series' `template` works as before, marked or not.
 - The index (`index.db`) adds the frontmatter fields on its own the first
   time this version starts; nothing to do.
+- Scripts that read `templates` from `GET /api/workspace` or the settings
+  should use the notes with `template: true` instead (`GET /api/tree`, or a
+  search for `template:true`).
 
 ## [0.1.0-rc.4] - 2026-10-02
 

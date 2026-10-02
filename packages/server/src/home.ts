@@ -51,7 +51,7 @@ export interface HomeDeps {
   nameOf: (userId: string) => string
   keyName: (keyId: string) => string | null
   now: () => Date
-  /** Notes left out (a templates folder's: skeletons, not notes anyone wrote). */
+  /** Notes left out (templates: skeletons, not notes anyone wrote). */
   excluded?: (path: string) => boolean
 }
 

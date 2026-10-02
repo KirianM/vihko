@@ -3,7 +3,10 @@
 // number, true/false, a date, or a list of those), as written. Nested maps,
 // and maps inside lists, are left out. A key with no value (`due:`) or an
 // empty list is kept too, with no value: `has:` finds it, nothing else does.
-import { foldField } from '@vihko/core'
+//
+// The same table says which notes are templates (`template: true`):
+// `templateSql`.
+import { TEMPLATE_KEY, foldField } from '@vihko/core'
 import type { Extension } from '../extension.ts'
 
 export type FieldKind = 'string' | 'number' | 'boolean' | 'date' | 'null'
@@ -81,3 +84,13 @@ export const fields: Extension<readonly Field[]> = {
     }
   },
 }
+
+/**
+ * SQL condition: the note at `alias.path` is a template (`template: true` in
+ * its frontmatter, the key as written, a YAML true).
+ */
+export const templateSql = (alias: string) =>
+  `exists (select 1 from fields tf where tf.path = ${alias}.path and tf.key = '${TEMPLATE_KEY}' and tf.kind = 'boolean' and tf.value = 'true')`
+
+/** Every template in the index (to be filtered by what the principal reads). */
+export const TEMPLATES_SQL = `select distinct path from fields where key = '${TEMPLATE_KEY}' and kind = 'boolean' and value = 'true'`

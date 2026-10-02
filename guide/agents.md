@@ -258,7 +258,7 @@ The server offers these tools. A read-only key is offered only the reading ones
 
 | Tool | What it does |
 |---|---|
-| `search` | Full-text search over the notes the key can read, best first, with filters: `path:`, `tag:`, a frontmatter field (`type:decision`, `prop:key=value`), `has:key`, and `-` to exclude one |
+| `search` | Full-text search over the notes the key can read, best first, with filters: `path:`, `tag:`, a frontmatter field (`type:decision`, `prop:key=value`), `has:key`, and `-` to exclude one. Templates only when asked for (`template:true`) |
 | `get_note` | A note by its path or `uid`: its text, ETag, frontmatter, title, and its outgoing and incoming links. Long notes come in pieces |
 | `list_folder` | The folders and notes in a folder, optionally everything under it. With `""`, the spaces the person reaches: their own, the shared spaces they belong to (with their names), and the folders others share with them (with whose they are) |
 | `related` | How a note connects to others: its links with the titles they lead to, and the notes that link to it with the text around each link |
@@ -269,7 +269,7 @@ The server offers these tools. A read-only key is offered only the reading ones
 
 | Tool | What it does |
 |---|---|
-| `create_note` | A new note from text or from a template note. Never overwrites |
+| `create_note` | A new note from text or from a template note (its frontmatter copied without `template: true`; `search` with `template:true` lists the templates). Never overwrites |
 | `edit_note` | Operations applied in order, all or none: `find_replace`, `append`, `append_under_heading`, `replace_section`, `set_frontmatter`. Works while someone has the note open. `dry_run` previews |
 | `move` | Moves or renames a note, rewriting every link to it. `dry_run` previews |
 | `delete` | Moves a note to the trash |

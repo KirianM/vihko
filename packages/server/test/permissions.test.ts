@@ -391,17 +391,17 @@ test('permissions fail closed: rejected at start, nothing is shared (each keeps 
   } finally { await h.close() }
 })
 
-test('the workspace settings name no template or templates folder the person can\'t read', async () => {
+test('the workspace settings name no series template the person can\'t read', async () => {
   const templates = `${DIR.admin}/${m.aFolder()}`
   const template = m.aNotePath(templates)
   const series = m.anId()
-  const config = `templates: ${JSON.stringify(templates)}\ndaily:\n  ${series}:\n    folder: ${JSON.stringify(`${DIR.shared}/${m.aFolder()}`)}\n    template: ${JSON.stringify(template.replace(/\.md$/, ''))}\n` + RULES
+  const config = `daily:\n  ${series}:\n    folder: ${JSON.stringify(`${DIR.shared}/${m.aFolder()}`)}\n    template: ${JSON.stringify(template.replace(/\.md$/, ''))}\n` + RULES
   const h = await setup({ files: { ...FILES, [template]: noteText() }, config })
   try {
     const admin = (await h.admin('GET', '/api/workspace')).body
-    assert.deepEqual([admin.templates, admin.daily[0].template], [[templates], template], 'the admin reads that folder')
+    assert.equal(admin.daily[0].template, template, 'the admin reads that folder')
     const member = await h.member('GET', '/api/workspace')
-    assert.deepEqual([member.body.templates, member.body.daily[0].template], [[], null])
+    assert.equal(member.body.daily[0].template, null)
     assert.ok(!member.text.includes(DIR.admin), member.text)
     assert.equal(member.body.daily[0].id, series, 'the series itself is there')
   } finally { await h.close() }

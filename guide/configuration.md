@@ -1,24 +1,23 @@
 # Workspace configuration: `vihko.yaml`
 
 `vihko.yaml` holds the settings that belong to your notes rather than to the
-server: who shares what, the shared spaces' names, daily notes, templates,
-where images go, how the history is kept. It lives at the root of the notes
+server: who shares what, the shared spaces' names, daily notes, where images
+go, how the history is kept. It lives at the root of the notes
 folder, so it travels, and is backed up, with the notes.
 
 Settings that belong to the installation (ports, volumes, the public address,
 the second factor's key) are environment variables instead: see
 [Install](install.md). Settings that belong to a person (language, timezone,
 which daily note is theirs) are in their account. A person, and a shared
-space, can add their own daily notes, templates and guide for agents in a
-settings file of their space: see
+space, can add their own daily notes and guide for agents in a settings file
+of their space: see
 [Settings of a person or a space](#settings-of-a-person-or-a-space).
 
 ## The basics
 
 - **It's optional.** Without the file nothing is turned on and nothing is
-  shared: each person has their own space, there are no daily notes or
-  templates, images go next to their note, and the history is managed by
-  vihko.
+  shared: each person has their own space, there are no daily notes, images
+  go next to their note, and the history is managed by vihko.
 - **Part of it is written by vihko.** Sharing a folder, and creating,
   renaming, leaving or deleting a space, all from the UI, write the
   `permissions` section. You edit the rest on disk, with any text editor,
@@ -44,10 +43,6 @@ settings file of their space: see
 
 ```yaml
 version: 1
-
-templates:
-  - people/{user}/Templates
-  - spaces/Home/Templates
 
 daily:
   journal:
@@ -96,7 +91,6 @@ permissions:
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | [`version`](#version) | whole number | `1` | Which format the file follows |
-| [`templates`](#templates) | folder, or list of folders | none | Folders whose notes are offered as templates |
 | [`daily`](#daily-daily-notes) | map of series | none | Daily, weekly, monthly or yearly notes |
 | [`attachments.mode`](#attachments-where-new-images-go) | `next-to-note`, `folder` or `per-note` | `next-to-note` | Where new images go |
 | [`attachments.folder`](#attachments-where-new-images-go) | folder | none | The folder for `mode: folder`, inside each space |
@@ -115,7 +109,7 @@ fine.
 
 Paths to notes and folders must be **inside a space**: `people/<user>/…` or
 `spaces/<name>/…` (see [Notes and Markdown](notes.md)). A series'
-folder, a templates folder or `mcp.instructions` anywhere else is ignored, and
+folder or `mcp.instructions` anywhere else is ignored, and
 the admins get a warning (`outside_spaces`). A shared space's folder, its
 name, shows in the address bar when you open one of its notes
 (`?note=Home%2F…`; a person's space shows as `~<username>`), and on
@@ -137,54 +131,6 @@ You don't need to change it by hand. The number goes up only with a
 a newer format, it raises `version` to match (and adds it if the file had
 none), so that an older vihko, if you go back to one, can tell the file is
 newer than it understands.
-
-### `templates`
-
-```yaml
-templates: people/{user}/Templates
-# or several:
-templates:
-  - people/{user}/Templates
-  - spaces/Home/Templates
-```
-
-A folder, or a list of folders. `{user}` is the person creating the note, so
-`people/{user}/Templates` gives each person their own. Every note in those
-folders, subfolders included, is offered under «From a template» when you
-create a note from the search box (Ctrl+K, or ⌘K on a Mac), grouped by space.
-Templates are plain notes, and you only see the ones you can read; a template
-from another space works the same, since only its text is copied (its links
-by name then resolve in the new note's space).
-
-The notes in a templates folder are skeletons, not notes anyone wrote: they're
-left out of search (unless you ask for the folder with `path:`), of the tags
-and their counts, and of Home. They stay in the tree, and you open and edit
-them as any note.
-
-When vihko creates a note from a template, it copies the template's text and
-fills in these variables, in the timezone of the person creating it. Nothing
-else runs: a template can't execute code, loop or read other notes.
-
-| Variable | Becomes |
-|---|---|
-| `{{title}}` | The new note's name (its file name without `.md`) |
-| `{{user}}` | The username of whoever creates it |
-| `{{date}}` | Today, as `YYYY-MM-DD` |
-| `{{date:FORMAT}}` | Now, in the format you give |
-
-`FORMAT` takes these tokens; text in `[brackets]` is copied as it is.
-
-| Token | Meaning | Example |
-|---|---|---|
-| `YYYY` / `YY` | Year, four or two digits | `2026` / `26` |
-| `MM` / `M` | Month, two digits or as is | `09` / `9` |
-| `DD` / `D` | Day of the month | `05` / `5` |
-| `GGGG` | ISO week-numbering year | `2026` |
-| `WW` / `W` | ISO week | `09` / `9` |
-| `HH` / `mm` | Hour (24 h) and minute | `14` / `05` |
-
-For example, `{{date:[Week] W, YYYY}}` gives `Week 39, 2026`. Anything else in
-`{{…}}` is left as it is.
 
 ### `daily`: daily notes
 
@@ -220,7 +166,7 @@ has buttons for the previous and next note in the series.
 | `label` | the id | Name shown in the UI |
 | `folder` | the root | Folder pattern. It must be inside a space: a series at the root of the notes folder, or anywhere else outside `people/` and `spaces/`, is ignored |
 | `name` | `{YYYY}-{MM}-{DD}` | File name pattern, without `.md` and without `/` |
-| `template` | none | A note, from the notes root; `.md` is added if missing |
+| `template` | none | A note, from the notes root; `.md` is added if missing. Its text is copied as for any [template](notes.md#templates); it doesn't have to be marked `template: true`, but marked it stays out of search |
 
 Patterns take these variables, in `folder` or in `name`:
 
@@ -517,8 +463,8 @@ could have made that move releases them. See
 ## Settings of a person or a space
 
 `vihko.yaml` is for the whole installation, and only an admin with access to
-the disk edits it. A person can add their own daily notes, templates and
-guide for agents, and a shared space its own, without touching it: each
+the disk edits it. A person can add their own daily notes and guide for
+agents, and a shared space its own, without touching it: each
 space has a settings file, in the same format for both. This is the
 reference; step by step, from the UI:
 [your own](first-steps.md#set-up-your-own-notes) and
@@ -539,8 +485,6 @@ daily:
     name: "{YYYY}-{MM}-{DD}"
     template: Templates/Daily
 
-templates: Templates            # a folder, or a list of folders
-
 attachments:                    # where new images of this space's notes go
   mode: folder
   folder: images
@@ -554,7 +498,7 @@ agents: For agents              # a note of this space: its guide for agents
   the space (`..`, a leading `/`) or enter a hidden folder, and `{user}`
   isn't allowed in a series (the space already says whose it is).
 - The keys mean what they mean in `vihko.yaml`: [`daily`](#daily-daily-notes),
-  [`templates`](#templates), [`attachments`](#attachments-where-new-images-go),
+  [`attachments`](#attachments-where-new-images-go),
   and `agents`, which is the space's [`mcp.instructions`](#mcpinstructions).
   `version` is the format's number, `1` now; a file without it is version 1.
 - **Who reads and changes it.** A person's file is theirs alone. A shared
@@ -571,7 +515,7 @@ agents: For agents              # a note of this space: its guide for agents
 | Setting | What a person gets |
 |---|---|
 | Daily-note series | `vihko.yaml`'s, those of the shared spaces they belong to, and their own: those where they can write today's note. Two series that give the same note are one (the first in that order is kept), so a personal series that repeats one of the installation's isn't offered twice. They're listed the other way round, their own first: until a person chooses, the first is the default |
-| Templates folders | `vihko.yaml`'s, those of their spaces, and their own: those they can read |
+| Templates | Not a setting: every note marked `template: true` they can read, wherever it is ([Templates](notes.md#templates)) |
 | Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
 | Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. Each is a note the agent must be able to read |
 
@@ -605,8 +549,8 @@ a wrong setting meant.
 |---|---|
 | A key vihko doesn't know (a typo, or a setting from a newer vihko) | Ignored; an alert lists it with its line. The rest applies |
 | A `version` newer than vihko's | What vihko understands applies; an alert says so |
-| A known key with a wrong value (a path outside the notes folder, a bad series pattern, `mode: sometimes`) | The file can't be used. vihko keeps the last valid version it read; if there is none since it started, nothing is configured (no daily notes, no templates). The permissions section is judged on its own |
-| A series, templates folder or `mcp.instructions` outside the spaces | Ignored, with a warning (`outside_spaces`) |
+| A known key with a wrong value (a path outside the notes folder, a bad series pattern, `mode: sometimes`) | The file can't be used. vihko keeps the last valid version it read; if there is none since it started, nothing is configured (no daily notes). The permissions section is judged on its own |
+| A series or `mcp.instructions` outside the spaces | Ignored, with a warning (`outside_spaces`) |
 | Not valid YAML, or can't be read | As above, and the permissions can't be read either: the last valid ones stay, or nothing is shared if vihko started that way |
 | Anything doubtful in `permissions` | The section is rejected ([see above](#the-section-is-strict)); the rest applies |
 | `ai: true` in a rule | Ignored, with a warning |
