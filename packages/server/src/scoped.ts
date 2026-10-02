@@ -16,6 +16,7 @@ import { AccessError, AgentDenied, type Access, type DenyReason } from './access
 import { attachmentPath, noteAttachmentsDir } from './attachments.ts'
 import { diskSpelling, isPlainFile } from './fsutil.ts'
 import { fileByName, isFileTarget } from './fileNames.ts'
+import { shownPath } from './logging.ts'
 import { diskSpaceFolders } from './spaceFolders.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
@@ -1001,7 +1002,7 @@ export class ScopedNotes {
       // The folder of images moved: its old rules go; it stayed: the copies go.
       const stale = report.images.folder ? assets!.from : assets!.to
       await file!.removeRules(stale, { actor: this.access.actor })
-        .catch((err) => this.deps.log?.(`the rules of ${stale} stay in vihko.yaml after moving ${f}: ${err instanceof Error ? err.message : String(err)}`))
+        .catch((err) => this.deps.log?.(`the rules of ${shownPath(stale)} stay in vihko.yaml after moving ${shownPath(f)}: ${err instanceof Error ? err.message : String(err)}`))
     }
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
@@ -1258,7 +1259,7 @@ export class ScopedNotes {
       throw err
     }
     await this.deps.permissionsFile?.removeRules(p, { actor: this.access.actor })
-      .catch((err) => this.deps.log?.(`permissions of the deleted folder ${p} stay in vihko.yaml: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) => this.deps.log?.(`permissions of the deleted folder ${shownPath(p)} stay in vihko.yaml: ${err instanceof Error ? err.message : String(err)}`))
     return r
   }
 
@@ -1344,12 +1345,12 @@ export class ScopedNotes {
     }
     if (copied) {
       await file!.removeRules(f, { actor })
-        .catch((err) => this.deps.log?.(`the old rules of ${f} stay in vihko.yaml after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`))
+        .catch((err) => this.deps.log?.(`the old rules of ${shownPath(f)} stay in vihko.yaml after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`))
     }
     try {
       this.deps.onFolderMoved?.(f, t)
     } catch (err) {
-      this.deps.log?.(`keys, pins or trash entries under ${f} still name it after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`)
+      this.deps.log?.(`keys, pins or trash entries under ${shownPath(f)} still name it after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`)
     }
     return mask(report)
   }

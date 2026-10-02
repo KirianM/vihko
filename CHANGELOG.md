@@ -68,6 +68,9 @@ its entries are kept at the end of this file.
   `VIHKO_EXTERNAL_IMAGES` takes `ask` for this; `allow` and `block` are as
   before, and `block` also offers **Save a copy**. Unset, an installation
   started with this version gets `ask`; one from before keeps `allow`.
+- **The log keeps personal spaces' paths out.** At the default level a path
+  inside a personal space is written as «a note in a personal space» with
+  its `uid`; `VIHKO_LOG_LEVEL=debug` writes paths whole, to chase a problem.
 - Files opened on their own: images (not SVG) and PDFs are shown in the
   browser (`Content-Disposition: inline`); an SVG, a web page or anything
   else is downloaded.

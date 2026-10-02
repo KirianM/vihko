@@ -139,6 +139,14 @@ docker compose logs -f vihko          # follow it
 docker compose logs --tail 50 vihko   # the last 50 lines
 ```
 
+**Personal spaces stay out of it.** The names of a person's notes are theirs:
+by default (`VIHKO_LOG_LEVEL=info`) the log never writes a path inside a
+personal space, only that it is one, with the note's `uid` when it has one
+(«a note in a personal space (uid 01J…)»; search for it, or look it up in
+the note's frontmatter). Shared spaces' paths are written as they are. To
+chase a problem, `VIHKO_LOG_LEVEL=debug` writes every path whole; set it back
+afterwards.
+
 A normal start, after the first one:
 
 ```text

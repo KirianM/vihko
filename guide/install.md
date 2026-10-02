@@ -437,6 +437,7 @@ give it a sensible value.)
 | `VIHKO_MAX_IMAGE_MB` | `20` | The largest image vihko stores from an upload, a paste or a URL, in megabytes. An agent's `attach_image` takes about 3 MB at most whatever it says: that is what fits in an MCP request (see [Agents](agents.md#images)). |
 | `VIHKO_SECRET_KEY` | unset | A key of 32 characters or more that encrypts the second-factor secrets stored in `state.db`, so that a copy of `state.db` alone can't produce anyone's codes. See [The second-factor key](#the-second-factor-key). |
 | `VIHKO_SECRET_KEY_FILE` | unset | The same key, read from a file (a Docker secret, such as `/run/secrets/vihko_key`). Set one of the two, not both. |
+| `VIHKO_LOG_LEVEL` | `info` | `info` never writes a path inside a personal space to the log (only that it is one, and a note's `uid`); `debug` writes paths whole, to chase a problem. See [The log](operations.md#the-log). |
 | `VIHKO_RESCAN_SECONDS` | `60` | How often vihko scans the whole notes folder for changes the file watcher missed (network filesystems, changes made while it was stopped). |
 | `VIHKO_NOTES_DIR` | `/data/notes` | The notes folder, inside the container. Change the volume instead. |
 | `VIHKO_STATE_DIR` | `/data/state` | The state folder, inside the container. Change the volume instead. |

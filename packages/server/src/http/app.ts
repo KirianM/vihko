@@ -72,6 +72,7 @@ import { dismissStateMigration, stateMigrationAlerts } from '../state.ts'
 import { FolderRefs } from '../folderRefs.ts'
 import { SpaceError, SpaceService } from '../spaceService.ts'
 import { spaceRoutes } from './spaces.ts'
+import { scrub } from '../logging.ts'
 
 export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -373,7 +374,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, clientMessage(err))
     if (err instanceof PurgeError) return fail(c, purgeErrorStatus(err), err.code, purgeClientMessage(err))
     if (err instanceof GitError) {
-      console.error(`history: ${err.message}`)
+      console.error(scrub(`history: ${err.message}`))
       return fail(c, 503, 'history_unavailable', UNAVAILABLE_MESSAGE)
     }
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' || err.code === 'personal_folder_exists' ? 409 : 400, err.code, err.message)
@@ -385,7 +386,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof AdminSettingsError) return fail(c, 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
-    console.error(err)
+    console.error(scrub(err instanceof Error ? err.stack ?? err.message : String(err)))
     return fail(c, 500, 'internal', 'internal error')
   })
 

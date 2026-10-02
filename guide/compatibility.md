@@ -613,6 +613,7 @@ explains it.
 | `VIHKO_MAX_IMAGE_MB` | A number of megabytes, 20 by default |
 | `VIHKO_SECRET_KEY` | A key of 32 characters or more |
 | `VIHKO_SECRET_KEY_FILE` | A file holding that key |
+| `VIHKO_LOG_LEVEL` | `info` (default) or `debug` (0.1.0-rc.6). What a log line says beyond that isn't covered |
 | `VIHKO_RESCAN_SECONDS` | Seconds, 60 by default |
 | `VIHKO_NOTES_DIR` | A folder, `/data/notes` by default |
 | `VIHKO_STATE_DIR` | A folder, `/data/state` by default |
