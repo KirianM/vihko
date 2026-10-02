@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Actor } from '@vihko/server'
@@ -552,6 +553,25 @@ test('a failing git never blocks a write: it is reported, and the history catche
     assert.equal((await h.admin('GET', '/api/history/status')).body.available, true)
     assert.deepEqual((await h.versions(NOTE)).versions.map(who), [user(h.users.admin), 'system'])
     assert.ok(!(await h.admin('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'history_unavailable'))
+  } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('the history repository is SHA-1 even where git would make SHA-256 by default', async () => {
+  const dir = tempDir('vihko-git-')
+  const git = join(dir, 'git-sha256.sh')
+  // A git whose default is SHA-256, as git 3.0's is to be.
+  writeFileSync(git, `#!/bin/sh\nGIT_DEFAULT_HASH=sha256 exec git "$@"\n`)
+  chmodSync(git, 0o755)
+  const h = await setup({ git })
+  try {
+    await h.put(NOTE, (t) => t + `\n${m.aSentence()}\n`)
+    await h.settle()
+    assert.equal((await h.admin('GET', '/api/history/status')).body.available, true)
+    const versions = (await h.versions(NOTE)).versions
+    assert.deepEqual(versions.map(who), [user(h.users.admin), 'system'])
+    for (const v of versions) assert.match(v.id, /^[0-9a-f]{40}$/)
+    const format = execFileSync('git', ['--git-dir', join(h.stateDir, 'history.git'), 'rev-parse', '--show-object-format'], { encoding: 'utf8' })
+    assert.equal(format.trim(), 'sha1')
   } finally { await h.close(); rmSync(dir, { recursive: true, force: true }) }
 })
 

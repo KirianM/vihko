@@ -235,6 +235,10 @@ small team meets after months of use.
 - A note made a template still showed among the ⌘K box's recent notes, and
   in «On opening» › «A note» while choosing one; templates stay out of both,
   as they stay out of search, tags and Home.
+- A new installation creates its history with SHA-1 ids whatever the
+  system's git would choose: with a git that makes SHA-256 repositories by
+  default (as git 3.0 is to), the history would record nothing. An
+  existing history is unchanged.
 
 ### Documentation
 
