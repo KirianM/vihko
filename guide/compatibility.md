@@ -303,6 +303,7 @@ can't call, they can change in any release.
 | `GET /api/admin/spaces` | The vihko admin | — | `spaces` (`path`, `name`, `managers`, `members` (a count), `aiClosed`), `closed` (`userId`, `username`, `path`: the spaces of deleted people) |
 | `POST /api/admin/spaces/managers` | The vihko admin, confirmed at the moment | `path`, `userId`, `confirm` | `space`. Only for a space without managers (a disabled one doesn't count): `409 space_has_managers` otherwise |
 | `POST /api/admin/spaces/join` | The vihko admin, confirmed at the moment | `path`, `level`? (`read` by default), `confirm` | `space`. Since 0.1.0-rc.6, only for a space without managers (a disabled one doesn't count): `409 space_has_managers` otherwise. Its members are told (`space_changed`, `admin_joined`) |
+| `PUT /api/admin/users/:id/username` | The vihko admin | `username` | Since 0.1.0-rc.6: `user`. Only someone who hasn't used their invitation yet (`409 not_invited` otherwise): their folder, the grants to them in `vihko.yaml` and their link follow the new name. `409 user_exists` and `400 invalid_username` as for a new user |
 | `GET /api/admin/users/:id/space` | The vihko admin | — | `path`, `exists`, `sharedFolders`, `people` (counts), and since 0.1.0-rc.6 `shared` (each folder they share: `path`, only where the admin reads it, else null; `people`: `username`, `level`). What a deleted person shared stays shared until the admin decides what becomes of their space |
 | `POST /api/admin/users/:id/space` | The vihko admin, confirmed at the moment | `action` (`transfer`, `convert` or `delete`), `to` (a user id, for `transfer`), `name` and `members` (for `convert`), `dryRun`?, `confirm`, `deleteUser`? | `plan` (`action`, `from`, `to`, `notes`, `files`, `sharedFolders`, `people`). `400 space_needs_manager` when a conversion names nobody who manages it. A transfer goes to `people/<recipient>/<deleted username>`, or, if that name is taken there, the first free `-<n>` after it, found only when it moves (a dry run never looks into the recipient's space); the transfer's own answer has `to: null` for an admin who doesn't read there (since 0.1.0-rc.6). With `deleteUser: true`, the person is disabled but not deleted yet: what is asked (a transfer or a conversion) is checked and confirmed, then they're deleted and their space settled |
 | `GET /api/permissions` | `manage` in the folder | `folder` | `folder`, `etag` (of `vihko.yaml`), `section` (`none`, `rules` or `closed`), `own` (`grants`), `inherited` (`from`, `grants`: every folder above it in its space with grants), `owner`, `space` (`path`, `name`), `ai` (`closed`, `from`), `canEdit`, `access` (who has access, and why) |
@@ -366,7 +367,8 @@ term, the last one also a prefix), and filters, each a word of its own:
   that doesn't exclude asks for them (`template:true`, `prop:template`).
 - Only notes the principal reads are ever searched or counted.
 
-A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,
+A user renamed while still invited (since 0.1.0-rc.6) has their folder renamed
+with them. A new user (`POST /api/admin/users`, `vihko user create`) gets their folder,
 `people/<username>/`; when that folder already exists with something in it,
 creating the user is refused with `409 personal_folder_exists`, unless the
 admin adopts it (since 0.1.0-rc.6: `adopt: true`, or `--adopt`), which makes it

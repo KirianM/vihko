@@ -428,8 +428,10 @@ send it yourself over a channel you trust.
 
 1. Go to Preferences → Users and groups → **New user**.
 2. Type a username and choose a role. The username is 2 to 64 letters,
-   digits, `.`, `_` or `-`, doesn't start with a dot, and can't be changed
-   later: it's also the name of their folder, `people/<username>/`. Names are
+   digits, `.`, `_` or `-`, doesn't start with a dot, and can only be changed
+   while their invitation is unused (the user's «Actions» → **Rename…**: their
+   folder and what's shared with them follow): it's also the name of their
+   folder, `people/<username>/`. Names are
    unique ignoring case (`Noa` and `noa` are the same person). A new admin,
    like making someone admin, asks you to confirm at the moment (see
    [Confirming at the moment](#confirming-at-the-moment)), and the other
@@ -450,7 +452,9 @@ required, they set it up right there.
 - If a folder with that name already exists in `people/` with something in it
   (put there from outside vihko), the user isn't created
   (`personal_folder_exists`): move that folder away first, or choose another
-  name. An empty one is simply theirs.
+  name. An empty one is simply theirs. If it is theirs (their account was
+  lost with `state.db`, say), **Adopt their folder** creates them with it, as
+  it is; `vihko user create <name> --adopt` does the same.
 
 ### From the command line
 

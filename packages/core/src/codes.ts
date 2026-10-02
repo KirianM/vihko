@@ -46,6 +46,7 @@ export type ErrorCode =
   | 'wrong_password' // a password asked for with a session (changing it, confirming a key or an OAuth client) isn't right
   | 'last_admin' // the last active admin can't be demoted, disabled or deleted
   | 'not_disabled' // only a disabled user can be deleted
+  | 'not_invited' // only someone who hasn't used their invitation yet can be renamed
   | 'user_disabled' // a disabled user gets no link: enable them first
   | 'group_exists'
   | 'invalid_group_name'

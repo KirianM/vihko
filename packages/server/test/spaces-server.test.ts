@@ -61,6 +61,38 @@ test('a folder made outside vihko with something in it keeps its name from a new
   }
 })
 
+test('someone invited is renamed while their invitation is unused: their folder, the grants to them and their link follow; once in, they can\'t be', async () => {
+  const h = await setup()
+  try {
+    const [first, second] = [m.aUsername(), m.aUsername()]
+    const made = await h.admin('POST', '/api/admin/users', { username: first, role: 'member' })
+    assert.equal(made.status, 201, made.text)
+    const id = made.body.user.id as string
+    const token = made.body.link.token as string
+    // Something shared with them already, by name.
+    const trips = `${h.home('member')}/${m.aFolder()}`
+    h.write(`${trips}/${m.aTitle()}.md`, m.aParagraph())
+    await h.rule(trips, { grants: { [first]: 'edit' } })
+    const r = await h.admin('PUT', `/api/admin/users/${id}/username`, { username: second })
+    assert.equal(r.status, 200, r.text)
+    assert.equal(r.body.user.username, second)
+    assert.ok(existsSync(join(h.notesDir, 'people', second)) && !existsSync(join(h.notesDir, 'people', first)))
+    assert.deepEqual(rulesInFile(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8')).get(trips)?.grants, { [second]: 'edit' })
+    assert.deepEqual(await (await h.app.request(`/api/invite/${token}`)).json(), { kind: 'invite', username: second }, 'their link, for the new name')
+    // Only the admin; a name someone has, no.
+    assert.equal((await h.member('PUT', `/api/admin/users/${id}/username`, { username: m.aUsername() })).status, 403)
+    assert.equal((await h.admin('PUT', `/api/admin/users/${id}/username`, { username: h.names.other })).body.error, 'user_exists')
+    // Once they chose their password, renaming them isn't possible yet.
+    const password = m.aPassword()
+    assert.equal((await h.app.request(`/api/invite/${token}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) })).status, 200)
+    const active = await h.admin('PUT', `/api/admin/users/${id}/username`, { username: m.aUsername() })
+    assert.deepEqual([active.status, active.body.error], [409, 'not_invited'])
+    assert.equal((await h.admin('PUT', `/api/admin/users/${h.created.member.id}/username`, { username: m.aUsername() })).body.error, 'not_invited')
+  } finally {
+    h.close()
+  }
+})
+
 test('the admin adopts a folder made outside vihko for a new user, only when asked: what it holds becomes theirs', async () => {
   const name = m.aUsername()
   // Spelled in another case on the disk: it takes the user's name.

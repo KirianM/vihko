@@ -305,7 +305,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/account/2fa/disable', method: 'POST', path: '/api/account/2fa/disable', body: { code: '000000' } },
         { route: 'POST /api/admin/users/:id/2fa/reset', method: 'POST', path: '/api/admin/users/nope/2fa/reset', expect: adminOnly(who) },
         ...([
-          ['GET', '/api/admin/users'], ['POST', '/api/admin/users/nope/link'], ['PUT', '/api/admin/users/nope/role'],
+          ['GET', '/api/admin/users'], ['POST', '/api/admin/users/nope/link'], ['PUT', '/api/admin/users/nope/role'], ['PUT', '/api/admin/users/nope/username'],
           ['POST', '/api/admin/users/nope/disable'], ['POST', '/api/admin/users/nope/enable'], ['DELETE', '/api/admin/users/nope'],
           ['DELETE', '/api/admin/users/nope/sessions'], ['GET', '/api/admin/groups'], ['POST', '/api/admin/groups'],
           ['PATCH', '/api/admin/groups/nope'], ['DELETE', '/api/admin/groups/nope'], ['POST', '/api/admin/groups/nope/members'],

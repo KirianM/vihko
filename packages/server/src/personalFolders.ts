@@ -68,10 +68,32 @@ export class PersonalFolders {
    * Throws PersonalFolderExists unless `username` may get its folder: none
    * there yet, or only empty ones. Changes nothing.
    */
-  check(username: string): void {
+  check(username: string, except?: string): void {
     for (const e of this.matching(username)) {
+      if (e.normalize('NFC') === except?.normalize('NFC')) continue
       if (!this.emptyFolder(e)) throw new PersonalFolderExists(`${personalRoot(e)} already exists with something in it: move it out of the way, or choose another name`)
     }
+  }
+
+  /**
+   * Someone renamed (only while invited, users.ts): their folder takes the
+   * new name, with whatever it holds; an empty one the new name finds there
+   * goes first. Through another name, for a volume without case.
+   */
+  rename(from: string, to: string): void {
+    const f = from.normalize('NFC')
+    const t = to.normalize('NFC')
+    for (const e of this.matching(t)) if (e.normalize('NFC') !== f && this.emptyFolder(e)) rmdirSync(join(this.notesDir, PEOPLE, e))
+    const src = join(this.notesDir, personalRoot(f))
+    try {
+      lstatSync(src)
+    } catch {
+      this.ensure(t)
+      return
+    }
+    const aside = join(this.notesDir, PEOPLE, `.renaming-${process.pid}-${Date.now()}`)
+    renameSync(src, aside)
+    renameSync(aside, join(this.notesDir, personalRoot(t)))
   }
 
   /**

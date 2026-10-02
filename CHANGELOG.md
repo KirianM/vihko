@@ -133,6 +133,11 @@ small team meets after months of use.
   it is as you last saw them), a shared space you're in deleted
   (`space_deleted`) or restored (`space_restored`), or renamed («Casa is now
   called Hogar», `space_renamed`).
+- **Renaming someone invited.** A person who hasn't used their invitation
+  yet can be renamed by the admin in «Users» (`PUT
+  /api/admin/users/:id/username`): their folder, the grants to them and their
+  link follow. Someone who signed in can't be renamed yet (`409
+  not_invited`).
 - **«Adopt their folder».** Recreating someone whose `people/<name>/` is
   still there with their notes (after `state.db` was lost, or restored from
   an old copy) was refused with `personal_folder_exists`, and the folder had

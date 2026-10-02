@@ -358,6 +358,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // A user deleted, a group renamed or deleted: their grants in vihko.yaml
   // follow, first (if vihko.yaml can't be written, nothing changes).
   users.hooks.onUserDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(name, { actor: by }) }
+  // Someone invited renamed: the grants to them, and their folder's own rules, follow.
+  users.hooks.onUserRenamed ??= async (from, to, by) => {
+    await permissionsFile.renameSubject(from, to, { actor: by })
+    if (permissionsFile.read().text?.includes(personalRoot(from))) await permissionsFile.moveRules(personalRoot(from), personalRoot(to), { actor: by })
+  }
   users.hooks.onGroupRenamed ??= async (from, to, by) => { await permissionsFile.renameSubject(`@${from}`, `@${to}`, { actor: by }) }
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
   // Deleting someone closes their space for everyone: open editors are checked again at once.

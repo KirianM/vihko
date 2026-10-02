@@ -19,6 +19,7 @@
 //   POST   /api/admin/users/:id/link           a new link (an invitation, or a reset if they have a password) → { link };
 //                                               a reset, with `confirm`
 //   PUT    /api/admin/users/:id/role           { role, confirm }
+//   PUT    /api/admin/users/:id/username       { username } → { user }: only while their invitation is unused
 //   POST   /api/admin/users/:id/disable | enable
 //   DELETE /api/admin/users/:id                only someone disabled (or, deleting them, their space settled at once: http/spaces.ts)
 //   DELETE /api/admin/users/:id/sessions       ends all their sessions
@@ -235,6 +236,16 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     return c.json({ link: l, user: users.get(id) })
   })
 
+  // A new name for someone who hasn't used their invitation yet (409 not_invited otherwise).
+  app.put('/api/admin/users/:id/username', admin, async (c) => {
+    const b = await body(c)
+    if (typeof b.username !== 'string') throw new UsersError('invalid', 'username must be text')
+    const before = users.get(param(c, 'id'))
+    const user = await users.rename(param(c, 'id'), b.username, c.get('access').actor)
+    if (before && before.username !== user.username) log(`${c.get('user').username} renamed the invited ${before.username} to ${user.username}`)
+    return c.json({ user })
+  })
+
   app.put('/api/admin/users/:id/role', admin, async (c) => {
     const id = param(c, 'id')
     const b = await body(c)
@@ -363,5 +374,5 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
 
 /** HTTP status for each users error code. */
 export function usersErrorStatus(e: UsersError) {
-  return ({ not_found: 404, last_admin: 409, not_disabled: 409, user_disabled: 409, invalid_link: 404, group_exists: 409, invalid_group_name: 400, invalid: 400 } as const)[e.code]
+  return ({ not_found: 404, not_invited: 409, last_admin: 409, not_disabled: 409, user_disabled: 409, invalid_link: 404, group_exists: 409, invalid_group_name: 400, invalid: 400 } as const)[e.code]
 }
