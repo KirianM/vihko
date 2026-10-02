@@ -36,11 +36,16 @@ test('vihko.yaml without its permissions: nothing is shared, the admin is told, 
     const file = join(h.notesDir, 'vihko.yaml')
     const missing = async () => (await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'permissions_missing')
     assert.deepEqual(await missing(), [])
+    // When each member's access began, which giving the permissions back keeps.
+    const starts = () => h.state.prepare('select folder, subject, since from grant_starts where folder = ? order by subject').all(s.path)
+    const began = starts()
+    assert.equal(began.length, 2)
     // The section pasted over: the file applies, and the space is nobody's.
     const other = `# ${m.aSentence()}\nhistory:\n  mode: managed\n`
     writeFileSync(file, other)
     h.workspace.reload()
     assert.equal((await h.other('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 404)
+    h.clock.now = new Date(h.clock.now.getTime() + 60_000)
     assert.deepEqual(await missing(), [{ code: 'permissions_missing', file: 'vihko.yaml', folders: 1, actions: ['restore_permissions', 'dismiss'] }])
     // Only the admin, confirmed at the moment.
     assert.equal((await h.member('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'permissions_missing'), false)
@@ -52,6 +57,7 @@ test('vihko.yaml without its permissions: nothing is shared, the admin is told, 
     const now = readFileSync(file, 'utf8')
     assert.ok(now.startsWith(other), now)
     assert.equal((await h.other('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 200)
+    assert.deepEqual(starts(), began, 'nobody\'s past starts anew')
     assert.deepEqual(await missing(), [])
     assert.equal((await h.admin('POST', '/api/admin/permissions/restore', { confirm: h.created.admin.password })).status, 404, 'nothing left to restore')
     // Gone again and dismissed: forgotten. An empty section on purpose isn't missing.
@@ -60,6 +66,7 @@ test('vihko.yaml without its permissions: nothing is shared, the admin is told, 
     assert.equal((await missing()).length, 1)
     assert.equal((await h.admin('DELETE', '/api/admin/permissions/restore')).status, 200)
     assert.deepEqual(await missing(), [])
+    assert.deepEqual(starts(), [], 'dismissed: those grants are gone')
     await newSpace(h, 'member')
     writeFileSync(file, `${other}permissions: {}\n`)
     h.workspace.reload()

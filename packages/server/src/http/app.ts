@@ -319,7 +319,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const grantStarts = policy.starts ?? new GrantStarts(auth.state, { now })
   if (!policy.starts) {
     policy.starts = grantStarts
-    permissions.onRules((rules) => grantStarts.sync(rules))
+    // Not while vihko.yaml has lost its permissions (pasted over, deleted, caught half written):
+    // giving them back mustn't start everyone's grants anew, and so hide their past from them.
+    permissions.onRules((rules) => { if (!workspace.permissionsMissing) grantStarts.sync(rules) })
   }
   // The tree and the sidebar, live (liveTree.ts): told what changes the tree, and when who reaches what may have.
   const live = new LiveTree({
@@ -1167,6 +1169,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.delete('/api/admin/permissions/restore', adminOnly, (c) => {
     if (!workspace.permissionsMissing) return fail(c, 404, 'not_found', 'no such alert')
     workspace.forgetLastPermissions()
+    // Kept as the file says now: the grants it no longer has are gone.
+    grantStarts.sync(permissions.spaceRules().rules)
     return c.json({ ok: true })
   })
 
