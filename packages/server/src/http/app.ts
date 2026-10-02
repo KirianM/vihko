@@ -805,7 +805,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
 
   // The tree, live (liveTree.ts): a server-sent event stream that only ever
   // says «read your tree again» (`tree`), to this person, when a change
-  // concerns what they see. A comment every 25 s keeps proxies from closing it.
+  // concerns what they see, or «read your notices again» (`notices`) when one
+  // arrives for them. A comment every 25 s keeps proxies from closing it.
   app.get('/api/live', (c) => {
     const access = c.get('access')
     if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
