@@ -13,7 +13,14 @@
 //   attachments:                   # where new images of the space's notes go, as vihko.yaml's
 //     mode: folder
 //     folder: images
-//   agents: For agents             # a note of the space: its guide for agents
+//   agents: For agents             # a person's space: a note of it, their guide for agents
+//   guide: |                       # a shared space: its guide for agents, written here
+//     Answer in Spanish.
+//
+// A shared space's guide is written in the file itself, never in a note: the
+// file is changed by the space's managers only, and a note by anyone who edits
+// it, so a member with edit can't change what every member's agents are told.
+// A person's own guide is one of their notes (`agents`): their space is theirs.
 //
 // Templates aren't configured: a template is a note marked `template: true` in
 // its frontmatter, wherever it is. An old `templates` key is an unknown one.
@@ -67,20 +74,31 @@ export interface NoteSettings {
   version: number
   daily: SettingsSeries[]
   attachments: SettingsAttachments | null
-  /** A note of the space with its guide for agents (`.md` optional when written). */
+  /** A person's space: a note of it with their guide for agents (`.md` optional when written). */
   agents: string | null
+  /** A shared space: its guide for agents, the text itself. */
+  guide: string | null
 }
 
-export const EMPTY_NOTE_SETTINGS: NoteSettings = { version: NOTE_SETTINGS_VERSION, daily: [], attachments: null, agents: null }
+export const EMPTY_NOTE_SETTINGS: NoteSettings = { version: NOTE_SETTINGS_VERSION, daily: [], attachments: null, agents: null, guide: null }
+
+/** Whose settings: a person's own space's, or a shared space's (what `agents` and `guide` mean depends on it). */
+export type NoteSettingsKind = 'personal' | 'shared'
+
+/** The longest guide a shared space's settings may hold, in characters. */
+export const MAX_SPACE_GUIDE = 20_000
 
 /** The settings as they apply: paths from the notes root. */
 export interface ResolvedNoteSettings {
   daily: Series[]
   attachments: AttachmentsConfig | null
+  /** A person's guide: the note, from the notes root. */
   agents: string | null
+  /** A shared space's guide: its text. */
+  guide: string | null
 }
 
-const TOP_KEYS = ['version', 'daily', 'attachments', 'agents']
+const TOP_KEYS = ['version', 'daily', 'attachments', 'agents', 'guide']
 const SERIES_KEYS = ['label', 'folder', 'name', 'template']
 const ATTACHMENT_KEYS = ['mode', 'folder', 'suffix']
 const SERIES_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
@@ -96,10 +114,11 @@ export function spacePathProblem(p: string): boolean {
  * Reads a settings file's text. `errors`: what was left out and why (codes
  * as vihko.yaml's: `yaml`, `not_a_map`, `unknown_key`, `invalid_version`,
  * `invalid_value`, `invalid_path`, `invalid_type`, `invalid_id`,
- * `pattern_token`, `pattern_period`, `newer_version`), each with where (a key
- * path) and its line. A file that isn't there is `EMPTY_NOTE_SETTINGS`.
+ * `pattern_token`, `pattern_period`, `newer_version`; `space_guide_note` for
+ * `agents` in a shared space's, with the note it names, and `unknown_key` for
+ * `guide` in a person's), each with where (a key path) and its line. A file that isn't there is `EMPTY_NOTE_SETTINGS`.
  */
-export function parseNoteSettings(text: string | null): { settings: NoteSettings; errors: ConfigError[] } {
+export function parseNoteSettings(text: string | null, kind: NoteSettingsKind = 'personal'): { settings: NoteSettings; errors: ConfigError[] } {
   const settings: NoteSettings = { ...EMPTY_NOTE_SETTINGS, daily: [] }
   const errors: ConfigError[] = []
   if (text === null || text.trim() === '') return { settings, errors }
@@ -147,7 +166,9 @@ export function parseNoteSettings(text: string | null): { settings: NoteSettings
     }
   }
 
-  if (root.agents !== undefined && root.agents !== null) {
+  // A shared space's guide was a note before: said, with the note it named, so its managers can move its text in.
+  if (root.agents !== undefined && root.agents !== null && kind === 'shared') fail('space_guide_note', ['agents'], typeof root.agents === 'string' ? root.agents : null)
+  else if (root.agents !== undefined && root.agents !== null) {
     if (typeof root.agents !== 'string') fail('invalid_type', ['agents'], 'string')
     else {
       let p = root.agents.trim().normalize('NFC')
@@ -155,6 +176,13 @@ export function parseNoteSettings(text: string | null): { settings: NoteSettings
       if (spacePathProblem(p) || classifyPath(p) !== 'note') fail('invalid_path', ['agents'])
       else settings.agents = p
     }
+  }
+
+  if (root.guide !== undefined && root.guide !== null && kind === 'personal') fail('unknown_key', ['guide'])
+  else if (root.guide !== undefined && root.guide !== null) {
+    if (typeof root.guide !== 'string') fail('invalid_type', ['guide'], 'string')
+    else if (root.guide.length > MAX_SPACE_GUIDE) fail('invalid_value', ['guide'], String(MAX_SPACE_GUIDE))
+    else if (root.guide.trim() !== '') settings.guide = root.guide.normalize('NFC')
   }
 
   if (root.attachments !== undefined && root.attachments !== null) {
@@ -239,6 +267,7 @@ export function resolveNoteSettings(s: NoteSettings, root: string, idPrefix: str
       : s.attachments.mode === 'folder' ? { folder: s.attachments.folder }
       : { folder: null, perNote: s.attachments.suffix },
     agents: s.agents === null ? null : at(s.agents),
+    guide: s.guide,
   }
 }
 
@@ -272,14 +301,17 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * file without `version` gets it, first. Throws NoteSettingsFileError for a
  * file that isn't YAML or a map: it's fixed by hand.
  */
-export function writeNoteSettings(text: string | null, next: NoteSettings): string {
+export function writeNoteSettings(text: string | null, next: NoteSettings, kind: NoteSettingsKind = 'personal', remove: readonly string[] = []): string {
   const doc = parseYamlDocument(text ?? '')
   if (doc.errors.length) throw new NoteSettingsFileError(`not valid YAML: ${doc.errors[0]!.message}`)
   if (doc.contents !== null && !isMap(doc.contents)) throw new NoteSettingsFileError('not a set of key: value')
-  const read = parseNoteSettings(text)
+  const read = parseNoteSettings(text, kind)
   const was = read.settings
   // A known key whose value was left out as wrong is written over (a key vihko doesn't know stays).
   const wrong = new Set(read.errors.filter((e) => e.code !== 'unknown_key').map((e) => e.at?.split('.')[0]))
+  // Keys vihko doesn't know that the person chose to remove (`remove`, as their `at`): only those, never one it knows.
+  const unknown = new Set(read.errors.filter((e) => e.code === 'unknown_key' && e.at !== null).map((e) => e.at!))
+  for (const at of remove) if (unknown.has(at)) doc.deleteIn(at.split('.'))
   const current = (doc.toJS() ?? {}) as Record<string, unknown>
   if (doc.contents === null) doc.contents = doc.createNode({}) as never
   if (current.version === undefined) {
@@ -309,6 +341,10 @@ export function writeNoteSettings(text: string | null, next: NoteSettings): stri
   if (!same(was.agents, next.agents) || wrong.has('agents')) {
     if (next.agents === null) doc.delete('agents')
     else doc.set('agents', next.agents.replace(/\.md$/i, ''))
+  }
+  if (!same(was.guide, next.guide) || wrong.has('guide')) {
+    if (next.guide === null) doc.delete('guide')
+    else doc.set('guide', next.guide)
   }
   return doc.toString({ lineWidth: 0 })
 }

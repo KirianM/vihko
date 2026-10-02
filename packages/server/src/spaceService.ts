@@ -35,6 +35,7 @@ import type { Notices } from './notices.ts'
 import type { PermissionsEngine, SharedEntry, SharedSpaceInfo, SpaceEntry } from './permissions.ts'
 import type { PermissionsFile } from './permissionsFile.ts'
 import type { Users } from './users.ts'
+import { shownPath } from './logging.ts'
 
 /** A request about spaces that can't be made as it is: `invalid` and `space_needs_manager` (400), `leave_via_group`, `space_has_managers` and `space_name_taken` (409). */
 export class SpaceError extends Error {
@@ -503,7 +504,7 @@ export class SpaceService {
       let out = t
       for (const folder of rulesInFile(t).keys()) if (folder === from || folder.startsWith(from + '/')) out = setRule(out, folder, { grants: null, ai: null })
       return out
-    }, { actor: access.actor }).catch((err) => this.opts.log?.(`the old rules of ${from} stay in vihko.yaml after it moved to ${dest}: ${err instanceof Error ? err.message : String(err)}`))
+    }, { actor: access.actor }).catch((err) => this.opts.log?.(`the old rules of ${shownPath(from)} stay in vihko.yaml after it moved to ${shownPath(dest)}: ${err instanceof Error ? err.message : String(err)}`))
     this.opts.refs.moved(from, dest)
     // A person's settings (their `.vihko/`) aren't a shared space's: they don't come along.
     if (action === 'convert') {

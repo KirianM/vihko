@@ -73,6 +73,9 @@
 .editor .cm-image-mark { position: absolute; top: var(--space-2); right: var(--space-2); font-family: var(--font-sans); font-size: 12px; line-height: 18px; padding: 0 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted); }
 .editor .cm-image-box { display: inline-block; font-family: var(--font-sans); font-size: 13px; line-height: 18px; padding: 10px 14px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); background: var(--panel); color: var(--muted); overflow-wrap: anywhere; }
 .editor .cm-image-missing .cm-image-box { border-color: var(--danger); color: var(--danger); }
+.editor .cm-image-actions { display: inline-flex; gap: var(--space-2); margin-left: var(--space-3); }
+.editor .cm-image-action { font: inherit; font-size: 13px; padding: 0; border: none; background: none; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.editor .cm-image-action:hover { color: var(--ink); }
 
 /* Tasks: a checkbox in place of `- [ ]`; done ones muted and struck through */
 .editor .cm-task { position: relative; display: inline-flex; align-items: center; vertical-align: -0.12em; margin-right: var(--space-1); cursor: pointer; }

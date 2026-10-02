@@ -3,7 +3,8 @@
 // each one marked and nothing else of it changed), a new note from one with
 // its frontmatter but not the mark, a template unmarked from its note's menu;
 // and the ⌘K box finding notes by `key:value` and `prop:key`, templates only
-// when asked for. It works in a folder of its own, in the admin's space.
+// when asked for, and never among its recent notes. It works in a folder of
+// its own, in the admin's space.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, NOTES, freshFolder, personal, specMother } from './env.ts'
@@ -168,4 +169,33 @@ test('a template no more, from its note\'s menu: the mark goes, nothing else', a
   await k.getByRole('menuitem', { name: 'Convertir en plantilla' }).click()
   await expect(row(ONE)).toContainText('Plantilla')
   expect(withoutUid(read(path.one))).toContain('template: true')
+})
+
+test('a note made a template leaves the ⌘K box\'s recent notes, as it leaves search and Home', async () => {
+  // Opened, then left: it's among the recent notes.
+  await k.goto(`/?note=${encodeURIComponent(path.other)}`)
+  await expect(k.locator('.crumbs b')).toHaveText(OTHER)
+  // Remembered once it has loaded (this browser's storage).
+  await expect.poll(() => k.evaluate(() => localStorage.getItem('vihko.recent') ?? '')).toContain(JSON.stringify(path.other).slice(1, -1))
+  await k.goto(`/?note=${encodeURIComponent(path.plain)}`)
+  await expect(k.locator('.crumbs b')).toHaveText(PLAIN)
+  const recent = () => palette().getByRole('group', { name: 'Recientes' })
+  await k.keyboard.press('Control+k')
+  await expect(recent().getByRole('option').filter({ hasText: OTHER })).toHaveCount(1)
+  await k.keyboard.press('Escape')
+  // Made a template from its menu: gone from them, at once (the tree says so live).
+  await row(OTHER).click({ button: 'right' })
+  await k.getByRole('menuitem', { name: 'Convertir en plantilla' }).click()
+  await expect(row(OTHER)).toContainText('Plantilla')
+  await k.keyboard.press('Control+k')
+  await expect(palette()).toBeVisible()
+  await expect(recent().getByRole('option').filter({ hasText: OTHER })).toHaveCount(0)
+  await k.keyboard.press('Escape')
+  // A template no more: back among them.
+  await row(OTHER).click({ button: 'right' })
+  await k.getByRole('menuitem', { name: 'Dejar de ser plantilla' }).click()
+  await expect(row(OTHER)).not.toContainText('Plantilla')
+  await k.keyboard.press('Control+k')
+  await expect(recent().getByRole('option').filter({ hasText: OTHER })).toHaveCount(1)
+  await k.keyboard.press('Escape')
 })

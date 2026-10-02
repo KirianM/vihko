@@ -233,9 +233,7 @@ templates of its own, its photos in one folder, and a guide that tells
 assistants where things go.
 
 1. Make what the settings will point to: in «Family», a folder `Templates`
-   with a note `Shopping` in it (`# {{title}}` and the usual headings), and a
-   note `About this space` with what an assistant should know («Recipes go
-   in Recipes, one note each»).
+   with a note `Shopping` in it (`# {{title}}` and the usual headings).
 2. Open the menu of the folder `Templates` → **Mark notes as templates…** →
    **Mark as templates**: its notes, «Shopping» and any you add later by the
    same means, are now templates (see [Templates](notes.md#templates)).
@@ -245,7 +243,9 @@ assistants where things go.
    `Shopping`, Note name `{GGGG}-W{WW}` (one per week), Template
    `Templates/Shopping`.
 5. **New images** → **All in one folder**, **Folder of images**: `Photos`.
-6. **Guide for agents (a note)**: `About this space`.
+6. **Guide for agents**: what an assistant should know, for example
+   «Recipes go in Recipes, one note each». It's kept in the space's
+   settings, not in a note, so only the space's managers change it.
 7. Press **Save**.
 
 What the members get:
@@ -260,9 +260,9 @@ What the members get:
   template» when they make a note, anywhere.
 - **Images** pasted into any note of Family go to «Family / Photos». Images
   of their own notes don't change.
-- **Their agents** get «About this space» when they connect, for what they
-  do in Family. If that note doesn't exist (say it was renamed), saving the
-  settings says so, and the space's managers get an alert until it's back.
+- **Their agents** get that guide when they connect, for what they do in
+  Family. A member who edits Family's notes can't change it: only its
+  managers, in «Settings…».
 
 The settings are saved in a hidden file of the space
 (`spaces/Family/.vihko/settings.yaml` on the server); members never see it,
@@ -277,7 +277,7 @@ themselves. Nothing replaces anything, except for images:
 
 | Setting | What a person gets |
 |---|---|
-| Daily note series | All of them: their own, those of the spaces where they can edit, and the installation's, in that order. They choose one in Preferences; until they do, «Today's note» opens the first, and the first one it opens stays their choice |
+| Daily note series | All of them: their own, those of the spaces where they can edit, and the installation's, in that order. They choose one in Preferences; until they do, «Today's note» opens the first, and the first one it opens stays their choice. Two series that write the same notes are one, the closest (theirs, then a space's), with its template. If their choice goes away, «Today's note» asks again |
 | Templates | Not a setting: every note marked `template: true` they can read, in any space |
 | Where a new image goes | The setting of **the note's space**, if it has one; otherwise the installation's. Never someone else's |
 | Guide for agents | All of them, one after another: the installation's, then each space's, then their own |
@@ -566,6 +566,28 @@ person who receives it, and the other admins, are told.
 
 The last active admin can't be disabled, deleted or lose the admin role.
 
+### Someone leaving with their notes
+
+vihko has no export yet. It doesn't need one to let someone take their
+notes: they are plain Markdown files, in folders, on the server's disk.
+
+- **Their own space** is the folder `notes/people/<username>/`. Whoever
+  administers the server copies it (with `cp -a`, `rsync`, or a zip of it)
+  and hands it over: the notes, their images and other files, and their
+  settings (`.vihko/settings.yaml`). Any Markdown editor opens it; in
+  Obsidian, open the folder as a vault, and the links by name work as they
+  did in vihko.
+- **What they wrote in a shared space** is the space's, its members'. Copy
+  only what the space's members agree to, from `notes/spaces/<name>/`.
+- **The history** of their notes isn't in those files. A note's earlier
+  versions can be copied one by one from its History; for all of it, the
+  admin can read the history's git repository
+  ([History](history.md)).
+
+Then disable or delete the account as above. Deleting doesn't remove the
+files from the disk unless the admin chooses **Delete…** for the closed
+space.
+
 ## Changing roles
 
 «Make admin» and «Remove the admin role», in the user's «Actions». A new admin
@@ -598,6 +620,13 @@ decides. Whoever could have made that move from vihko (`edit` where they were
 and where they are) gets an alert with «Release them»; the notes go back to
 normal by themselves if they're moved back. A folder with held notes inside
 can't be deleted until they're released.
+
+**Only whoever moved them can release them**, in practice: the alert, and
+«Release them», go only to someone with `edit` both where the notes were and
+where they are now. A manager of the folder they landed in who couldn't edit
+where they came from doesn't get it, and can't delete that folder meanwhile:
+ask whoever moved them to release them, or move them back with the same
+program.
 
 Grants in `vihko.yaml` for a folder that no longer exists are kept, and apply
 again if the folder comes back; whoever manages its space gets an alert. Moves

@@ -38,18 +38,18 @@ test('templates: a new note from any template note, in the person\'s timezone', 
   assert.ok(!existsSync(join(notesDir, other)))
 })
 
-test('a marked template: the new note gets its frontmatter without the mark, byte for byte, and its variables filled in', async () => {
+test('a marked template: the new note gets its frontmatter without the mark and the aliases (ai: false kept), byte for byte, and its variables filled in', async () => {
   const { admin, notesDir, runtime, users } = await setup({ config: CONFIG })
   const [type, comment, other] = [m.aUniqueWord(), m.aSentence(), m.aUniqueWord()]
   const template = `${DAILY.templates}/${m.aTitle()}.md`
-  writeFileSync(join(notesDir, template), `---\n# ${comment}\ntype: "${type}"   # ${comment}\ntemplate: true\ntags: [${other}, '${type}']\nx-${other}: { a: 1 }\nauthor: "{{user}}"\n---\n# {{title}}\n`)
+  writeFileSync(join(notesDir, template), `---\n# ${comment}\ntype: "${type}"   # ${comment}\ntemplate: true\naliases: [${m.aUniqueWord()}]\nai: false\ntags: [${other}, '${type}']\nx-${other}: { a: 1 }\nauthor: "{{user}}"\n---\n# {{title}}\n`)
   runtime.rescan({})
   const title = m.aTitle()
   const path = inShared(`${m.aFolder()}/${title}.md`)
   const r = await admin('POST', '/api/note', { path, template })
   assert.equal(r.status, 201, JSON.stringify(r.body))
   // The new note's own uid goes at the end of its frontmatter, as on any note.
-  assert.equal(readFileSync(join(notesDir, path), 'utf8'), `---\n# ${comment}\ntype: "${type}"   # ${comment}\ntags: [${other}, '${type}']\nx-${other}: { a: 1 }\nauthor: "${users.admin.username}"\nuid: ${r.body.uid}\n---\n# ${title}\n`)
+  assert.equal(readFileSync(join(notesDir, path), 'utf8'), `---\n# ${comment}\ntype: "${type}"   # ${comment}\nai: false\ntags: [${other}, '${type}']\nx-${other}: { a: 1 }\nauthor: "${users.admin.username}"\nuid: ${r.body.uid}\n---\n# ${title}\n`)
   // The new note is no template: it is searched like any other.
   const found = (await admin('GET', `/api/search?q=${encodeURIComponent(`type:${type}`)}`)).body.results.map((x: { path: string }) => x.path)
   assert.deepEqual(found, [path])

@@ -14,6 +14,7 @@ import { UnmanagedReader } from './unmanaged.ts'
 import { HistoryError, type HistoryReader } from './reader.ts'
 import { purgeRunning, type PurgeReport } from './purge.ts'
 import { PurgeNotices, type PurgeNotice } from './notices.ts'
+import { shownPath } from '../logging.ts'
 
 export interface HistoryOptions extends Omit<RecorderOptions, 'maxFileBytes'> {
   /** vihko.yaml's `history`, as currently in force. */
@@ -137,7 +138,7 @@ export class History {
     const report = await done
     if (!report.dryRun) {
       this.notices.add({ path: report.path, version: report.version, by: req.by, at: new Date(this.opts.now?.() ?? Date.now()).toISOString() })
-      this.opts.log?.(`history: ${report.version ? `a version of ${report.path}` : report.path} purged from the UI`)
+      this.opts.log?.(`history: ${report.version ? `a version of ${shownPath(report.path)}` : shownPath(report.path)} purged from the UI`)
     }
     return report
   }

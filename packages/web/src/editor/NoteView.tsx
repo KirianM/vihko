@@ -283,7 +283,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
   const editable = canEdit(known)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
-    () => new Map<string, LinkInfo>((linkData?.outgoing ?? []).map((l) => [l.raw, { status: l.status, path: l.dstPath, candidates: l.candidates }])),
+    () => new Map<string, LinkInfo>((linkData?.outgoing ?? []).map((l) => [l.raw, { status: l.status, path: l.dstPath, candidates: l.candidates, ...(l.file ? { file: true } : {}) }])),
     [linkData],
   )
   const [originals, setOriginals] = useState<CommentOriginal[] | null>(null)
@@ -308,7 +308,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
   // blocked; if they can't be read, the server's CSP still enforces it.
   useEffect(() => {
     let live = true
-    api.config().then((r) => { if (live) setConfig(r) }, () => { if (live) setConfig({ externalImages: 'allow', maxImageBytes: 0 }) })
+    api.config().then((r) => { if (live) setConfig(r) }, () => { if (live) setConfig({ externalImages: 'ask', maxImageBytes: 0 }) })
     return () => { live = false }
   }, [])
 
@@ -402,7 +402,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
           {c.session && c.connection !== 'connecting' && config && known && (
             <Editor path={path} session={c.session} user={user} links={links} onNavigate={onNavigate} onView={setView} onComments={panel.showComments}
               commentReach={{ notices: !panel.open, click: !panel.open && !panel.narrow }}
-              externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onCreateLink={createLink.onCreateLink}
+              externalImages={config.externalImages} onImageFiles={images.onFiles} onImageUrl={images.onUrl} onSaveImageCopy={images.saveCopy} onCreateLink={createLink.onCreateLink}
               onPickAmbiguous={openPicker} readOnly={!editable} />
           )}
         </div>

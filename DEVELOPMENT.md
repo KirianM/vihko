@@ -289,6 +289,20 @@ or anything on it that changed incompatibly, stops the release.
    first stable version is out. Change its image line (and its copy in
    `guide/install.md`) in the release pull request that makes that change.
 
+### The weekly image scan
+
+`.github/workflows/image-scan.yml` scans the newest published image every
+Monday (or when run by hand from the Actions tab) with Trivy, for known
+vulnerabilities rated HIGH or CRITICAL that have a fix. If it finds any, the
+run fails and an issue lists them (a later finding comments on the same open
+issue). **A serious finding is followed by a patch release** (`vX.Y.Z+1`, or
+the next release candidate while there are only those): update what it names
+(the base image in the `Dockerfile`, or a dependency), release as above, and
+close the issue once the next scan is clean. Published tags never change. The
+scanner's image is pinned by digest in the workflow; Dependabot doesn't see
+it, so update the digest and its release comment by hand, to a release at
+least a week old.
+
 ### The upgrade smoke test
 
 `scripts/upgrade-smoke.ts` upgrades an installation the way a person does.
@@ -345,6 +359,11 @@ instead), and whoever still uses it is told:
 
 A form of `vihko.yaml` that changes is rewritten at start by a migration
 instead (core's `workspaceMigrations.ts`, with its `config_migrated` alert).
+A key that goes away from `vihko.yaml` or a space's `.vihko/settings.yaml`
+and asked for something in the notes is a retired key: one entry in the
+server's `retiredKeys.ts` (`RETIRED_KEYS`), whose `migrate` does what the key
+asked for; vihko runs it at start, removes the key (the rest of the file as
+it was) and tells whom the file belongs to (`settings_migrated`).
 
 ### The `version` of `vihko.yaml`
 

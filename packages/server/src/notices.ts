@@ -27,6 +27,10 @@
 //   shown only while they can still see it.
 // - `retention_ran`: to every admin, what the retention removed:
 //   how many trash entries and history versions, never a path.
+// - `settings_migrated`: to whom a settings file belongs (the person, a
+//   space's managers, the admins for vihko.yaml), what vihko did at start
+//   with a key it retired there (retiredKeys.ts): how many notes it marked,
+//   and the folders the key named that no longer exist.
 //
 // Only ids are kept (who did it, to whom): names are looked up when shown,
 // so a rename shows the new one and a deleted user their tombstone's. Never
@@ -60,6 +64,11 @@ export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => s
   const d = n.data
   if (d.code === 'links_not_updated') return { code: d.code, id: n.id, at: n.at, actions: ['dismiss'] }
   if (d.code === 'retention_ran') return { code: d.code, id: n.id, at: n.at, trashEntries: d.trashEntries, versions: d.versions, failed: d.failed, actions: ['dismiss'] }
+  if (d.code === 'settings_migrated') {
+    // The file only while they can still see where it is (vihko.yaml: the admins it went to).
+    const shown = d.file === WORKSPACE_FILE || access.level(d.file.slice(0, d.file.indexOf('/.vihko/'))) !== null ? d.file : null
+    return { code: d.code, id: n.id, at: n.at, key: d.key, file: shown, marked: d.marked, missing: shown === null ? [] : d.missing, actions: ['dismiss'] }
+  }
   const base = { id: n.id, at: n.at, by: nameOf(d.by), actions: ['dismiss' as const] }
   switch (d.code) {
     case 'account_changed': return { code: d.code, ...base, change: d.change, role: d.role }
@@ -101,6 +110,8 @@ export type NoticeData =
   | { code: 'shared_with_you'; kind: 'space' | 'folder'; by: string; path: string }
   /** To every admin: the retention removed that many trash entries and history versions (or failed). Counts only. */
   | { code: 'retention_ran'; trashEntries: number; versions: number; failed: boolean }
+  /** To whom `file` belongs: vihko removed the retired `key` from it at start, after doing what it asked (`marked` notes; `missing` folders). */
+  | { code: 'settings_migrated'; key: string; file: string; marked: number; missing: string[] }
 
 export type NoticeCode = NoticeData['code']
 
@@ -114,7 +125,7 @@ export interface Notice {
 /** The most notices a person keeps: older ones go first. */
 const MAX_PER_USER = 100
 
-const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran']
+const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran', 'settings_migrated']
 
 export class Notices {
   private db: Db

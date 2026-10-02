@@ -97,7 +97,7 @@ test('«insertar imagen» from the palette opens the same dialog', async () => {
   await expect(k.getByRole('dialog')).toHaveCount(0)
 })
 
-test('a pasted image URL: «Enlazar al origen» keeps the address and shows it as external', async () => {
+test('a pasted image URL: «Enlazar al origen» keeps the address; a new installation shows it only when asked («Mostrar»), then as external', async () => {
   await toEnd(k)
   await pasteText(k, `${EXTERNAL}/${REMOTE}`)
   const dialog = k.getByRole('dialog')
@@ -106,9 +106,21 @@ test('a pasted image URL: «Enlazar al origen» keeps the address and shows it a
   await dialog.getByRole('button', { name: 'Enlazar al origen' }).click()
   await expect.poll(disk).toContain(`![](${EXTERNAL}/${REMOTE})`)
   await k.locator('.cm-h1').click()
+  // The test server is a new installation: external images wait for the reader (VIHKO_EXTERNAL_IMAGES unset).
+  const box = k.locator('.cm-image-blocked')
+  await expect(box).toContainText(`Imagen externa de ${new URL(EXTERNAL).host}`)
+  await expect(box.getByRole('button', { name: 'Guardar copia' })).toBeVisible()
+  await expect(k.locator('.cm-image-external')).toHaveCount(0)
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await box.screenshot({ path: `${SHOTS}/image-external-ask-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await box.getByRole('button', { name: 'Mostrar' }).click()
   const ext = k.locator('.cm-image-external')
   await expect(ext.locator('img')).toBeVisible()
   await expect(ext.locator('.cm-image-mark')).toHaveText('externa')
+  expect(disk()).toContain(`![](${EXTERNAL}/${REMOTE})`)
 })
 
 test('a pasted image URL: «Guardar copia» downloads it on the server; «Pegar como texto» pastes the text', async () => {
@@ -201,5 +213,25 @@ test('with the cursor inside a link\'s syntax, an inserted image goes after the 
   await p.getByRole('dialog').getByLabel('Dirección de la imagen').fill(url)
   await p.getByRole('dialog').getByRole('button', { name: 'Enlazar al origen' }).click()
   await expect.poll(text).toContain(`${linked}![](${url})\n`)
+  await p.context().close()
+})
+
+test('«Guardar copia» on an external image already in a note: the server downloads it, and the note points to the copy, its text kept', async ({ browser }) => {
+  const title = m.aTitle()
+  const note = `${DIR}/${title}.md`
+  const alt = m.aWord()
+  const text = () => readFileSync(`${NOTES}/${note}`, 'utf8')
+  writeFileSync(`${NOTES}/${note}`, `# ${m.aHeading()}\n\n![${alt}](${EXTERNAL}/${REMOTE})\n`)
+  const p = await signIn(browser, ADMIN, note)
+  const box = p.locator('.cm-image-blocked')
+  await expect(box).toBeVisible()
+  await box.getByRole('button', { name: 'Guardar copia' }).click()
+  await expect.poll(text).not.toContain(EXTERNAL)
+  const copied = /!\[([^\]]*)\]\(([^)]+)\)/.exec(text())!
+  expect(copied[1]).toBe(alt)
+  expect(readFileSync(`${NOTES}/${DIR}/${decodeURIComponent(copied[2]!)}`).equals(ORANGE)).toBe(true)
+  await p.locator('.cm-h1').click()
+  await expect(p.locator('.cm-image img')).toBeVisible()
+  await expect(p.locator('.cm-image-blocked')).toHaveCount(0)
   await p.context().close()
 })

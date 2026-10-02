@@ -168,23 +168,21 @@ export function mountMcp(app: Hono<any>, services: Services, opts: McpOptions): 
 
   /**
    * The guides for agents of the spaces' and the person's own note settings
-   * (noteSettings.ts): of each shared space the key reaches, then the
-   * person's own if it reaches their space. Each a note read as the key; one
-   * it can't read is left out.
+   * (noteSettings.ts): of each shared space the key reaches (`view` already
+   * leaves out those outside its folders or closed to agents), its text as
+   * its managers wrote it in the space's settings; then the person's own, a
+   * note read as the key (one it can't read is left out).
    */
   const settingsGuides = (access: Access, v: SpacesResponse): string[] => {
     const out: string[] = []
-    const read = (note: string): string | null => {
-      try { return services.scoped(access).read(note).text } catch { return null }
-    }
     for (const s of v.spaces) {
-      const g = services.noteSettings.read(s.path).resolved.agents
-      const text = g ? read(g) : null
-      if (text !== null) out.push(`The guide for agents of the shared space ${JSON.stringify(s.name)} (the note ${g}), for what you do in it:\n\n${text}`)
+      const text = services.noteSettings.read(s.path).resolved.guide
+      if (text !== null) out.push(`The guide for agents of the shared space ${JSON.stringify(s.name)}, written by its managers, for what you do in it:\n\n${text}`)
     }
     if (v.personal) {
       const g = services.noteSettings.read(v.personal.path).resolved.agents
-      const text = g ? read(g) : null
+      let text: string | null = null
+      try { text = g ? services.scoped(access).read(g).text : null } catch { text = null }
       if (text !== null) out.push(`${access.user.username}'s own guide for agents (the note ${g}):\n\n${text}`)
     }
     return out

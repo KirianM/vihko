@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { NoteSettingsFileError, WORKSPACE_FILE, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
+import { NoteSettingsFileError, WORKSPACE_FILE, noteSettingsPath, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -26,7 +26,7 @@ import { ProfileError, isNotePath, type Profile, type Profiles } from '../profil
 import { historyFor } from '../agentHistory.ts'
 import { homeView } from '../home.ts'
 import { LiveTree } from '../liveTree.ts'
-import { NoteSettingsStore } from '../noteSettings.ts'
+import { NoteSettingsStore, settingsKind } from '../noteSettings.ts'
 import { settingsFromBody } from './settingsBody.ts'
 import { streamSSE } from 'hono/streaming'
 import type { Workspace } from '../workspace.ts'
@@ -73,6 +73,7 @@ import { FolderRefs } from '../folderRefs.ts'
 import { SpaceError, SpaceService } from '../spaceService.ts'
 import { spaceRoutes } from './spaces.ts'
 import { jsonBody } from './jsonBody.ts'
+import { scrub } from '../logging.ts'
 
 export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -233,12 +234,18 @@ export interface Services {
   spaces: SpaceService
 }
 
-export type ExternalImages = 'allow' | 'block'
+/**
+ * Images notes link from other sites: `allow` loads them; `ask` shows a box
+ * with the site's name until the reader presses «Show» (or saves a copy);
+ * `block` never loads them (the page's policy forbids it), and offers only
+ * to save a copy, which the server downloads.
+ */
+export type ExternalImages = 'allow' | 'ask' | 'block'
 
 // The UI only talks to its own origin: no CDNs or third parties. The one
 // exception is images linked in notes, unless the administrator blocks them.
 function uiHeaders(external: ExternalImages) {
-  const img = external === 'allow' ? "img-src 'self' data: blob: https: http:" : "img-src 'self' data: blob:"
+  const img = external === 'block' ? "img-src 'self' data: blob:" : "img-src 'self' data: blob: https: http:"
   return {
     'Content-Security-Policy': `default-src 'self'; ${img}; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     'X-Content-Type-Options': 'nosniff',
@@ -249,6 +256,11 @@ function uiHeaders(external: ExternalImages) {
 // Files from the notes folder are served inert: nothing in them runs, even
 // an SVG opened on its own (sandboxed, no scripts).
 const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
+// A PDF from the notes folder: the browser's own viewer shows it, which a
+// sandbox (or a policy on what it may load) can stop, so the policy only
+// keeps it from being framed. It is never read as a page: its type is
+// `application/pdf`, with `nosniff`.
+const PDF_CSP = "frame-ancestors 'none'"
 
 // Everything else (the API's JSON, errors, /mcp): nothing in it is a page.
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
@@ -261,7 +273,7 @@ export type ApiEnv = { Variables: { user: User; token: string; access: Access } 
 type Env = ApiEnv
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409, series_gone: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -292,8 +304,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const noteSettings = deps.noteSettings ?? new NoteSettingsStore({ notesDir: deps.notesDir })
   /** The shared spaces someone belongs to: whose settings add to theirs. */
   const spacesOf = (user: { id: string; username: string }) => permissions.spacesFor(user).spaces.map((s) => s.path)
-  const seriesOf = (user: User) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username)
-  const daily = new DailyNotes({ workspace, profiles, notes, now, offered, seriesOf })
+  const seriesOf = (user: User) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username).list
+  const sameSeries = (user: User, id: string) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username).sameAs.get(id) ?? null
+  const daily = new DailyNotes({ workspace, profiles, notes, now, offered, seriesOf, sameAs: sameSeries })
   const jobs = new MoveJobs()
   const moveWaitMs = deps.moveWaitMs ?? 1000
   const keys = deps.keys ?? new ApiKeys(auth.state)
@@ -328,7 +341,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const notices = deps.notices ?? new Notices(auth.state, { now })
   const retention = deps.retention ?? new Retention({ stateDir: notes.stateDir, settings: adminSettings, trash: () => notes.trash(), history: deps.history, notices, now: () => now().getTime() })
-  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
+  const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata, clientDomains: () => workspace.config.mcp.clientDomains })
   // Keys' folders, pins and the trash follow a folder moved from vihko (folderRefs.ts).
   const refs = new FolderRefs({ state: auth.state, stateDir: notes.stateDir })
   const scopedDeps: ScopedDeps = {
@@ -380,7 +393,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, clientMessage(err))
     if (err instanceof PurgeError) return fail(c, purgeErrorStatus(err), err.code, purgeClientMessage(err))
     if (err instanceof GitError) {
-      console.error(`history: ${err.message}`)
+      console.error(scrub(`history: ${err.message}`))
       return fail(c, 503, 'history_unavailable', UNAVAILABLE_MESSAGE)
     }
     if (err instanceof AuthError) return fail(c, err.code === 'user_exists' || err.code === 'already_setup' || err.code === 'personal_folder_exists' ? 409 : 400, err.code, err.message)
@@ -392,7 +405,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof AdminSettingsError) return fail(c, 400, err.code, err.message)
     // Body that isn't JSON.
     if (err instanceof SyntaxError) return fail(c, 400, 'invalid', err.message)
-    console.error(err)
+    console.error(scrub(err instanceof Error ? err.stack ?? err.message : String(err)))
     return fail(c, 500, 'internal', 'internal error')
   })
 
@@ -621,7 +634,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json(await scoped(c).createFolder(path), 201)
   })
 
-  app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true' })))
+  app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true', dryRun: c.req.query('dryRun') === 'true' })))
 
   // Templates are notes marked `template: true` in their frontmatter. A
   // person marks every note of a folder (its subfolders too) at once, each
@@ -718,17 +731,21 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   app.put('/api/settings', async (c) => {
-    const body = await jsonBody<{ space?: unknown; settings?: unknown; ifMatch?: unknown }>(c)
+    const body = await jsonBody<{ space?: unknown; settings?: unknown; ifMatch?: unknown; remove?: unknown }>(c)
     const root = settingsRoot(c, body.space, true)
     if (root instanceof Response) return root
     const next = settingsFromBody(body.settings)
-    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, attachments and agents, as GET gives them')
+    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, attachments, agents and guide, as GET gives them')
     // What's wrong in them is said, with where; nothing is written.
-    const problems = parseNoteSettings(writeNoteSettings(null, next)).errors
+    const kind = settingsKind(root)
+    const problems = parseNoteSettings(writeNoteSettings(null, next, kind), kind).errors
     if (problems.length) return fail(c, 400, 'invalid', 'the settings have problems', { errors: problems })
     if (typeof body.ifMatch !== 'string') return fail(c, 428, 'precondition_required', 'ifMatch: the ETag of the settings the change was planned on')
+    // Keys vihko doesn't know, to remove from the file (their `at`, as `errors` gives them): only unknown ones are.
+    const remove = body.remove ?? []
+    if (!Array.isArray(remove) || remove.some((k) => typeof k !== 'string')) return fail(c, 400, 'invalid', 'remove: a list of the unknown keys to remove, as errors names them')
     try {
-      const r = await noteSettings.write(root, next, { ifMatch: body.ifMatch })
+      const r = await noteSettings.write(root, next, { ifMatch: body.ifMatch, remove: remove as string[] })
       return c.json(settingsView(r, true))
     } catch (err) {
       if (err instanceof NoteSettingsFileError) return fail(c, 409, 'config_invalid', err.message)
@@ -921,15 +938,18 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Same path rules as notes: relative, inside the root, no hidden or ignored
   // segments, and only a path vihko follows (fsutil.ts followable).
   app.get('/api/file', (c) => {
-    const path = c.req.query('path') ?? ''
+    // Or as a note names it (`note` and `name`: `![[photo.png]]`, `[[invoice.pdf]]`), by name in its space.
+    const note = c.req.query('note')
+    const named = note !== undefined
+    const path = named ? scoped(c).resolveFile(note, c.req.query('name') ?? '') : c.req.query('path') ?? ''
     const norm = posix.normalize(path)
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
     // vihko.yaml isn't content: once it holds permissions (M4), it's not for every reader.
     if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
     // Through a symbolic link, or spelled otherwise than on the disk (a case-insensitive filesystem): not there.
     if (!followable(deps.notesDir, norm)) return fail(c, 404, 'not_found', `does not exist: ${path}`)
-    // An agent: only in its folders, and only a file a note it can read uses.
-    scoped(c).assertFile(norm)
+    // An agent: only in its folders, and only a file a note it can read uses (one named by a note it reads: resolveFile checked).
+    if (!named) scoped(c).assertFile(norm)
     const file = join(deps.notesDir, norm)
     let st: ReturnType<typeof statSync>
     try {
@@ -946,7 +966,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     c.header('Cache-Control', 'private, no-cache')
     c.header('X-Content-Type-Options', 'nosniff')
     c.header('Content-Security-Policy', FILE_CSP)
-    if (!type.startsWith('image/')) c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
+    // Shown in the browser: images (in a page; opened alone, an SVG, which can hold scripts, is downloaded) and PDFs; the rest is downloaded.
+    const inline = (type.startsWith('image/') && type !== 'image/svg+xml') || type === 'application/pdf'
+    c.header('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
+    // A PDF can't be shown in a sandboxed document (Chromium's viewer refuses it): no sandbox for it, and nothing else allowed.
+    if (type === 'application/pdf') c.header('Content-Security-Policy', PDF_CSP)
     if (c.req.header('if-none-match')?.split(',').map((t) => t.trim()).includes(etag)) return c.body(null, 304)
     c.header('Content-Type', type)
     return c.body(readFileSync(file))
@@ -1067,15 +1091,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (!access.isAgent) {
       const me = c.get('user')
       const own = noteSettings.read(personalRoot(me.username))
-      if (own.errors.length) alerts.push({ code: 'settings_invalid', space: null, errors: own.errors, actions: [] })
+      if (own.errors.length) alerts.push({ code: 'settings_invalid', space: null, file: noteSettingsPath(own.root), errors: own.errors, actions: [] })
       const ownGuide = guideMissing(own)
       if (ownGuide !== null) alerts.push({ code: 'settings_guide_missing', space: null, note: ownGuide, actions: [] })
       for (const s of permissions.spacesFor(me).spaces) {
         if (!access.canManage(s.path)) continue
         const r = noteSettings.read(s.path)
-        if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, errors: r.errors, actions: [] })
-        const guide = guideMissing(r)
-        if (guide !== null) alerts.push({ code: 'settings_guide_missing', space: { path: s.path, name: s.name }, note: guide, actions: [] })
+        // (A space's guide is text in its settings, never a note: nothing to be missing.)
+        if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, file: noteSettingsPath(r.root), errors: r.errors, actions: [] })
       }
     }
     return c.json({ alerts })

@@ -71,7 +71,7 @@ services:
     # that way). From 0.1.0 on, this line says :0.1, which gets every 0.1.x
     # release (fixes only); a new minor version (0.2) may change things and
     # you move to it by changing the tag, after reading its upgrade notes.
-    image: ghcr.io/kirianm/vihko:0.1.0-rc.4
+    image: ghcr.io/kirianm/vihko:0.1.0-rc.5
     restart: unless-stopped
     # Hardening: nothing is written outside the two volumes, no Linux
     # capabilities, and no way to gain privileges. vihko needs none of them.
@@ -389,12 +389,16 @@ cp -a ~/my-vault/. notes/people/alex/
 ```
 
 What keeps working, because inside a space a name is looked up among that
-space's notes: links by name (`[[Plan]]`) or by a path inside the vault
-(`[[projects/Plan]]`), relative Markdown links, images, tags, frontmatter and
+space's notes and files: links by name (`[[Plan]]`) or by a path inside the
+vault (`[[projects/Plan]]`), relative Markdown links, images and attachments
+by name (`![[Pasted image 20240101.png]]`, `[[invoice.pdf]]`, wherever they
+are in the space: Obsidian's attachments folder too), tags, frontmatter and
 the notes' `uid`s. What doesn't: links written from the vault's root with a
 leading slash (`[[/projects/Plan]]`, what Obsidian writes with «Absolute path
 in vault»), because the root is now the notes folder. Before copying, set
 Obsidian to «Shortest path when possible», or fix those links afterwards.
+Attachments that aren't images (a PDF) open in a new tab; vihko's tree
+doesn't list them yet.
 
 vihko picks the files up within a minute (the periodic rescan), or at once
 after `docker compose restart`. Copied to the root of the notes folder by
@@ -417,7 +421,7 @@ All optional. Set them under `environment:` in `compose.yaml`:
 ```yaml
     environment:
       VIHKO_RESCAN_SECONDS: "120"
-      VIHKO_EXTERNAL_IMAGES: block
+      VIHKO_EXTERNAL_IMAGES: ask
 ```
 
 vihko checks them when it starts: a value it can't use stops it, with a
@@ -429,10 +433,11 @@ give it a sensible value.)
 | `VIHKO_PUBLIC_URL` | unset | The `https://` address vihko is reached at from outside, behind a reverse proxy: the origin only, such as `https://notes.example.com`. It makes OAuth available for remote MCP clients (while the MCP server is on), and invitation and password-reset links use it. See [Reverse proxy](reverse-proxy.md) and [Agents](agents.md). |
 | `VIHKO_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies, separated by commas or spaces (`172.16.0.0/12, 10.0.0.50`). Only from them does vihko believe `X-Forwarded-For`, to tell clients apart for the sign-in limits. Unset, every request counts as coming from the connection's address. A proxy on another machine is its one address: a range such as `10.0.0.50/8` trusts the whole `10.0.0.0/8`. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
 | `VIHKO_INTEGRATIONS` | unset | `off` keeps every integration off, whatever an admin turns on in the UI: the API with keys, the MCP server, and any a later release adds. The only other accepted value is unset. |
-| `VIHKO_EXTERNAL_IMAGES` | `allow` | `block` stops browsers loading images that notes link from other sites (which tells those sites who reads the note, and when); a box with the site's domain is shown instead. |
+| `VIHKO_EXTERNAL_IMAGES` | `ask` (installed with 0.1.0-rc.6 or later) or `allow` (installed before) | Images that notes link from other sites, which tell those sites who reads the note, and when. `ask`: a box with the site's domain, and the browser loads the image only when the reader presses **Show**; **Save a copy** keeps it in the notes. `allow`: loaded as the note opens. `block`: never loaded (the page forbids it), only **Save a copy**. Unset, an installation keeps the default it had when it was first started. |
 | `VIHKO_MAX_IMAGE_MB` | `20` | The largest image vihko stores from an upload, a paste or a URL, in megabytes. An agent's `attach_image` takes about 3 MB at most whatever it says: that is what fits in an MCP request (see [Agents](agents.md#images)). |
 | `VIHKO_SECRET_KEY` | unset | A key of 32 characters or more that encrypts the second-factor secrets stored in `state.db`, so that a copy of `state.db` alone can't produce anyone's codes. See [The second-factor key](#the-second-factor-key). |
 | `VIHKO_SECRET_KEY_FILE` | unset | The same key, read from a file (a Docker secret, such as `/run/secrets/vihko_key`). Set one of the two, not both. |
+| `VIHKO_LOG_LEVEL` | `info` | `info` never writes a path inside a personal space to the log (only that it is one, and a note's `uid`); `debug` writes paths whole, to chase a problem. See [The log](operations.md#the-log). |
 | `VIHKO_RESCAN_SECONDS` | `60` | How often vihko scans the whole notes folder for changes the file watcher missed (network filesystems, changes made while it was stopped). |
 | `VIHKO_NOTES_DIR` | `/data/notes` | The notes folder, inside the container. Change the volume instead. |
 | `VIHKO_STATE_DIR` | `/data/state` | The state folder, inside the container. Change the volume instead. |
@@ -539,8 +544,10 @@ in:
   CDNs, no fonts or scripts from other sites. It only reaches out when a
   person asks it to: copying an image from a URL someone pasted, or, for
   remote MCP, fetching the description of the app that someone is authorizing.
-- **Browsers load images that notes link from other sites**, as they would
-  anywhere. `VIHKO_EXTERNAL_IMAGES=block` stops that.
+- **Images that notes link from other sites** load only when the reader
+  presses «Show» on a new installation (`VIHKO_EXTERNAL_IMAGES=ask`); one
+  installed before 0.1.0-rc.6 loads them as the note opens, until you set
+  `ask` or `block`.
 - **The port is published on your whole network**, over plain HTTP. On the
   Internet, always use HTTPS: see [Reverse proxy](reverse-proxy.md).
 

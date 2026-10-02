@@ -5,6 +5,7 @@ import { Facet } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { isRootTarget, joinPath, sameSpace } from '@vihko/core/resolve'
 import { resolveImageRef } from '@vihko/core/images'
+import { isFileTarget } from './files.ts'
 
 /** A broken link the person asked to create: where the note goes and its title. */
 export interface NewLinkedNote {
@@ -52,7 +53,8 @@ export function wikiLinkNote(source: string, raw: string): NewLinkedNote | null 
   const embed = raw.startsWith('!')
   const inner = raw.slice(embed ? 3 : 2, -2)
   const target = inner.split('|')[0]!.replace(/#.*$/, '').trim()
-  if (!target) return null
+  // A file's name (`[[invoice.pdf]]`) isn't a note to create.
+  if (!target || isFileTarget(target)) return null
   const fromRoot = target.startsWith('/') || isRootTarget(target)
   const parts = target.replace(/^\/+/, '').replace(/\.md$/i, '').split('/').map((p) => p.trim())
   // A name that would have to change to be a valid file (hidden, control characters…) wouldn't match the link.

@@ -15,6 +15,8 @@ import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
 import { attachmentPath, noteAttachmentsDir } from './attachments.ts'
 import { diskSpelling, isPlainFile } from './fsutil.ts'
+import { fileByName, isFileTarget } from './fileNames.ts'
+import { shownPath } from './logging.ts'
 import { diskSpaceFolders } from './spaceFolders.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
@@ -70,13 +72,17 @@ export interface ScopedDeps {
 /**
  * What a folder holds, as `not_empty` tells whoever tried to delete it
  * (scoped `contentsView`): paths relative to the folder, each list capped at
- * FOLDER_LIST_CAP; `kept` blocks it (vihko never touches those). Whoever
- * deletes a folder manages it and sees everything in it (grants only add): nothing
- * in it is hidden from them.
+ * FOLDER_LIST_CAP. `hidden`: its hidden folders (`.obsidian/`…), which vihko
+ * doesn't show and which go to the trash with it, so the dialog names them
+ * before anything goes; `hiddenFiles`, how many files they hold. `kept`
+ * blocks it (links vihko never follows). Whoever deletes a folder manages it
+ * and sees everything in it (grants only add): nothing in it is hidden from
+ * them.
  */
 export interface FolderContentsView {
   notes: { total: number; paths: string[] }
   files: { total: number; paths: string[] }
+  hidden: { total: number; paths: string[]; files: number }
   kept: { total: number; paths: string[] }
 }
 
@@ -134,6 +140,8 @@ export interface OutgoingLink {
    * between notes leave it out (see `links`).
    */
   self?: true
+  /** It leads to a file that isn't a note (`[[invoice.pdf]]`, found by name in the note's space): `dstPath` is the file. */
+  file?: true
 }
 
 /**
@@ -596,6 +604,13 @@ export class ScopedNotes {
     const out = outgoing.map((l): OutgoingLink => {
       const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
       const row: OutgoingLink = { ...l, candidates, ...(l.status === 'resolved' && l.dstPath === p ? { self: true as const } : {}) }
+      // No note by that name, but a file (`[[invoice.pdf]]`): it leads there, for whoever reads the file.
+      if (row.status === 'missing' && l.kind !== 'markdown' && isFileTarget(l.target)) {
+        const file = fileByName(this.deps.index, p, l.target)
+        if (file !== null && this.access.userCanRead(file)) {
+          return this.access.canReadNamed(file) ? { ...row, status: 'resolved', dstPath: file, anchorOk: null, candidates: null, file: true } : noAccess(row, this.access.reasonFor(file))
+        }
+      }
       const link = this.maskedLink(row)
       for (const c of link.candidates ?? []) titles[c] ??= (titleOf.get(c) as { title: string } | undefined)?.title ?? c
       return link
@@ -995,7 +1010,7 @@ export class ScopedNotes {
       // The folder of images moved: its old rules go; it stayed: the copies go.
       const stale = report.images.folder ? assets!.from : assets!.to
       await file.removeRules(stale, { actor: this.access.actor })
-        .catch((err) => this.deps.log?.(`the rules of ${stale} stay in vihko.yaml after moving ${f}: ${err instanceof Error ? err.message : String(err)}`))
+        .catch((err) => this.deps.log?.(`the rules of ${shownPath(stale)} stay in vihko.yaml after moving ${shownPath(f)}: ${err instanceof Error ? err.message : String(err)}`))
     }
     const masked: ScopedMoveReport = this.maskReport(report)
     if (report.dryRun && audience) masked.audience = audience
@@ -1257,8 +1272,10 @@ export class ScopedNotes {
    * stops it, and so do notes held in it (`held_inside`).
    * A shared space's root deletes the space: `manage` there, and its
    * managers are kept with each trash entry, so they can still restore it.
+   * `dryRun`: nothing is deleted; `contents` says what deleting it would take
+   * (what a dialog names before anyone confirms), with the same checks.
    */
-  async deleteFolder(path: string, opts: { trash?: boolean } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
+  async deleteFolder(path: string, opts: { trash?: boolean; dryRun?: boolean } = {}): Promise<{ path: string; trashed: TrashEntry[]; contents?: FolderContentsView }> {
     const p = NoteService.checkFolder(path)
     const space = parseSpacePath(p)
     const sharedRoot = space !== null && space.inner === '' && space.space.kind === 'shared'
@@ -1274,7 +1291,8 @@ export class ScopedNotes {
     if (this.deps.holds?.heldInside(p)) throw new RequestError(409, 'held_inside', `notes held after a move made outside vihko are in ${p}: release them first`)
     const view = () => this.contentsView(this.deps.notes.folderContents(p))
     const now = view()
-    if (now.kept.total > 0 || (!opts.trash && (now.notes.total > 0 || now.files.total > 0))) throw new FolderNotEmpty(p, now)
+    if (opts.dryRun) return { path: p, trashed: [], contents: now }
+    if (now.kept.total > 0 || (!opts.trash && (now.notes.total > 0 || now.files.total > 0 || now.hidden.total > 0))) throw new FolderNotEmpty(p, now)
     const canWrite = (f: string) => this.access.canWrite(f)
     let r: { path: string; trashed: TrashEntry[] }
     try {
@@ -1289,7 +1307,7 @@ export class ScopedNotes {
       throw err
     }
     await this.deps.permissionsFile?.removeRules(p, { actor: this.access.actor })
-      .catch((err) => this.deps.log?.(`permissions of the deleted folder ${p} stay in vihko.yaml: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) => this.deps.log?.(`permissions of the deleted folder ${shownPath(p)} stay in vihko.yaml: ${err instanceof Error ? err.message : String(err)}`))
     return r
   }
 
@@ -1301,7 +1319,7 @@ export class ScopedNotes {
    */
   private contentsView(c: FolderContents): FolderContentsView {
     const list = (paths: string[]) => ({ total: paths.length, paths: paths.slice(0, FOLDER_LIST_CAP) })
-    return { notes: list(c.notes), files: list(c.files), kept: list(c.kept) }
+    return { notes: list(c.notes), files: list(c.files), hidden: { ...list(c.hidden), files: c.hiddenFiles.length }, kept: list(c.kept) }
   }
 
   /**
@@ -1378,12 +1396,12 @@ export class ScopedNotes {
     }
     if (file && this.hasRules(f)) {
       await file.removeRules(f, { actor })
-        .catch((err) => this.deps.log?.(`the old rules of ${f} stay in vihko.yaml after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`))
+        .catch((err) => this.deps.log?.(`the old rules of ${shownPath(f)} stay in vihko.yaml after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`))
     }
     try {
       this.deps.onFolderMoved?.(f, t)
     } catch (err) {
-      this.deps.log?.(`keys, pins or trash entries under ${f} still name it after it moved to ${t}: ${err instanceof Error ? err.message : String(err)}`)
+      this.deps.log?.(`keys, pins or trash entries under ${shownPath(f)} still name it after it moved to ${shownPath(t)}: ${err instanceof Error ? err.message : String(err)}`)
     }
     return mask(report)
   }
@@ -1494,6 +1512,20 @@ export class ScopedNotes {
     const dest = to === undefined || to === entry.path ? this.writable(entry.path) : this.creatable(to)
     await this.clearForgotten(folderOf(dest))
     return shown(await this.guardAsync(dest, () => this.spelled(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite, mayName: this.mayName }))))
+  }
+
+  /**
+   * The file an Obsidian-style reference in the note at `note` names
+   * (`![[photo.png]]`, `[[invoice.pdf]]`): relative to the note, or by name
+   * in its space (fileNames.ts). `not_found` alike for a note the principal
+   * can't read, a name that leads nowhere or to several files, and a file
+   * they can't read: nothing tells what exists where they don't read.
+   */
+  resolveFile(note: string, ref: string): string {
+    const { path: n } = this.visible(note)
+    const file = fileByName(this.deps.index, n, ref)
+    if (file === null || !this.access.canReadNamed(file)) throw new NoteError('not_found', `no file ${ref} for ${n}`)
+    return file
   }
 
   /** A sync tool's conflict copy the indexer found, in a folder the person can read. */

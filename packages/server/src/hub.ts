@@ -30,6 +30,7 @@ import * as Y from 'yjs'
 import { baseHue, contentHash, isPersonHue, newUid, readFrontmatter, setFrontmatterKey } from '@vihko/core'
 import { sessionIdOf, type Auth, type User } from './auth.ts'
 import { followable, readStable, readText, replaceText } from './fsutil.ts'
+import { shownPath } from './logging.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 import type { Via } from './actor.ts'
@@ -617,7 +618,7 @@ export class CollabHub implements HotDocuments {
         const current = generationOf(document)
         if (context.generation === current) return
         connection.sendStateless(JSON.stringify({ type: STALE_MESSAGE, path: documentName }))
-        this.log(`${documentName}: an editor's copy from another generation was refused`)
+        this.log(`${shownPath(documentName)}: an editor's copy from another generation was refused`)
         // Without `message`, so the hook chain doesn't log it again. Hocuspocus closes the connection.
         throw { code: 4409, reason: STALE_MESSAGE }
       },
@@ -684,10 +685,10 @@ export class CollabHub implements HotDocuments {
       const now = Date.now()
       for (const [path, h] of this.hot) {
         if (h.failing) {
-          if (now >= h.failing.next) this.retrySave(path).catch((e) => this.log(`saving ${path} again: ${e}`))
+          if (now >= h.failing.next) this.retrySave(path).catch((e) => this.log(`saving ${shownPath(path)} again: ${e}`))
           continue
         }
-        this.checkExternal(path).catch((e) => this.log(`check of ${path}: ${e}`))
+        this.checkExternal(path).catch((e) => this.log(`check of ${shownPath(path)}: ${e}`))
       }
     }, this.opts.checkMs ?? 1000)
     // Groups and users change outside what vihko writes: looked at again now and then.
@@ -773,7 +774,7 @@ export class CollabHub implements HotDocuments {
         doc.flush() // what others wrote reaches it before the notice, as it closes right after
         conn.sendStateless(JSON.stringify({ type: ACCESS_MESSAGE, path, access: level }))
         conn.close({ code: 4403, reason: ACCESS_MESSAGE })
-        this.log(`${path}: an editor's access changed (${ctx.level} → ${level}); closed for it to reopen`)
+        this.log(`${shownPath(path)}: an editor's access changed (${ctx.level} → ${level}); closed for it to reopen`)
       }
     }
   }
@@ -1104,7 +1105,7 @@ export class CollabHub implements HotDocuments {
       this.tellMoved(from, to, false, final)
       this.hocuspocus.closeConnections(from)
       if (r.written !== null && final !== r.written) late = { text: final, base: r.written }
-      this.log(`${from} moved to ${to} while open`)
+      this.log(`${shownPath(from)} moved to ${shownPath(to)} while open`)
       return r.result
     })
     if (late) {
@@ -1112,7 +1113,7 @@ export class CollabHub implements HotDocuments {
       this.opts.history?.flushing(to, text)
       const w = await replaceText(this.file(to), text, contentHash(base))
       if (w.replaced) this.opts.indexer.indexPaths([to])
-      else this.log(`${to}: could not write what was typed during the move (the file changed)`)
+      else this.log(`${shownPath(to)}: could not write what was typed during the move (the file changed)`)
     }
     return result
   }
@@ -1174,7 +1175,7 @@ export class CollabHub implements HotDocuments {
         this.carrySaved([{ from, to }])
         continue
       }
-      this.followMove(from, to).catch((e) => this.log(`${from}: could not follow its move to ${to}: ${e instanceof Error ? e.message : String(e)}`))
+      this.followMove(from, to).catch((e) => this.log(`${shownPath(from)}: could not follow its move to ${shownPath(to)}: ${e instanceof Error ? e.message : String(e)}`))
     }
   }
 
@@ -1199,7 +1200,7 @@ export class CollabHub implements HotDocuments {
         const target = this.file(to)
         const found = await readStable(target)
         if (found === null || !this.sameNote(h, found)) {
-          this.log(`${from}: ${to} doesn't look like the same note; it stays as deleted outside vihko`)
+          this.log(`${shownPath(from)}: ${shownPath(to)} doesn't look like the same note; it stays as deleted outside vihko`)
           return false
         }
         h.orphaned = true // written nowhere until it's decided where
@@ -1248,7 +1249,7 @@ export class CollabHub implements HotDocuments {
           this.announceOrphan(from, h)
           throw err
         }
-        this.log(`${from} was moved outside vihko to ${to} while open: the note follows it`)
+        this.log(`${shownPath(from)} was moved outside vihko to ${shownPath(to)} while open: the note follows it`)
         return true
       })
     } finally {
@@ -1325,7 +1326,7 @@ export class CollabHub implements HotDocuments {
         history = flushedStates(previous)
         const own = history.find((b) => b.hash === diskHash)
         if (own) ({ snapshot, text: flushedText, hash: flushedHash } = own)
-        if (recovered) this.log(`recovered ${path} from the log (${recovered.updates.length} records)`)
+        if (recovered) this.log(`recovered ${shownPath(path)} from the log (${recovered.updates.length} records)`)
         const matches = diskOrNull === null || diskHash === flushedHash
         const trusted = !recovered && this.trusted.get(path) === previous.lastHash && this.uidIn(disk) === this.uidIn(flushedText)
         newGeneration = !(matches || trusted) || generationOf(doc) === null // none: saved before generations existed
@@ -1464,7 +1465,7 @@ export class CollabHub implements HotDocuments {
     fork.transact(() => applyTextDiff(ftext, base.text, newText))
     const before = h.doc.getText(TEXT).toString()
     Y.applyUpdate(h.doc, Y.encodeStateAsUpdate(fork, sv), 'external')
-    this.log(`external change integrated into ${path}${onDisk ? '' : ' (rescued from the rename)'}`)
+    this.log(`external change integrated into ${shownPath(path)}${onDisk ? '' : ' (rescued from the rename)'}`)
     if (!onDisk) return
     this.opts.history?.external(path, newText)
     h.snapshot = Y.encodeStateAsUpdate(fork)
@@ -1483,7 +1484,7 @@ export class CollabHub implements HotDocuments {
     this.hocuspocus.storeDocumentHooks(document, {
       instance: this.hocuspocus, clientsCount: document.getConnectionsCount(), document,
       lastContext: {}, lastTransactionOrigin: 'external', documentName: path,
-    }).catch((e: unknown) => this.log(`flush of ${path}: ${e}`))
+    }).catch((e: unknown) => this.log(`flush of ${shownPath(path)}: ${e}`))
   }
 
   /** Records the file's new state (`external`: another program saved it) and tells the open editors it's now on disk. */
@@ -1564,7 +1565,7 @@ export class CollabHub implements HotDocuments {
       if (!r.replaced) {
         const disk = await readStable(h.file, h.flushedText)
         if (disk === null) { this.markOrphan(path, h); return true }
-        this.log(`race with an external write on ${path} (before the rename)`)
+        this.log(`race with an external write on ${shownPath(path)} (before the rename)`)
         this.mergeExternal(path, h, disk, contentHash(disk))
         continue
       }
@@ -1730,11 +1731,11 @@ export class CollabHub implements HotDocuments {
     if (h.orphaned) return
     h.orphaned = true
     if (now) return this.announceOrphan(path, h)
-    this.log(`${path}: the file is gone while the note is open; nothing is written to it (waiting to see whether it moved)`)
+    this.log(`${shownPath(path)}: the file is gone while the note is open; nothing is written to it (waiting to see whether it moved)`)
     h.orphanTimer = setTimeout(() => {
       h.orphanTimer = null
       withLock(path, () => { if (this.hot.get(path) === h && h.orphaned && !h.discarded) this.announceOrphan(path, h) })
-        .catch((e) => this.log(`orphan notice for ${path}: ${e}`))
+        .catch((e) => this.log(`orphan notice for ${shownPath(path)}: ${e}`))
     }, this.opts.orphanGraceMs ?? 6000)
     h.orphanTimer.unref()
   }
@@ -1742,7 +1743,7 @@ export class CollabHub implements HotDocuments {
   private announceOrphan(path: string, h: Hot) {
     if (h.announced) return
     h.announced = true
-    this.log(`${path} was deleted outside vihko while the note was open: nothing is written until someone decides`)
+    this.log(`${shownPath(path)} was deleted outside vihko while the note was open: nothing is written until someone decides`)
     this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_MESSAGE, path }))
   }
 
@@ -1778,7 +1779,7 @@ export class CollabHub implements HotDocuments {
         this.remember(path, h)
         this.opts.indexer.indexPaths([path])
         this.hocuspocus.documents.get(path)?.broadcastStateless(JSON.stringify({ type: ORPHAN_RESOLVED_MESSAGE, path, action: 'restore' }))
-        this.log(`${path}: the open copy is kept`)
+        this.log(`${shownPath(path)}: the open copy is kept`)
         return { etag: h.flushedHash }
       })
     } finally {
@@ -1796,7 +1797,7 @@ export class CollabHub implements HotDocuments {
       rmSync(this.statePath(path), { force: true })
       this.trusted.delete(path)
     }
-    this.log(`${path}: copy discarded; the external deletion is accepted as final`)
+    this.log(`${shownPath(path)}: copy discarded; the external deletion is accepted as final`)
   }
 
   /**
@@ -1857,7 +1858,7 @@ export class CollabHub implements HotDocuments {
         const conn = await this.hocuspocus.openDirectConnection(path, { system: { kind: 'system', reason: { code: 'crash_recovery' } } })
         await conn.disconnect()
       } catch (err) {
-        this.log(`could not recover ${path}: ${err instanceof Error ? err.message : String(err)}`)
+        this.log(`could not recover ${shownPath(path)}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
   }

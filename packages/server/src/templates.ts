@@ -1,9 +1,9 @@
 // Templates: a plain note whose text is copied into a new one (without its
-// `template: true` mark), with
+// `template: true` mark and its aliases), with
 // the fixed variables filled in (`renderTemplate`). Through the normal create
 // of the note service: never overwriting, born with its own `uid`.
 import { posix } from 'node:path'
-import { renderTemplate, withoutTemplateMark, type CivilDateTime } from '@vihko/core'
+import { renderTemplate, templateCopy, type CivilDateTime } from '@vihko/core'
 import type { User } from './auth.ts'
 import { NoteError, type Actor, type NoteService } from './notes.ts'
 
@@ -34,7 +34,7 @@ export async function createFromTemplate(notes: NoteService, o: {
     }
   }
   const title = posix.basename(o.path).replace(/\.md$/i, '')
-  // The mark goes before the variables are filled in: a title like `a: b` in the frontmatter would make it unreadable.
-  const rendered = renderTemplate(withoutTemplateMark(text), { now: o.now, user: o.user.username, title })
+  // The mark and the aliases go before the variables are filled in: a title like `a: b` in the frontmatter would make it unreadable.
+  const rendered = renderTemplate(templateCopy(text), { now: o.now, user: o.user.username, title })
   return notes.create(o.path, rendered, o.actor ?? actorOf(o.user), { freshUid: true, mayName: o.mayName })
 }

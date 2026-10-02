@@ -11,7 +11,7 @@
 // space, and another one transferred; a new member's empty «My notes»; and
 // the phone's drawer.
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, personal, specMother } from './env.ts'
 import { literally, newUser, noteInUrl, signIn, spaceTree } from './helpers.ts'
 import { readablePart } from '@vihko/core/spaces'
@@ -517,6 +517,30 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   await expect.poll(() => existsSync(`${NOTES}/${personal(MEMBER)}/${LEFT.username}/${baseName(lNote)}.md`)).toBe(true)
   await k.goto('/?view=spaces')
   await expect(k.locator('.group-card', { hasText: `Espacio de ${LEFT.username}` })).toHaveCount(0)
+})
+
+test('deleting a space names first what vihko doesn\'t show and goes with it: files that aren\'t notes, its settings', async () => {
+  const name = m.aSpaceName()
+  const root = ((await call(a, 'post', '/api/spaces', { name }, 201)) as { space: { path: string } }).space.path
+  await note(a, `${root}/${m.aTitle()}.md`, `# ${m.aHeading()}\n`)
+  const settings = await call(a, 'get', `/api/settings?space=${q(root)}`) as { etag: string; settings: Record<string, unknown> }
+  await call(a, 'put', '/api/settings', { space: root, settings: { ...settings.settings, guide: m.aSentence() }, ifMatch: settings.etag })
+  const pdf = `${m.aUniqueWord()}.pdf`
+  writeFileSync(`${NOTES}/${root}/${pdf}`, `%PDF-1.4\n${m.aSentence()}\n`)
+  await a.goto('/')
+  await sectionMenu(a, name, 'Borrar espacio…')
+  const dialog = a.getByRole('alertdialog', { name: `¿Borrar el espacio «${name}»?` })
+  await expect(dialog).toContainText('También va a la papelera 1 archivo que no es una nota:')
+  await expect(dialog.getByRole('list', { name: 'Sus archivos' })).toHaveText(pdf)
+  await expect(dialog.getByRole('list', { name: 'Carpetas ocultas' })).toHaveText('Ajustes de vihko de este espacio (.vihko)')
+  for (const theme of ['light', 'dark'] as const) {
+    await a.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${E2E_DIR}/shots/space-delete-hidden-${theme}.png` })
+  }
+  await a.emulateMedia({ colorScheme: null })
+  await dialog.getByRole('button', { name: 'Borrar espacio' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => existsSync(`${NOTES}/${root}`)).toBe(false)
 })
 
 test('someone new sees «My notes» empty and creates their first note there', async ({ browser }) => {

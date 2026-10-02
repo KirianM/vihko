@@ -313,7 +313,8 @@ as a prefix. Filters narrow it:
 
 Keys and values ignore case, and are compared whole, as written. Only simple
 frontmatter values count: text, numbers, `true`/`false`, dates and lists of
-them; nested maps don't. A word with a colon in it is a filter (`re:x` looks
+them; nested maps don't. A word with a colon in it is a filter, unless it's
+quoted (`"re:x"` is searched as text; `re:x` looks
 for a key `re`); times (`10:30`) and addresses (`https://…`) stay words.
 Templates (notes with `template: true`) are left out unless the query asks
 for them by their mark: `template:true`, `prop:template`. The reserved
@@ -346,7 +347,7 @@ with that tag, `total` those with it or a tag nested under it.
 
 `POST /api/note` with `{ "path", "text" }`, or `{ "path", "template" }` to
 create it from a template note (its `{{title}}`, `{{date}}` and the like filled
-in, and its frontmatter copied without `template: true`; see
+in, and its frontmatter copied without `template: true` and `aliases`; see
 [Templates](notes.md#templates)). Any note the key can read works as a
 template; `GET /api/search?q=template:true` lists the marked ones. It never
 overwrites: `409 exists` if the note is there.
@@ -512,7 +513,11 @@ it would break the link, and the image would count as unused.
 note. A key gets it only if it's in the key's folders, a note the key can read
 uses it (links to it), and no note hidden from agents does: an image you just
 uploaded is `404` to the key until a note links it. Notes themselves are read
-with `GET /api/note`.
+with `GET /api/note`. `GET /api/file?note=<note>&name=<name>` gets the file as
+that note names it (`![[photo.png]]`, `[[invoice.pdf]]`): relative to the
+note, or by name in its space; `404` alike for a note you can't read and a
+name that leads nowhere. Images and PDFs come with `Content-Disposition:
+inline`; anything else (an SVG or a web page included) as an attachment.
 
 ### History
 

@@ -15,7 +15,7 @@ what it never touches.
 | `people/<username>/` | That person's own space, «My notes» for them |
 | `spaces/<name>/` | A shared space, such as `spaces/Home/` |
 | A file ending in `.md` (any case), inside a space | A note: indexed, searchable, editable |
-| Any other file (images, PDFs…), inside a space | A file: shown and linked, to whoever can read its folder |
+| Any other file (images, PDFs…), inside a space | A file: images are shown in notes, and a link to one (`[[invoice.pdf]]`) opens it in a new tab, to whoever can read its folder. The tree doesn't list files yet |
 | Anything at the root other than `people/`, `spaces/` and `vihko.yaml` | Seen by nobody in vihko; the admins get an alert |
 | A name starting with `.` (`.git/`, `.obsidian/`, `.trash/`) or ending in `~` | Ignored, with everything under it |
 | A symbolic link, to a file or a folder | Ignored: vihko never reads, serves, indexes or writes through one |
@@ -110,8 +110,10 @@ note's space). Through the API and MCP any note you can read can be used as a
 template; the marked ones are those offered.
 
 The new note gets the template's text, frontmatter included, **without** its
-`template: true` (so `type: decision` or the tags come along, and the new note
-isn't a template itself), and a `uid` of its own. These variables are filled
+`template: true` and its `aliases` (so `type: decision`, the tags or
+`ai: false` come along, the new note isn't a template itself, and the
+template's other names don't become every new note's), and a `uid` of its
+own. These variables are filled
 in, in the timezone of the person creating it. Nothing else runs: a template
 can't execute code, loop or read other notes.
 
@@ -182,6 +184,7 @@ vihko reads both kinds of Markdown links. The editor writes wikilinks.
 | `[[launch/Plan]]` | A note of the same space whose path ends in `launch/Plan` |
 | `[text](../launch/Plan.md)` | A standard Markdown link, relative to the note |
 | `![[Plan]]` | Also a link to `Plan` (vihko doesn't show one note inside another) |
+| `[[invoice.pdf]]` | The file `invoice.pdf`: by name, as for a note (see below). It opens in a new tab: the browser shows it (a PDF, an image) or downloads it |
 
 **Links stay inside their space.** A link only ever leads to a note of the
 same space as the note it's in («My notes», or a shared space): never to
@@ -329,6 +332,16 @@ vihko shows local images referenced any of these ways, relative to the note:
 [The diagram](plan-2026-09-28-1012.png)
 ```
 
+**By name, as Obsidian writes them.** An `![[…]]` with no folder (or with
+only part of the path) that isn't next to the note is looked up by name among
+the files of the note's space, as a link's name is among its notes: the
+nearest one wins (the deepest folder it shares with the note, then the
+shallowest below that), two equally near are no answer (the image shows as
+missing), and it never reaches another space. So a vault whose images are in
+an attachments folder (`![[Pasted image 20240101.png]]`) shows them as
+Obsidian did. The same goes for a link to any other file, `[[invoice.pdf]]`.
+A Markdown link (`![](…)`, `[…](…)`) is always relative to the note.
+
 Uploading, pasting or dropping an image stores it in the notes folder (where,
 depends on [`attachments`](configuration.md#attachments-where-new-images-go))
 and inserts a `![](…)` link with a relative path. From a URL, you choose:
@@ -343,9 +356,14 @@ points to an address on your network is private). Admins always can, and can
 let members too: «Users and groups» → «Settings» → «Members can save copies
 of images from private addresses».
 
-Images from other sites (`![](https://…)`) load directly in the browser, which
-tells that site someone is looking. `VIHKO_EXTERNAL_IMAGES=block` stops that
-for the whole installation (see [Install](install.md)).
+Images from other sites (`![](https://…)`) tell that site someone is looking
+when the browser loads them. On a new installation they don't load on their
+own: the note shows «External image from example.com» with **Show**, which
+loads it for you on this page, and **Save a copy**, which has vihko's server
+download it into the notes folder and points the note to the copy (its text
+kept). `VIHKO_EXTERNAL_IMAGES` decides it for the whole installation: `allow`
+loads them as the note opens (an installation from before 0.1.0-rc.6 keeps
+doing so), `block` never loads them (see [Install](install.md)).
 
 An image can be seen by whoever can read the folder it's in: a person who
 can't read that folder can't see the image, even in a note they can read. New
@@ -392,17 +410,27 @@ can also delete those by hand if you need the space.
 and so does the clutter operating systems leave (`.DS_Store`, `._*` files,
 `Thumbs.db`, `desktop.ini`), which vihko removes without asking.
 
-If the folder holds notes or other files, the dialog lists them first
-(hidden files such as `.keep` included) and offers to send them to the trash
-along with the folder, in one step: each note goes as if deleted on its own,
-with its images, and the other files as one more entry. «Restore» on the
-notice that follows brings all of it back.
+If the folder holds notes or other files, the dialog lists them as soon as it
+opens, before anything goes (hidden files such as `.keep` included), and
+offers to send them to the trash along with the folder, in one step: each
+note goes as if deleted on its own, with its images, and the other files as
+one more entry. «Restore» on the notice that follows brings all of it back.
+
+**What vihko doesn't show goes too, and is named first.** Hidden folders
+inside it (another program's, such as Obsidian's settings, its `.trash/`, a
+Git repository, or a space's own `.vihko/` settings) go to the trash with
+everything in them, in that same entry, and come back with it. The dialog
+lists them before you confirm: the ones vihko knows by what they are
+(«Obsidian settings (.obsidian)», «A Git repository (.git)»), any other by its
+name, with how many files they hold. Deleting a shared space names them the
+same way, with the files in it that aren't notes. Whoever deletes a folder
+manages it and reads all of it, so nothing listed is something they can't
+read.
 
 Two things keep a folder from being deleted, and the dialog says which:
 
-- **What vihko never touches**: a hidden folder inside it (`.git/`,
-  `.obsidian/`, another program's) or a symbolic link. vihko doesn't read,
-  move or delete those; remove them with another tool first.
+- **A symbolic link** anywhere inside it: vihko never follows or removes
+  one; remove it with another tool first.
 - **Notes held** after a move made outside vihko (see
   [Folders moved outside vihko](users-and-permissions.md#folders-moved-outside-vihko)):
   release them first.

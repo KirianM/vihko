@@ -63,7 +63,8 @@ test.afterAll(async ({ browser }) => {
   const dirs = [TEMPLATES, ownFolder(ADMIN), ownFolder(MEMBER), TEAM.folder]
   for (const user of [ADMIN, MEMBER]) {
     const page = await signIn(browser, user)
-    await page.request.put('/api/profile', { data: { dailySeries: null, openDailyOnStart: false } })
+    // The time zone back to the browser's, as a first sign-in leaves it: nothing to offer in the other specs.
+    await page.request.put('/api/profile', { data: { dailySeries: null, openDailyOnStart: false, timezone: await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone) } })
     if (user === ADMIN) {
       const { notes } = await (await page.request.get('/api/tree')).json() as { notes: { path: string }[] }
       for (const n of notes) if (dirs.some((d) => n.path.startsWith(`${d}/`))) await page.request.delete(`/api/note?path=${encodeURIComponent(n.path)}`)
@@ -108,7 +109,51 @@ test('first sign-in: the profile takes the browser\'s timezone', async ({ browse
   await page.getByRole('button', { name: 'Entrar' }).last().click()
   await expect(page.getByRole('treegrid').first()).toBeVisible()
   await expect.poll(async () => (await (await page.request.get('/api/profile')).json()).timezone).toBe(canonical(zone))
+  // A first sign-in offers nothing: the browser's zone is the one saved.
+  await expect(page.locator('.timezone-offer')).toHaveCount(0)
   await ctx.close()
+})
+
+test('someone travelling: a browser in another time zone is offered once, never applied by itself', async ({ browser }) => {
+  // Saved: one zone; the browser: another, never at the same time of day.
+  const before = await signIn(browser, MEMBER)
+  expect((await before.request.put('/api/profile', { data: { timezone: EAST } })).ok()).toBe(true)
+  await before.context().close()
+  const timezone = async (page: Page) => (await (await page.request.get('/api/profile')).json()).timezone as string
+  const signInFrom = async (zone: string) => {
+    const ctx = await browser.newContext({ timezoneId: zone })
+    const page = await ctx.newPage()
+    await page.goto('/')
+    await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
+    await page.getByLabel('Contraseña').fill(MEMBER.password)
+    await page.getByRole('button', { name: 'Entrar' }).last().click()
+    await expect(page.getByRole('treegrid').first()).toBeVisible()
+    return page
+  }
+  const shown = (z: string) => canonical(z).replaceAll('_', ' ')
+  const page = await signInFrom(WEST)
+  const offer = page.locator('.timezone-offer')
+  await expect(offer).toContainText(`Tu navegador está en la zona horaria ${shown(WEST)}, y tus notas usan ${shown(EAST)} para decidir qué día es hoy.`)
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    await offer.screenshot({ path: `${SHOTS}/timezone-offer-${theme}.png` })
+  }
+  await page.emulateMedia({ colorScheme: null })
+  expect(await timezone(page)).toBe(canonical(EAST))
+  // Kept: not asked again in this browser.
+  await offer.getByRole('button', { name: 'Mantener' }).click()
+  await expect(offer).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('treegrid').first()).toBeVisible()
+  await expect(offer).toHaveCount(0)
+  expect(await timezone(page)).toBe(canonical(EAST))
+  await page.context().close()
+  // Another browser on the same trip: offered there too, and taken.
+  const other = await signInFrom(WEST)
+  await other.locator('.timezone-offer').getByRole('button', { name: `Usar ${shown(WEST)}` }).click()
+  await expect(other.locator('.timezone-offer')).toHaveCount(0)
+  await expect.poll(() => timezone(other)).toBe(canonical(WEST))
+  await other.context().close()
 })
 
 test('«Today» creates the note from the template in the series folder, then only opens it', async ({ browser }) => {
@@ -200,6 +245,32 @@ test('palette: «today\'s note» command and a new note from a template', async 
   expect((await k.request.delete(`/api/note?path=${encodeURIComponent(`${inVault(title)}.md`)}`)).ok()).toBe(true)
 })
 
+test('the series chosen is gone: «Today» asks which one to use, never another by itself, and the answer stays', async () => {
+  // A choice that no longer exists (a series removed, a space left or renamed).
+  expect((await k.request.put('/api/profile', { data: { dailySeries: seriesId() } })).ok()).toBe(true)
+  await k.goto(`/?note=${encodeURIComponent(inVault('Plan.md'))}`)
+  await expect(k.locator('.crumbs b')).toHaveText('Plan')
+  await todayButton(k).click()
+  const dialog = k.getByRole('dialog', { name: '¿Qué serie usa «Nota de hoy»?' })
+  await expect(dialog).toBeVisible()
+  await expect(k.locator('.crumbs b')).toHaveText('Plan')
+  // Each series with where it writes.
+  await expect(dialog.getByRole('radio')).toHaveCount(2)
+  await expect(dialog.getByRole('radio', { name: OWN.label })).toBeVisible()
+  await expect(dialog).toContainText(`Mis notas / ${OWN.folder}`)
+  await expect(dialog.getByRole('button', { name: 'Usar y abrir' })).toBeDisabled()
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${SHOTS}/series-gone-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await dialog.getByRole('radio', { name: OWN.label }).check()
+  await dialog.getByRole('button', { name: 'Usar y abrir' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
+  await expect.poll(async () => (await (await k.request.get('/api/profile')).json()).dailySeries).toBe(OWN.id)
+})
+
 test('another timezone near midnight gets another date', async ({ browser }) => {
   const member = await signInAt(browser, MEMBER, WEST)
   await todayButton(member).click()
@@ -241,15 +312,16 @@ test('preferences: series and «On opening: today\'s note», which never creates
 })
 
 test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keeps the last good one', async () => {
-  // A key vihko doesn't know (one it no longer reads): left out, and the rest applies.
-  writeWorkspace(CONFIG.replace('# e2e\n', `# e2e\ntemplates: ${q(TEMPLATES)}\n`))
+  // A key vihko doesn't know: left out, and the rest applies.
+  const unknown = m.aUniqueWord()
+  writeWorkspace(CONFIG.replace('# e2e\n', `# e2e\n${unknown}: ${q(TEMPLATES)}\n`))
   await expect(async () => {
     await k.goto('/?view=alerts')
     await expect(k.locator('.alert-card', { hasText: 'salvo algunas partes' })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
   const warnings = k.locator('.alert-card', { hasText: 'salvo algunas partes' })
   await expect(warnings).toContainText('Lo que aparece aquí no se aplica')
-  await expect(warnings.getByRole('listitem')).toHaveText('en vihko.yaml: línea 2 · templates Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.')
+  await expect(warnings.getByRole('listitem')).toHaveText(`en vihko.yaml: línea 2 · ${unknown} Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.`)
   await k.screenshot({ path: `${SHOTS}/config-warnings-light.png` })
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
@@ -294,7 +366,8 @@ test('screenshots: note header with previous/next, light and dark', async () => 
 })
 
 test('phone: «Today» from the drawer, previous/next in the header', async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES' })
+  // A phone in the admin's own time zone: nothing to offer about it.
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES', timezoneId: EAST })
   const page = await ctx.newPage()
   await page.goto('/')
   await page.getByLabel('Nombre de usuario').fill(ADMIN.username)

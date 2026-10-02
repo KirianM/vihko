@@ -93,6 +93,8 @@ export interface OutgoingLink {
   posFrom: number
   /** It leads to the note it is in (`[[#Heading]]`, its own name): the editor shows its state, the links panel leaves it out. */
   self?: true
+  /** It leads to a file that isn't a note (`[[invoice.pdf]]`): `dstPath` is the file. */
+  file?: true
 }
 /** A note's links: outgoing, backlinks and the titles of ambiguous links' candidates. */
 export interface NoteLinks { outgoing: OutgoingLink[]; backlinks: Backlink[]; titles: Record<string, string> }
@@ -202,18 +204,21 @@ export interface TagCount { tag: string; count: number; total: number }
 export interface TrashEntry { id: string; path: string; deletedAt: string; kind?: 'files'; files?: { path: string }[]; space?: string | null }
 /**
  * What a folder holds, as `not_empty` says when it can't just be deleted
- * (paths relative to it, each list capped: `total` says how many). `kept`:
- * what vihko never touches (hidden folders, links), which keeps the folder
- * from going. Whoever deletes a folder sees all of it.
+ * (paths relative to it, each list capped: `total` says how many). `hidden`:
+ * its hidden folders (`.obsidian/`…), which vihko doesn't show and which go
+ * to the trash with it (`files`: how many files they hold). `kept`: links
+ * vihko never follows, which keep the folder from going. Whoever deletes a
+ * folder sees all of it.
  */
 export interface FolderContents {
   notes: { total: number; paths: string[] }
   files: { total: number; paths: string[] }
+  hidden: { total: number; paths: string[]; files: number }
   kept: { total: number; paths: string[] }
 }
 /** Installation settings the UI needs. */
 export interface ServerConfig {
-  externalImages: 'allow' | 'block'
+  externalImages: 'allow' | 'ask' | 'block'
   maxImageBytes: number
   /** The second factor's secrets are stored encrypted (VIHKO_SECRET_KEY). */
   secretsEncrypted?: boolean
@@ -238,7 +243,10 @@ export interface NoteSettingsForm {
   version: number
   daily: { id: string; label: string | null; folder: string; name: string; template: string | null }[]
   attachments: { mode: 'next-to-note' } | { mode: 'folder'; folder: string } | { mode: 'per-note'; suffix: string } | null
+  /** A person's own: the note with their guide for agents. */
   agents: string | null
+  /** A shared space's: its guide for agents, the text. */
+  guide: string | null
 }
 export interface SettingsProblem { code: string; at: string | null; line: number | null; detail: string | null }
 export interface SettingsView { space: string; etag: string; settings: NoteSettingsForm; errors: SettingsProblem[]; guideMissing: boolean; canEdit: boolean }
@@ -293,7 +301,13 @@ export interface KeyWithUser extends KeyInfo { user: { id: string; username: str
 export interface KeyInput { name?: string; canWrite?: boolean; folders?: string[]; expiresAt?: string | null }
 /** An OAuth client asking for access (the consent page): its name, where it goes back to, and whether this person may authorize it. */
 /** An authorization request: who asks (`host`: the domain that described it, for a client named by its metadata document; null if it registered itself) and whether this person may authorize. */
-export interface OAuthRequest { client: { id: string; name: string; redirectUri: string; host: string | null }; canAuthorize: boolean }
+/**
+ * An authorization request as the consent page shows it. `domain`: where the
+ * app comes from (its metadata document's host, or, for one that registered
+ * itself, where it goes back to); `nameMatchesDomain`: false when its declared
+ * name doesn't fit that domain (and vihko.yaml lists no domains).
+ */
+export interface OAuthRequest { client: { id: string; name: string; redirectUri: string; host: string | null; domain: string; nameMatchesDomain: boolean }; canAuthorize: boolean }
 
 /** A user as the vihko admin sees them (M4). `invited`: never chose a password. */
 export interface UserInfo {
@@ -461,6 +475,9 @@ export const api = {
    */
   deleteFolder: (path: string, trash = false) =>
     request<{ path: string; trashed: TrashEntry[] }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}${trash ? '&trash=true' : ''}`),
+  /** What deleting a folder (or a space's root) would take, deleting nothing: for its dialog to name it first. */
+  folderContents: (path: string) =>
+    request<{ path: string; contents: FolderContents }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}&dryRun=true`).then((r) => r.contents),
   moveFolder: (from: string, to: string, dryRun = false) => request<FolderMoveReport>('POST', '/api/folder/move', { from, to, dryRun }),
   /** Moves a folder; if rewriting the links takes long, they go on in the background (a job). */
   startMoveFolder: (from: string, to: string) => request<FolderMoveReport | { job: MoveJob }>('POST', '/api/folder/move', { from, to, background: true }).then(started<FolderMoveReport>),
@@ -524,7 +541,8 @@ export const api = {
   profile: () => request<Profile>('GET', '/api/profile'),
   home: () => request<HomeView>('GET', '/api/home'),
   settings: (space?: string) => request<SettingsView>('GET', `/api/settings${space ? `?space=${encodeURIComponent(space)}` : ''}`),
-  saveSettings: (space: string | null, settings: NoteSettingsForm, ifMatch: string) => request<SettingsView>('PUT', '/api/settings', { ...(space ? { space } : {}), settings, ifMatch }),
+  /** `remove`: keys vihko doesn't know (as `errors` names them) to remove from the file. */
+  saveSettings: (space: string | null, settings: NoteSettingsForm, ifMatch: string, remove: string[] = []) => request<SettingsView>('PUT', '/api/settings', { ...(space ? { space } : {}), settings, ifMatch, ...(remove.length ? { remove } : {}) }),
   updateProfile: (patch: Partial<Profile>) => request<Profile>('PUT', '/api/profile', patch),
   /** Where today's note is and whether it exists; creates nothing. */
   today: () => request<{ series: string; path: string; exists: boolean }>('GET', '/api/daily'),

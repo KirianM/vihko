@@ -50,12 +50,14 @@ interface Props {
   onComments?: (threadId: string | null) => void
   /** How the comments are reached from the text, as the side panel is (commentMarks.ts). */
   commentReach?: CommentReach
-  /** Images linked from other sites: shown, or blocked by the administrator. */
-  externalImages: 'allow' | 'block'
+  /** Images linked from other sites: shown, shown when the reader asks, or blocked by the administrator. */
+  externalImages: 'allow' | 'ask' | 'block'
   /** Image files pasted or dropped, for the range `from`–`to`. */
   onImageFiles?: (files: File[], from: number, to: number) => void
   /** A single image URL pasted over `from`–`to`. */
   onImageUrl?: (url: string, from: number, to: number) => void
+  /** «Save a copy» of an external image already in the note, written over `from`–`to`. */
+  onSaveImageCopy?: (url: string, alt: string, from: number, to: number) => void
   /** «create» on a broken link: the note to create and the button pressed (to anchor a menu). */
   onCreateLink?: (note: NewLinkedNote, anchor: HTMLElement) => void
   /** An ambiguous link was clicked: open the picker of its candidates. */
@@ -68,7 +70,7 @@ interface Props {
   readOnly?: boolean
 }
 
-export function Editor({ path, session, user, links, onNavigate, onView, onComments, commentReach, externalImages, onImageFiles, onImageUrl, onCreateLink, onPickAmbiguous, readOnly = false }: Props) {
+export function Editor({ path, session, user, links, onNavigate, onView, onComments, commentReach, externalImages, onImageFiles, onImageUrl, onSaveImageCopy, onCreateLink, onPickAmbiguous, readOnly = false }: Props) {
   const t = useT()
   const pathLabels = usePathLabels()
   const spaces = useSpaces()
@@ -86,6 +88,8 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
   imageFiles.current = onImageFiles
   const imageUrl = useRef(onImageUrl)
   imageUrl.current = onImageUrl
+  const saveCopy = useRef(onSaveImageCopy)
+  saveCopy.current = onSaveImageCopy
   const createLink = useRef(onCreateLink)
   createLink.current = onCreateLink
   const pick = useRef(onPickAmbiguous)
@@ -141,9 +145,13 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
             external: t('editor.imageExternal'),
             missing: t('editor.imageMissing'),
             blocked: (domain) => t('editor.imageBlocked', { domain }),
+            ask: (domain) => t('editor.imageAsk', { domain }),
+            show: t('editor.imageShow'),
+            saveCopy: t('image.copy'),
           },
           onFiles: (files, from, to) => imageFiles.current?.(files, from, to),
           onUrl: (url, from, to) => imageUrl.current?.(url, from, to),
+          onSaveCopy: readOnly ? null : (url, alt, from, to) => saveCopy.current?.(url, alt, from, to),
         }),
         commentMarks,
         commentUi.of({

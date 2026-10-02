@@ -299,6 +299,19 @@ export class Access {
   }
 
   /**
+   * Whether it may read a file (not a note) that a note it reads names Obsidian's
+   * way (`![[photo.png]]`, `[[invoice.pdf]]`, found by name: fileNames.ts).
+   * As `canRead`, except that for an agent the naming note, which the caller
+   * has checked it reads, counts as one that uses the file (the index only
+   * knows the files notes name by their path); a note hidden from agents
+   * that uses it still hides it.
+   */
+  canReadNamed(path: string): boolean {
+    if (this.principal.kind === 'user') return this.canRead(path)
+    return this.userCan(path, 'read') && this.agentReaches(path) && !this.fileHidden(path)
+  }
+
+  /**
    * For an agent, whether a file that isn't a note is used by a note hidden
    * from agents (`ai: false` in it or in its folder, or a frontmatter that
    * can't be read): then the file is hidden too, whatever else uses it, or

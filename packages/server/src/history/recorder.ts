@@ -1909,6 +1909,7 @@ function subjectOf(q: QCommit, ops: FastOp[], created: Set<string>): string {
     case 'history_resumed': return 'Resume history'
     case 'recovered': return `Recover ${target}`
     case 'space_renamed': return `Rename shared space ${s('from')} to ${s('to')}`
+    case 'templates_marked': return one && one.op !== 'R' && one.path === s('file') ? `Remove the templates folders from ${s('file')}` : `Mark ${target} as a template (templates folder ${s('folder')})`
   }
   const who = q.authors[0] === 'external' ? 'External change: ' : ''
   if (!one) return `${who}change ${ops.length} files`.replace(/^./, (c) => c.toUpperCase())

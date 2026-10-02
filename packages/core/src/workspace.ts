@@ -49,9 +49,14 @@ export interface WorkspaceConfig {
  * - `instructions`: a note of the workspace served to agents as the server's
  *   instructions (how this workspace is organised, what to write where), to
  *   an agent that can read it. Null: only vihko's own.
+ * - `client_domains`: the domains OAuth apps may come from (`claude.ai`, and
+ *   its subdomains with it): the host of a client's metadata document, or of
+ *   every redirect URI of one that registers itself. Empty (the default):
+ *   any, as before, with the domain shown on the authorization page.
  */
 export interface McpConfig {
   instructions: string | null
+  clientDomains: string[]
 }
 
 /**
@@ -97,7 +102,7 @@ export const DEFAULT_ATTACHMENTS_SUFFIX = '.assets'
 export const EMPTY_WORKSPACE: WorkspaceConfig = {
   daily: [], attachments: { folder: null }, links: { aliases: true },
   history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
-  mcp: { instructions: null },
+  mcp: { instructions: null, clientDomains: [] },
 }
 
 /**
@@ -149,6 +154,7 @@ export type ConfigErrorCode =
   | 'invalid_value' | 'invalid_pattern'
   | 'unknown_key' | 'newer_version' | 'not_supported' | 'section_rejected'
   | 'ignored_value' | 'unknown_subject' | 'missing_folder' | 'outside_spaces'
+  | 'space_guide_note'
 
 export interface ConfigError {
   code: ConfigErrorCode
@@ -211,7 +217,9 @@ export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS_SECTION as
 const TOP_KEYS = ['version', 'daily', 'attachments', 'links', 'history', 'mcp']
 const LINKS_KEYS = ['aliases']
 const HISTORY_KEYS = ['mode', 'maxFileSize', 'exclude']
-const MCP_KEYS = ['instructions']
+const MCP_KEYS = ['instructions', 'client_domains']
+/** A domain name as `client_domains` takes it (`claude.ai`, `localhost`), or an IP address. */
+const DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$|^\d{1,3}(?:\.\d{1,3}){3}$/
 const SERIES_KEYS = ['folder', 'name', 'template', 'label']
 const ATTACHMENT_KEYS = ['mode', 'folder', 'suffix']
 const ATTACHMENT_MODES = ['next-to-note', 'folder', 'per-note']
@@ -247,7 +255,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
   const config: WorkspaceConfig = {
     daily: [], attachments: { folder: null }, links: { aliases: true },
     history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
-    mcp: { instructions: null },
+    mcp: { instructions: null, clientDomains: [] },
   }
   const strictKeys = new Set(strict.map((s) => s.key))
   for (const key of Object.keys(data)) if (!TOP_KEYS.includes(key) && !strictKeys.has(key)) warn('unknown_key', [key])
@@ -340,6 +348,17 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
       if (i !== undefined && i !== null) {
         if (typeof i !== 'string') fail('invalid_type', ['mcp', 'instructions'], 'string')
         else config.mcp.instructions = notePath(i, ['mcp', 'instructions'], fail)
+      }
+      const d = data.mcp.client_domains
+      if (d !== undefined && d !== null) {
+        const list = typeof d === 'string' ? [d] : d
+        if (!Array.isArray(list) || list.some((x) => typeof x !== 'string')) fail('invalid_type', ['mcp', 'client_domains'], 'list')
+        else {
+          const domains = list.map((x: string) => x.trim().toLowerCase().replace(/^\*\./, '').replace(/\.$/, ''))
+          const bad = domains.find((x) => !DOMAIN.test(x))
+          if (bad !== undefined) fail('invalid_value', ['mcp', 'client_domains'], bad)
+          else config.mcp.clientDomains = [...new Set(domains)]
+        }
       }
     }
   }

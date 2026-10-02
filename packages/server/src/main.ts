@@ -10,9 +10,11 @@ import { createServer, type ExternalImages, type Runtime } from './http/app.ts'
 import { FolderRefs } from './folderRefs.ts'
 import { renameLegacySpaces } from './legacySpaces.ts'
 import { NoteSettingsStore } from './noteSettings.ts'
+import { migrateRetiredKeys } from './retiredKeys.ts'
 import { Indexer } from './indexer.ts'
 import { DEFAULT_MAX_IMAGE_BYTES, NoteService } from './notes.ts'
-import { openState } from './state.ts'
+import { externalImagesDefault, openState } from './state.ts'
+import { LOG_LEVELS, configureLogging, scrub, shownPath, type LogLevel } from './logging.ts'
 import { Profiles } from './profiles.ts'
 import { Workspace } from './workspace.ts'
 import { Watcher } from './watcher.ts'
@@ -53,8 +55,17 @@ export interface Config {
   webDir: string
   /** VIHKO_MAX_IMAGE_MB: largest image stored, from an upload or a URL (20 MB). */
   maxImageBytes: number
-  /** VIHKO_EXTERNAL_IMAGES: `allow` (default) or `block` images linked from other sites. */
-  externalImages: ExternalImages
+  /**
+   * VIHKO_EXTERNAL_IMAGES: `allow`, `ask` or `block` images linked from other
+   * sites; null when not set: the installation's default (state.ts
+   * `externalImagesDefault`: `ask` for a new one, `allow` for one from before).
+   */
+  externalImages: ExternalImages | null
+  /**
+   * VIHKO_LOG_LEVEL: `info` (default: no path of a personal space in the
+   * log, logging.ts) or `debug` (paths whole).
+   */
+  logLevel: LogLevel
   /**
    * The history's timings, for tests and tuning (vihko.yaml says what matters:
    * its mode and size limit). VIHKO_HISTORY_QUIET_SECONDS: an open version
@@ -100,6 +111,7 @@ export function configFromEnv(env = process.env): Config {
     webDir: resolve(env.VIHKO_WEB_DIR ?? fileURLToPath(new URL('../../web/dist', import.meta.url))),
     maxImageBytes: env.VIHKO_MAX_IMAGE_MB ? positiveMb(env.VIHKO_MAX_IMAGE_MB) : DEFAULT_MAX_IMAGE_BYTES,
     externalImages: externalImagesFrom(env.VIHKO_EXTERNAL_IMAGES),
+    logLevel: logLevelFrom(env.VIHKO_LOG_LEVEL),
     history: {
       quietMs: seconds(env.VIHKO_HISTORY_QUIET_SECONDS, 30, 'VIHKO_HISTORY_QUIET_SECONDS'),
       maxOpenMs: seconds(env.VIHKO_HISTORY_MAX_SECONDS, 300, 'VIHKO_HISTORY_MAX_SECONDS'),
@@ -134,9 +146,16 @@ function positiveMb(raw: string): number {
   return Math.floor(mb * 1024 * 1024)
 }
 
-function externalImagesFrom(raw: string | undefined): ExternalImages {
-  const v = (raw ?? 'allow').trim().toLowerCase()
-  if (v !== 'allow' && v !== 'block') throw new Error(`VIHKO_EXTERNAL_IMAGES must be "allow" or "block", not "${raw}"`)
+function logLevelFrom(raw: string | undefined): LogLevel {
+  const v = (raw ?? '').trim().toLowerCase() || 'info'
+  if (!LOG_LEVELS.includes(v as LogLevel)) throw new Error(`VIHKO_LOG_LEVEL must be "info" or "debug", not "${raw}"`)
+  return v as LogLevel
+}
+
+function externalImagesFrom(raw: string | undefined): ExternalImages | null {
+  if (raw === undefined || raw.trim() === '') return null
+  const v = raw.trim().toLowerCase()
+  if (v !== 'allow' && v !== 'ask' && v !== 'block') throw new Error(`VIHKO_EXTERNAL_IMAGES must be "allow", "ask" or "block", not "${raw}"`)
   return v
 }
 
@@ -171,8 +190,11 @@ export async function start(config: Config, opts: StartOptions = {}) {
 }
 
 async function run(config: Config, lock: StateLock, opts: StartOptions) {
-  const log = (msg: string) => console.log(`[vihko] ${msg}`)
+  // At the `info` level, nothing of a personal space's paths (logging.ts).
+  const log = (msg: string) => console.log(`[vihko] ${scrub(msg)}`)
   const { state, index } = openStores(config, log)
+  const uidByPath = index.prepare('select uid from notes where path = ?')
+  configureLogging({ level: config.logLevel, uidOf: (p) => (uidByPath.get(p) as { uid: string | null } | undefined)?.uid ?? null })
   // Each new user gets their personal folder (people/<name>).
   const auth = new Auth(state, { notesDir: config.notesDir })
   // The product's two folders, and the personal folder of each user there is, before the first scan.
@@ -205,7 +227,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
     // First: a note that left a folder with rules of its own is held before anyone can list it.
     holds.consider(moves)
     externalMoves.record(moves)
-    log(`moved outside vihko: ${moves.map((m) => `${m.from} → ${m.to} (${m.by})`).join(', ')}`)
+    log(`moved outside vihko: ${moves.map((m) => `${shownPath(m.from)} → ${shownPath(m.to)} (${m.by})`).join(', ')}`)
     follow?.followMoves(moves)
   }
   // The history: its journal is read before the hub recovers its notes (their
@@ -280,7 +302,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
     retries: new RelinkRetries({ stateDir: config.stateDir, log }),
     // Whoever made the move is told, without names or counts; the log has the rest.
     onRelinkGaveUp: (entry, failed) => {
-      log(`links in ${failed.length} note(s) still not updated after moving ${entry.reason.from} to ${entry.reason.to}: given up`)
+      log(`links in ${failed.length} note(s) still not updated after moving ${shownPath(entry.reason.from)} to ${shownPath(entry.reason.to)}: given up`)
       notices.relinkGaveUp(entry.reason.by)
     },
   })
@@ -304,7 +326,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   retention.start()
   const { app, services } = createServer({
     notices, retention,
-    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
+    auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages ?? externalImagesDefault(state), externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations, noteSettings,
     // The MCP server, at /mcp (off until the admin turns it on).
     routes: (app, services) => { mountMcp(app, services, { auth, workspace, log, icons: markIcons(webDir) }) },
@@ -313,6 +335,9 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   // Shared spaces of 0.1.0-rc.1 and rc.2 take their names as folders, before anyone can ask for them.
   await renameLegacySpaces({ notesDir: config.notesDir, file: services.permissionsFile, notes, refs: new FolderRefs({ state, stateDir: config.stateDir }), indexer, log })
     .catch((err) => log(`renaming the shared spaces of earlier versions: ${err instanceof Error ? err.message : String(err)}`))
+  // Keys vihko retired from its settings files: what they asked for is done, and they go, with a notice to whom each file belongs.
+  await migrateRetiredKeys({ notesDir: config.notesDir, index, state, notes, file: services.permissionsFile, notices, managersOf: (root) => permissions.managersOf(root), log })
+    .catch((err) => log(`migrating retired settings keys: ${err instanceof Error ? err.message : String(err)}`))
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.

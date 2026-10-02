@@ -176,7 +176,7 @@ test('delete: a folder with notes shows them before anything goes; an empty one 
   await row(k, ARCHIVE2).click({ button: 'right' })
   await k.getByRole('menuitem', { name: 'Eliminar carpeta' }).click()
   const dialog = k.getByRole('alertdialog')
-  await dialog.getByRole('button', { name: 'Eliminar' }).click()
+  // Named at once, before anything goes.
   await expect(dialog.getByText('Contiene 1 nota. Van a la papelera con ella y se pueden restaurar desde allí:')).toBeVisible()
   await expect(dialog.getByRole('list', { name: 'Sus notas' })).toHaveText(`${MOVABLE}.md`)
   await expect(dialog.getByRole('button', { name: 'Mandar a la papelera y eliminar' })).toBeVisible()
@@ -193,7 +193,7 @@ test('delete: a folder with notes shows them before anything goes; an empty one 
   await expect(row(k, EMPTY)).toBeVisible()
   await row(k, EMPTY).click({ button: 'right' })
   await k.getByRole('menuitem', { name: 'Eliminar carpeta' }).click()
-  await k.getByRole('alertdialog').getByRole('button', { name: 'Eliminar' }).click()
+  await k.getByRole('alertdialog').getByRole('button', { name: 'Eliminar', exact: true }).click()
   await expect(row(k, EMPTY)).toHaveCount(0)
   expect(existsSync(`${VAULT}/${DIR}/${EMPTY}`)).toBe(false)
 })

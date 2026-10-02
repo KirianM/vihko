@@ -8,6 +8,7 @@ import { renamedPath } from './legacyAddress.ts'
 import { openingNote } from './onOpen.ts'
 import { HomePage } from './Home.tsx'
 import { NoteSettingsDialog } from './NoteSettings.tsx'
+import { ChooseSeriesDialog } from './ChooseSeries.tsx'
 import { addressOf } from '@vihko/core/spaces'
 import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
 import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
@@ -29,6 +30,7 @@ import { RescueBanner } from './RescueBanner.tsx'
 import { setRescueUser } from './editor/rescue.ts'
 import { managesFolder, noteFolder } from './levels.ts'
 import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
+import { TimeZoneToast, timeZoneOffer } from './TimeZoneOffer.tsx'
 import { MoveToast, moveNotice } from './MoveToast.tsx'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { shiftedNotice } from './Shifts.tsx'
@@ -169,6 +171,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [trashed, setTrashed] = useState<Trashed | null>(null)
   /** You opened one of an ambiguous link's candidates: pin the link there? */
   const [pinOffer, setPinOffer] = useState<PinOffer | null>(null)
+  /** The browser's timezone, offered once instead of the profile's (someone travelling). */
+  const [zoneOffer, setZoneOffer] = useState<{ saved: string; browser: string } | null>(null)
   /** Your last rename or move, if some link could not be rewritten. */
   const [moveIssue, setMoveIssue] = useState<MoveReport | null>(null)
   /** The open note was moved by another tool and followed its file; `links`: left behind (null until known). */
@@ -187,6 +191,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [prefsOpen, setPrefsOpen] = useState(false)
+  /** «Today's note» asks which series to use: the one chosen is gone. */
+  const [choosingSeries, setChoosingSeries] = useState(false)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -218,6 +224,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       // First sign-in: the browser's timezone becomes the person's (editable in Preferences).
       if (!p.timezone) p = await api.updateProfile({ timezone: browserTimeZone() }).catch(() => p)
       setProfile(p)
+      // Afterwards, a browser somewhere else is offered once (TimeZoneOffer.tsx); never changed by itself.
+      const browser = timeZoneOffer(p.timezone)
+      if (browser && p.timezone) setZoneOffer({ saved: p.timezone, browser })
       // «On opening», when nothing else was asked for: a note only if it exists and they
       // read it (today's is never created on coming in: no empty notes); otherwise Home stays.
       if (!startedEmpty) return
@@ -242,6 +251,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       if (r.created) void loadTree()
       setOpenPath(r.path)
     } catch (err) {
+      // The series they chose is gone: they choose again, never another one by itself.
+      if (err instanceof ApiError && err.code === 'series_gone') {
+        void loadWorkspace()
+        setChoosingSeries(true)
+        return
+      }
       fail(err)
     }
   }
@@ -631,6 +646,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <AlertsPage
             onOpen={setOpenPath}
             onSpaces={showSpaces}
+            onSettings={(space) => setTreeDialog({ kind: 'settings', space: space?.path ?? null, name: space?.name ?? null })}
             onChanged={(n) => { setAlerts(n); void loadTree() }}
             onUnauthorized={onUnauthorized}
           />
@@ -749,6 +765,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           </div>
         )}
         {moveJob && <MoveProgress key={moveJob.id} job={moveJob} onFinished={(end) => moveEnded(moveJob, end)} />}
+        {zoneOffer && (
+          <TimeZoneToast saved={zoneOffer.saved} browser={zoneOffer.browser} onChanged={(p) => { setProfile(p); setZoneOffer(null) }} onDismiss={() => setZoneOffer(null)} />
+        )}
         {pinOffer && pinOffer.target === openPath && (
           <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
         )}
@@ -877,6 +896,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           onMode={setPalette}
           onOpen={setOpenPath}
           onCreated={(p) => { setCreateIn(null); created(p) }}
+        />
+      )}
+      {choosingSeries && workspace && (
+        <ChooseSeriesDialog
+          series={workspace.daily}
+          onClose={() => setChoosingSeries(false)}
+          onChosen={(p) => { setProfile(p); setChoosingSeries(false); void openToday() }}
         />
       )}
       {prefsOpen && profile && (

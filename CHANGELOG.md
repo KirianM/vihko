@@ -27,6 +27,24 @@ small team meets after months of use.
   ended. The copy goes next to the note, or into your own space when you
   can't write there any more.
 - Leaving the page while something you typed hasn't been sent asks first.
+- **Images and attachments by name, as Obsidian writes them.**
+  `![[photo.png]]` and `[[invoice.pdf]]` with no folder are found by name
+  among the files of the note's space, as note names are (the nearest wins,
+  a tie is no answer, never another space): an imported vault's images in
+  its attachments folder show again. A link to a file that isn't a note, or
+  a Markdown link to one next to the note, opens it in a new tab, where the
+  browser shows it (a PDF, an image) or downloads it; it's never offered as a
+  note to create. `GET /api/file?note=…&name=…` gets a file as a note names
+  it; links to files carry `file: true` (`GET /api/note/links`, and the MCP
+  `get_note` and `related`).
+- **OAuth apps from chosen domains only**, if you want:
+  `mcp.client_domains` in `vihko.yaml` lists the domains remote MCP apps may
+  come from (each with its subdomains). An app from elsewhere can't register
+  or be authorized, and the page names its domain. Empty or left out, any
+  app may ask, as before.
+- The authorization page shows the app's domain in large type, for one that
+  registered itself too (where it goes back to), and warns when the name an
+  app gives doesn't fit its domain.
 
 ### Changed
 
@@ -49,6 +67,48 @@ small team meets after months of use.
   or MCP answer `internal` meanwhile, and so do moving and deleting it.
 - The editor's «Offline» no longer promises that changes are sent on
   reconnecting: it says to keep the tab open.
+- **A shared space's guide for agents is written by its managers only.** It's
+  now text in the space's «Settings…» («Guide for agents»), kept in the
+  space's settings file (`guide` in `.vihko/settings.yaml`), never a note:
+  before, any member who could edit the note changed what every member's
+  agents were told. `PUT /api/settings` takes `guide` for a shared space and
+  refuses `agents` there (`space_guide_note`). A person's own guide is still
+  a note of theirs, and `mcp.instructions` in `vihko.yaml` is unchanged.
+- **«Today's note» asks when the series you chose is gone** (removed,
+  renamed, or in a space you left), and remembers your answer, instead of
+  quietly moving to another series, perhaps a shared space's.
+  `GET/POST /api/daily` and the MCP `daily_note` without a series answer
+  `409 series_gone` then; Preferences shows no series chosen until you pick
+  one.
+- **The closest daily series wins.** When your own series (or a space's)
+  writes the same notes as one of `vihko.yaml`'s, yours is the one offered,
+  with its name and template; before, the installation's hid it. A choice or
+  a `series` naming the installation's id still works, as yours.
+- **Deleting a folder or a space takes its hidden folders too, and names
+  them first.** Another program's folders (`.obsidian/`, `.trash/`, `.git/`…)
+  and a space's own `.vihko/` no longer keep a folder from being deleted:
+  they go to the trash with it and come back with it. The delete dialogs
+  list them, and the files that aren't notes, as soon as they open, the
+  known ones by what they are («Obsidian settings (.obsidian)»). Only a
+  symbolic link still stops a deletion. `not_empty`'s `contents` has
+  `hidden`, and `DELETE /api/folder?dryRun=true` says what deleting would
+  take without deleting anything.
+- **External images wait for the reader on new installations.** A note's
+  image from another site shows «External image from example.com» with
+  **Show** (loads it, on this page) and **Save a copy** (vihko downloads it
+  into the notes folder and the note points to the copy, its text kept).
+  `VIHKO_EXTERNAL_IMAGES` takes `ask` for this; `allow` and `block` are as
+  before, and `block` also offers **Save a copy**. Unset, an installation
+  started with this version gets `ask`; one from before keeps `allow`.
+- **Travelling**: when your browser is in another time zone than the one in
+  your preferences (which decides what day «today» is), vihko offers once,
+  in that browser, to switch to it; it never switches by itself.
+- **The log keeps personal spaces' paths out.** At the default level a path
+  inside a personal space is written as «a note in a personal space» with
+  its `uid`; `VIHKO_LOG_LEVEL=debug` writes paths whole, to chase a problem.
+- Files opened on their own: images (not SVG) and PDFs are shown in the
+  browser (`Content-Disposition: inline`); an SVG, a web page or anything
+  else is downloaded.
 
 ### Security
 
@@ -148,6 +208,22 @@ small team meets after months of use.
   moved or renamed the note, or while closing it or opening another one.
 - What an agent appends while someone types at the end of the note no
   longer splits the word they are typing.
+- **Old `templates` keys are converted by vihko itself.** A `templates` key
+  left in `vihko.yaml` or in a person's or a space's `.vihko/settings.yaml`
+  was an «unknown key» alert that could only be fixed on the server. Now, at
+  start, vihko marks the notes of those folders as templates (as «Mark notes
+  as templates…» does), removes the key from the file, keeping the rest of
+  it, and tells whom the file belongs to how many notes it marked and which
+  folders were gone. A retired key is one entry of a small list, so the
+  next one is migrated the same way.
+- A settings alert said «in vihko.yaml» for a person's or a space's
+  settings file: it names its own file now (`~ana/.vihko/settings.yaml`),
+  with the line, and only whom the file belongs to sees it. It opens the
+  settings, where a key vihko doesn't know has **Remove** (`remove` in
+  `PUT /api/settings`).
+- A note made a template still showed among the ⌘K box's recent notes, and
+  in «On opening» › «A note» while choosing one; templates stay out of both,
+  as they stay out of search, tags and Home.
 
 ### Documentation
 
@@ -164,6 +240,14 @@ small team meets after months of use.
 - Purging says that backups taken before still hold what was purged.
 - The agents guide says that a key's folders are paths: whoever can edit
   there can move notes into a key's reach.
+- Guides for going from one person to a family (moving many notes at once on
+  the disk, until the tree selects several), for someone leaving with their
+  notes (there's no export yet: they are plain files), and for what to check
+  after restoring an older `state.db`. The import guide no longer promises
+  what didn't work (images by name now do; attachments open from links).
+- Notes held after a move outside vihko are released only by whoever could
+  have made that move from vihko; the guide and the error when deleting a
+  folder with them say so.
 
 ### Upgrade notes
 
@@ -177,9 +261,27 @@ small team meets after months of use.
   granted whenever someone had typed since its read now gets its write
   applied when it touches nothing they changed. Read the `etag` in the
   answer: it's the note's new one, with their changes.
+- **Shared spaces with a guide for agents**: the note their settings named
+  no longer reaches agents. Its managers get a `settings_invalid` alert
+  (`space_guide_note`, with the note's name); copy the note's text into the
+  space's «Settings…» → «Guide for agents» and save.
+- Scripts and agents calling `POST /api/daily` (or `daily_note`) without a
+  series may now get `409 series_gone`: pass a `series`, or set
+  `dailySeries` in the profile.
+- **External images**: nothing changes for an existing installation. Without
+  `VIHKO_EXTERNAL_IMAGES` it keeps loading them, as before (the default it had
+  is now kept in `state.db`). For the new default, set
+  `VIHKO_EXTERNAL_IMAGES: ask` in `compose.yaml`.
+- **`templates` folders, if any are left** in `vihko.yaml` or in a
+  `.vihko/settings.yaml`: the first start of this version marks their notes
+  as templates and removes the key; the admins (for `vihko.yaml`), the
+  person or the space's managers get a notice saying how many. Nothing to
+  do by hand.
+- The index (`index.db`) is rebuilt on its own the first time this version
+  starts (it now lists the files that aren't notes, to find them by name);
+  nothing to do.
 
-
-## [0.1.0-rc.5] - unreleased
+## [0.1.0-rc.5] - 2026-10-02
 
 Templates marked in the notes themselves, and searching by any frontmatter
 field.
@@ -204,7 +306,8 @@ field.
   will mark before it does. The tree shows a small mark on each template, and
   `GET /api/tree` gives `template: true` for them.
 - A note made from a template gets the template's frontmatter (`type`, tags,
-  any key) without its `template: true`, every other byte as it was.
+  any key, `ai` included) without its `template: true` and its `aliases`,
+  every other byte as it was.
 - `POST /api/folder/templates` and `POST /api/note/template`, for the UI.
 - The search box's filter hints list the new filters.
 
@@ -216,7 +319,9 @@ field.
 - `GET /api/workspace` no longer has `templates`, and the note settings
   (`GET/PUT /api/settings`) no longer have `templates`.
 - A query word with a colon in it (`re:budget`) is now a frontmatter filter,
-  or a reserved one; times (`10:30`) and addresses (`https://…`) stay words.
+  or a reserved one; quoted whole (`"re:budget"`) it's searched as text, and
+  times (`10:30`) and addresses (`https://…`) stay words.
+- Preferences: the box that chooses and defines daily notes is «Daily notes».
 - The admin setting for saving copies of images from private addresses says
   what it guards, in plain words, and the notes guide explains it.
 

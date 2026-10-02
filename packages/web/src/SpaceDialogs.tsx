@@ -4,9 +4,10 @@
 // holds goes to the trash, which its managers can restore).
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Text, TextField } from 'react-aria-components'
-import { ApiError, LEVELS, api, type Grants, type Level, type SpaceEntry } from './api.ts'
+import { ApiError, LEVELS, api, type FolderContents, type Grants, type Level, type SpaceEntry } from './api.ts'
 import { errorText, useT } from './i18n.tsx'
 import { LEVEL_LABEL } from './Permissions.tsx'
+import { HiddenList } from './FolderDialogs.tsx'
 import { Icon, NAME_INPUT } from './ui.tsx'
 import './actions.css'
 import './permissions.css'
@@ -196,6 +197,13 @@ export function DeleteSpaceDialog({ space, notes, onClose, onDeleted }: { space:
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const managers = useMemo(() => [...space.managers].sort(collator.compare).join(', '), [space.managers])
+  // What else goes that vihko doesn't show (files that aren't notes, hidden folders such as its settings), named before anyone confirms.
+  const [contents, setContents] = useState<FolderContents | null>(null)
+  useEffect(() => {
+    let live = true
+    api.folderContents(space.path).then((c) => { if (live) setContents(c) }, () => {})
+    return () => { live = false }
+  }, [space.path])
   const go = async () => {
     setBusy(true)
     setError(null)
@@ -216,6 +224,15 @@ export function DeleteSpaceDialog({ space, notes, onClose, onDeleted }: { space:
           {notes > 0 && <li>{t('spaces.deleteRestore', { managers })}</li>}
           <li>{t('spaces.deleteMembers')}</li>
         </ul>
+        {contents && contents.files.total > 0 && (<>
+          <p className="dialog-text">{t(contents.files.total === 1 ? 'spaces.deleteFilesOne' : 'spaces.deleteFiles', { n: contents.files.total })}</p>
+          <ul className="folder-list" aria-label={t('folder.deleteFilesList')}>
+            {contents.files.paths.map((p) => <li key={p}>{p}</li>)}
+            {contents.files.total > contents.files.paths.length && <li className="folder-list-more">{t('folder.deleteMore', { n: contents.files.total - contents.files.paths.length })}</li>}
+          </ul>
+        </>)}
+        {contents && <HiddenList hidden={contents.hidden} />}
+        {contents && contents.kept.total > 0 && <p className="dialog-text" role="alert">{t('folder.deleteKept')}</p>}
         {error && <p className="error-text" role="alert">{error}</p>}
       </div>
       <div className="dialog-actions">
