@@ -118,6 +118,8 @@ test('«On opening»: the last note, a chosen one, today\'s only if it exists, a
   await prefs.getByRole('button', { name: 'Guardar' }).click()
   await u.goto(`/?note=${q(mine(last))}`)
   await expect(crumbsName(u)).toHaveText(last)
+  // Opened, not only asked for: the breadcrumbs show the address before the server has answered, and only an opened note is the last one.
+  await expect(u.locator('.cm-content')).toBeVisible()
   await u.goto('/')
   await expect(crumbsName(u)).toHaveText(last)
 
