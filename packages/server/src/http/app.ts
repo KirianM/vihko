@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { NoteSettingsFileError, WORKSPACE_FILE, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
+import { NoteSettingsFileError, WORKSPACE_FILE, noteSettingsPath, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -712,7 +712,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   app.put('/api/settings', async (c) => {
-    const body = await c.req.json<{ space?: unknown; settings?: unknown; ifMatch?: unknown }>()
+    const body = await c.req.json<{ space?: unknown; settings?: unknown; ifMatch?: unknown; remove?: unknown }>()
     const root = settingsRoot(c, body.space, true)
     if (root instanceof Response) return root
     const next = settingsFromBody(body.settings)
@@ -722,8 +722,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const problems = parseNoteSettings(writeNoteSettings(null, next, kind), kind).errors
     if (problems.length) return fail(c, 400, 'invalid', 'the settings have problems', { errors: problems })
     if (typeof body.ifMatch !== 'string') return fail(c, 428, 'precondition_required', 'ifMatch: the ETag of the settings the change was planned on')
+    // Keys vihko doesn't know, to remove from the file (their `at`, as `errors` gives them): only unknown ones are.
+    const remove = body.remove ?? []
+    if (!Array.isArray(remove) || remove.some((k) => typeof k !== 'string')) return fail(c, 400, 'invalid', 'remove: a list of the unknown keys to remove, as errors names them')
     try {
-      const r = await noteSettings.write(root, next, { ifMatch: body.ifMatch })
+      const r = await noteSettings.write(root, next, { ifMatch: body.ifMatch, remove: remove as string[] })
       return c.json(settingsView(r, true))
     } catch (err) {
       if (err instanceof NoteSettingsFileError) return fail(c, 409, 'config_invalid', err.message)
@@ -1047,14 +1050,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (!access.isAgent) {
       const me = c.get('user')
       const own = noteSettings.read(personalRoot(me.username))
-      if (own.errors.length) alerts.push({ code: 'settings_invalid', space: null, errors: own.errors, actions: [] })
+      if (own.errors.length) alerts.push({ code: 'settings_invalid', space: null, file: noteSettingsPath(own.root), errors: own.errors, actions: [] })
       const ownGuide = guideMissing(own)
       if (ownGuide !== null) alerts.push({ code: 'settings_guide_missing', space: null, note: ownGuide, actions: [] })
       for (const s of permissions.spacesFor(me).spaces) {
         if (!access.canManage(s.path)) continue
         const r = noteSettings.read(s.path)
         // (A space's guide is text in its settings, never a note: nothing to be missing.)
-        if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, errors: r.errors, actions: [] })
+        if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, file: noteSettingsPath(r.root), errors: r.errors, actions: [] })
       }
     }
     return c.json({ alerts })

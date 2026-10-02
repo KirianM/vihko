@@ -38,6 +38,8 @@ export interface Reason {
   alias?: string
   id?: string
   at?: string
+  folder?: string
+  file?: string
 }
 
 export type ChangeKind = 'created' | 'modified' | 'moved' | 'deleted' | 'restored'

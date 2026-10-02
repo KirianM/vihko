@@ -9,6 +9,7 @@ import { ApiError, api, type Alert, type MoveJob, type MovedRelinkReport } from 
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { BackButton, Icon, MenuButton, ThemeToggle, noteName as fileName } from './ui.tsx'
 import { noteHref, usePathLabels } from './spaces.tsx'
+import { addressOf } from '@vihko/core/spaces'
 import { SearchButton } from './Palette.tsx'
 import type { ConfigError, ConfigMigrationRef } from '@vihko/core/codes'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
@@ -22,10 +23,13 @@ type ExternalMove = Extract<Alert, { code: 'external_move' }>
 type Translate = ReturnType<typeof useT>
 
 /** Notices addressed to one person: theirs to dismiss, and said when they come in. */
-export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' | 'links_not_updated' | 'space_changed' | 'shared_with_you' | 'retention_ran' }>
+export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' | 'links_not_updated' | 'space_changed' | 'shared_with_you' | 'retention_ran' | 'settings_migrated' }>
 export const isPersonalNotice = (a: Alert): a is PersonalNotice =>
   a.code === 'account_changed' || a.code === 'user_account_changed' || a.code === 'history_purged_authored'
-  || a.code === 'links_not_updated' || a.code === 'space_changed' || a.code === 'shared_with_you' || a.code === 'retention_ran'
+  || a.code === 'links_not_updated' || a.code === 'space_changed' || a.code === 'shared_with_you' || a.code === 'retention_ran' || a.code === 'settings_migrated'
+
+/** A settings file as the UI names places: `vihko.yaml`, `~ana/.vihko/settings.yaml`, `Home/.vihko/settings.yaml`. */
+const settingsFileName = (path: string) => addressOf(path) ?? path
 
 type NoticeParts = { by?: string; user?: string; path?: string; to?: string; space?: string; name?: string; owner?: string }
 
@@ -34,6 +38,7 @@ function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: NoticeParts }
   switch (a.code) {
     case 'links_not_updated': return { key: 'alerts.linksNotUpdated', parts: {} }
     case 'retention_ran': return { key: a.failed ? 'alerts.retentionFailed' : 'alerts.retentionRan', parts: {} }
+    case 'settings_migrated': return { key: 'alerts.settingsMigrated', parts: {} }
     case 'space_changed': {
       const space = a.space?.name ?? undefined
       const known = { by: a.by, ...(a.user ? { user: a.user } : {}), ...(a.to ? { to: a.to } : {}), ...(space ? { space } : {}) }
@@ -177,10 +182,12 @@ function rich(text: string, parts: Record<string, ReactNode>): ReactNode[] {
   return text.split(/\{(\w+)\}/).map((chunk, i) => (i % 2 ? <Fragment key={i}>{parts[chunk] ?? `{${chunk}}`}</Fragment> : chunk))
 }
 
-export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
+export function AlertsPage({ onOpen, onSpaces, onSettings, onChanged, onUnauthorized }: {
   onOpen: (path: string) => void
   /** The admin's «Spaces» page, where a deleted person's space is decided. */
   onSpaces: () => void
+  /** Opens the note settings where a settings alert can be fixed: the person's own (null), or a shared space's. */
+  onSettings?: (space: { path: string; name: string } | null) => void
   /** After loading or after an action: the alert count, for the sidebar. */
   onChanged: (count: number) => void
   onUnauthorized: () => void
@@ -245,13 +252,13 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
   const mono = (path: string) => <span className="mono">{label(path)}</span>
   const adminOnly = <span className="alert-hint">{t('alerts.adminOnly')}</span>
 
-  /** vihko.yaml problems: line and key path, then what's wrong. */
-  const configList = (list: ConfigError[]) => (
+  /** A settings file's problems (vihko.yaml's, or a space's settings): the file, line and key path, then what's wrong. */
+  const configList = (list: ConfigError[], file: string) => (
     <ul className="alert-paths alert-config">
       {list.map((e, j) => (
         <li key={j}>
           {(e.line !== null || e.at) && (
-            <span className="mono">{t('alerts.inConfig', { at: [e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ') })}</span>
+            <span className="mono">{t('alerts.inConfig', { file, at: [e.line !== null ? t('alerts.configLine', { line: e.line }) : null, e.at].filter(Boolean).join(' · ') })}</span>
           )}
           {' '}{t(`config.${e.code}`, { detail: e.detail ?? '' })}
         </li>
@@ -351,7 +358,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: rich(t('alerts.configTitle'), { file: <span className="mono">{a.file}</span> }),
           body: t(a.fallback === 'last_good' ? 'alerts.configLastGood' : 'alerts.configNone'),
-          extra: configList(a.errors),
+          extra: configList(a.errors, a.file),
           actions: null,
         })
       case 'config_warnings':
@@ -359,7 +366,7 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           icon: icons.config,
           title: rich(t('alerts.configWarningsTitle'), { file: <span className="mono">{a.file}</span> }),
           body: t('alerts.configWarningsBody'),
-          extra: configList(a.warnings),
+          extra: configList(a.warnings, a.file),
           actions: null,
         })
       case 'settings_invalid':
@@ -368,8 +375,20 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: a.space ? t('alerts.spaceSettingsInvalidTitle', { name: a.space.name }) : t('alerts.settingsInvalidTitle'),
           body: t('alerts.settingsInvalidBody'),
-          extra: configList(a.errors),
-          actions: null,
+          extra: configList(a.errors, settingsFileName(a.file)),
+          // Fixed where they're set: the form writes over wrong values and removes the keys chosen.
+          actions: onSettings && <Button className="btn" onPress={() => onSettings(a.space)}>{t(a.space ? 'alerts.openSpaceSettings' : 'alerts.openOwnSettings')}</Button>,
+        })
+      case 'settings_migrated':
+        return frame({
+          icon: icons.config,
+          title: t('alerts.settingsMigrated'),
+          body: rich(t(a.file === null ? 'alerts.settingsMigratedBodyHidden' : a.marked === 1 ? 'alerts.settingsMigratedBodyOne' : 'alerts.settingsMigratedBody', { when: dates.dateTime(a.at), n: a.marked }), { file: a.file === null ? null : <span className="mono">{settingsFileName(a.file)}</span> }),
+          extra: a.missing.length > 0 && (<>
+            <p className="alert-hint">{t('alerts.settingsMigratedMissing')}</p>
+            <ul className="alert-paths">{a.missing.map((f) => <li key={f} className="mono">{f}</li>)}</ul>
+          </>),
+          actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissNotice(a.id))}>{t('alerts.dismiss')}</Button>,
         })
       case 'config_migrated':
         return frame({

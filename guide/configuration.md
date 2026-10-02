@@ -534,6 +534,16 @@ A person's file names a note of theirs instead: `agents: For agents`.
 - **vihko writes it** when someone saves the form, atomically, and only the
   keys that changed: comments and key order stay. You can also edit it by
   hand while vihko runs; it applies at once.
+- **Something wrong in it** (a hand edit, a key of an older or newer vihko)
+  is an alert to whom it belongs, the person or the space's managers, never
+  the admins, naming the file as vihko names places
+  (`~noa/.vihko/settings.yaml`, `Family/.vihko/settings.yaml`) and the line.
+  Its «Open…» button opens the form, where a key vihko doesn't know has
+  **Remove**: saving takes it out of the file.
+- **Keys vihko retires** are migrated by vihko when it starts, once: it does
+  what the key asked for, removes it from the file (the rest as it was) and
+  tells whom the file belongs to. `templates` (0.1.0-rc.4) is the first: its
+  folders' notes are marked as templates.
 
 ### How they add up
 

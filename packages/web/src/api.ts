@@ -538,7 +538,8 @@ export const api = {
   profile: () => request<Profile>('GET', '/api/profile'),
   home: () => request<HomeView>('GET', '/api/home'),
   settings: (space?: string) => request<SettingsView>('GET', `/api/settings${space ? `?space=${encodeURIComponent(space)}` : ''}`),
-  saveSettings: (space: string | null, settings: NoteSettingsForm, ifMatch: string) => request<SettingsView>('PUT', '/api/settings', { ...(space ? { space } : {}), settings, ifMatch }),
+  /** `remove`: keys vihko doesn't know (as `errors` names them) to remove from the file. */
+  saveSettings: (space: string | null, settings: NoteSettingsForm, ifMatch: string, remove: string[] = []) => request<SettingsView>('PUT', '/api/settings', { ...(space ? { space } : {}), settings, ifMatch, ...(remove.length ? { remove } : {}) }),
   updateProfile: (patch: Partial<Profile>) => request<Profile>('PUT', '/api/profile', patch),
   /** Where today's note is and whether it exists; creates nothing. */
   today: () => request<{ series: string; path: string; exists: boolean }>('GET', '/api/daily'),

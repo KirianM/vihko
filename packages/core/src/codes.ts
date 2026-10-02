@@ -225,9 +225,11 @@ export type Alert =
    * Note settings (`.vihko/settings.yaml`) written by hand with something
    * wrong: what applies leaves it out (`errors`, as vihko.yaml's). The
    * person's own (`space` null), or a shared space's (`space`), told to
-   * its managers. Never to the admin as such.
+   * its managers. Never to the admin as such. `file`: the settings file's
+   * path from the notes root (since 0.1.0-rc.6), which the UI names as it
+   * names places (`~ana/.vihko/settings.yaml`, `Home/.vihko/settings.yaml`).
    */
-  | { code: 'settings_invalid'; space: { path: string; name: string } | null; errors: ConfigError[]; actions: never[] }
+  | { code: 'settings_invalid'; space: { path: string; name: string } | null; file: string; errors: ConfigError[]; actions: never[] }
   /**
    * Note settings whose guide for agents names a note that doesn't exist
    * (`note`, its path): agents get nothing from it until someone makes it.
@@ -263,6 +265,16 @@ export type Alert =
    * before failing is counted). Until each dismisses theirs.
    */
   | { code: 'retention_ran'; id: string; at: string; trashEntries: number; versions: number; failed: boolean; actions: 'dismiss'[] }
+  /**
+   * Addressed to whom a settings file belongs (since 0.1.0-rc.6): a key
+   * vihko retired (`key`, such as `templates`) was in `file` (`vihko.yaml`,
+   * to the admins; a person's `.vihko/settings.yaml`, to them; a shared
+   * space's, to its managers), and vihko did at start what it asked for
+   * (for `templates`: `marked` notes marked as templates in its folders),
+   * then removed it from the file. `missing`: folders it named that no
+   * longer exist, as written there. `file` null once they can't read it.
+   */
+  | { code: 'settings_migrated'; id: string; at: string; key: string; file: string | null; marked: number; missing: string[]; actions: 'dismiss'[] }
   /**
    * Second factors stored encrypted with a VIHKO_SECRET_KEY that isn't the
    * one in force (or with none set): their codes can't be checked, so those

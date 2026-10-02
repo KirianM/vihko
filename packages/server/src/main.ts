@@ -10,6 +10,7 @@ import { createServer, type ExternalImages, type Runtime } from './http/app.ts'
 import { FolderRefs } from './folderRefs.ts'
 import { renameLegacySpaces } from './legacySpaces.ts'
 import { NoteSettingsStore } from './noteSettings.ts'
+import { migrateRetiredKeys } from './retiredKeys.ts'
 import { Indexer } from './indexer.ts'
 import { DEFAULT_MAX_IMAGE_BYTES, NoteService } from './notes.ts'
 import { externalImagesDefault, openState } from './state.ts'
@@ -334,6 +335,9 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   // Shared spaces of 0.1.0-rc.1 and rc.2 take their names as folders, before anyone can ask for them.
   await renameLegacySpaces({ notesDir: config.notesDir, file: services.permissionsFile, notes, refs: new FolderRefs({ state, stateDir: config.stateDir }), indexer, log })
     .catch((err) => log(`renaming the shared spaces of earlier versions: ${err instanceof Error ? err.message : String(err)}`))
+  // Keys vihko retired from its settings files: what they asked for is done, and they go, with a notice to whom each file belongs.
+  await migrateRetiredKeys({ notesDir: config.notesDir, index, state, notes, file: services.permissionsFile, notices, managersOf: (root) => permissions.managersOf(root), log })
+    .catch((err) => log(`migrating retired settings keys: ${err instanceof Error ? err.message : String(err)}`))
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.

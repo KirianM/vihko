@@ -104,6 +104,48 @@ export function migrateWorkspaceText(text: string, migrations: readonly Workspac
 }
 
 /**
+ * `text` with `change` made to its YAML Document, written the way the
+ * migrations write it (see the header): only what changed, the rest of the
+ * file byte for byte, comments and key order included. Null when the text
+ * isn't YAML, or `change` changed nothing. For a vihko.yaml and for a
+ * space's settings file alike (server retiredKeys.ts).
+ */
+export function rewriteYaml(text: string, change: (doc: Document) => boolean): string | null {
+  const doc = parseYamlDocument(text)
+  if (doc.errors.length) return null
+  const before = render(doc)
+  if (!change(doc)) return null
+  // Nothing left: an empty file (and its comments), never `{}`.
+  const after = render(doc).replace(/^\{\}\n/m, '')
+  const merged = mergeChange(text, before, after)
+  return merged !== null && sameDocument(merged, after) ? merged : after
+}
+
+/**
+ * Removes a top-level key from a YAML Document, with its value and the
+ * comment at the end of its line. A comment right above it stays: it
+ * belongs to the file (its header) or to what follows as often as to that
+ * key, so it moves to the next key, or to the file's end. Whether there was
+ * such a key.
+ */
+export function deleteTopKey(doc: Document, key: string): boolean {
+  if (!isMap(doc.contents)) return false
+  const items = doc.contents.items
+  const i = items.findIndex((p) => isScalar(p.key) && String(p.key.value) === key)
+  if (i === -1) return false
+  const pair = items[i]!
+  const above = isScalar(pair.key) ? pair.key.commentBefore : undefined
+  items.splice(i, 1)
+  if (above) {
+    const next = items[i]?.key
+    if (isScalar(next)) next.commentBefore = next.commentBefore ? `${above}\n${next.commentBefore}` : above
+    else if (i === 0) doc.commentBefore = doc.commentBefore ? `${doc.commentBefore}\n${above}` : above
+    else doc.comment = doc.comment ? `${above}\n${doc.comment}` : above
+  }
+  return true
+}
+
+/**
  * The file's `version` raised to `target`: set where it's a lower whole
  * number, added as the first key where it's missing. A `version` that isn't
  * a whole number is left for the workspace's own alert (`invalid_version`),

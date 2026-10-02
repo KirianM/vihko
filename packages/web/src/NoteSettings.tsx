@@ -44,6 +44,8 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
   const [problems, setProblems] = useState<SettingsProblem[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** Keys vihko doesn't know that the person chose to remove from the file when saving (as `errors` names them). */
+  const [removing, setRemoving] = useState<ReadonlySet<string>>(new Set())
   /** Saved, but the guide for agents names a note that doesn't exist: said, and the dialog stays until closed. */
   const [savedMissing, setSavedMissing] = useState<string | null>(null)
 
@@ -77,7 +79,8 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
       daily: form.daily.map((s) => ({ ...s, label: s.label?.trim() || null, folder: s.folder.trim(), name: s.name.trim() || '{YYYY}-{MM}-{DD}', template: s.template?.trim() || null })),
     }
     try {
-      const saved = await api.saveSettings(space, next, view.etag)
+      const saved = await api.saveSettings(space, next, view.etag, [...removing])
+      setRemoving(new Set())
       if (!saved.guideMissing || !next.agents) return onSaved()
       setView(saved)
       setForm(formOf(saved.settings))
@@ -165,7 +168,15 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
         {problems.length > 0 && (
           <div className="error-text dialog-error" role="alert">
             <p>{t('settings.problems')}</p>
-            <ul className="settings-problems">{problems.map((p, i) => <li key={i}>{problemText(p)}</li>)}</ul>
+            <ul className="settings-problems">{problems.map((p, i) => (
+              <li key={i}>
+                {problemText(p)}
+                {/* A key vihko doesn't know (an old setting, a typo): removed from the file on saving, if the person says so. */}
+                {p.code === 'unknown_key' && p.at && view?.canEdit !== false && (removing.has(p.at)
+                  ? <> <span className="settings-removing">{t('settings.removeOnSave')}</span> <Button className="btn btn-quiet settings-key-action" onPress={() => setRemoving((s) => { const n = new Set(s); n.delete(p.at!); return n })}>{t('settings.keepKey')}</Button></>
+                  : <> <Button className="btn btn-quiet settings-key-action" aria-label={t('settings.removeKey', { key: p.at })} onPress={() => setRemoving((s) => new Set(s).add(p.at!))}>{t('settings.remove')}</Button></>)}
+              </li>
+            ))}</ul>
           </div>
         )}
         {error && <p className="error-text dialog-error" role="alert">{error}</p>}

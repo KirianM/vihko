@@ -91,6 +91,19 @@ its entries are kept at the end of this file.
 
 ### Fixed
 
+- **Old `templates` keys are converted by vihko itself.** A `templates` key
+  left in `vihko.yaml` or in a person's or a space's `.vihko/settings.yaml`
+  was an «unknown key» alert that could only be fixed on the server. Now, at
+  start, vihko marks the notes of those folders as templates (as «Mark notes
+  as templates…» does), removes the key from the file, keeping the rest of
+  it, and tells whom the file belongs to how many notes it marked and which
+  folders were gone. A retired key is one entry of a small list, so the
+  next one is migrated the same way.
+- A settings alert said «in vihko.yaml» for a person's or a space's
+  settings file: it names its own file now (`~ana/.vihko/settings.yaml`),
+  with the line, and only whom the file belongs to sees it. It opens the
+  settings, where a key vihko doesn't know has **Remove** (`remove` in
+  `PUT /api/settings`).
 - A note made a template still showed among the ⌘K box's recent notes, and
   in «On opening» › «A note» while choosing one; templates stay out of both,
   as they stay out of search, tags and Home.
@@ -108,6 +121,11 @@ its entries are kept at the end of this file.
   `VIHKO_EXTERNAL_IMAGES` it keeps loading them, as before (the default it had
   is now kept in `state.db`). For the new default, set
   `VIHKO_EXTERNAL_IMAGES: ask` in `compose.yaml`.
+- **`templates` folders, if any are left** in `vihko.yaml` or in a
+  `.vihko/settings.yaml`: the first start of this version marks their notes
+  as templates and removes the key; the admins (for `vihko.yaml`), the
+  person or the space's managers get a notice saying how many. Nothing to
+  do by hand.
 - The index (`index.db`) is rebuilt on its own the first time this version
   starts (it now lists the files that aren't notes, to find them by name);
   nothing to do.

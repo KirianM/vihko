@@ -359,6 +359,11 @@ instead), and whoever still uses it is told:
 
 A form of `vihko.yaml` that changes is rewritten at start by a migration
 instead (core's `workspaceMigrations.ts`, with its `config_migrated` alert).
+A key that goes away from `vihko.yaml` or a space's `.vihko/settings.yaml`
+and asked for something in the notes is a retired key: one entry in the
+server's `retiredKeys.ts` (`RETIRED_KEYS`), whose `migrate` does what the key
+asked for; vihko runs it at start, removes the key (the rest of the file as
+it was) and tells whom the file belongs to (`settings_migrated`).
 
 ### The `version` of `vihko.yaml`
 

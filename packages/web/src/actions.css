@@ -153,6 +153,8 @@
 .btn.settings-add { align-self: flex-start; }
 .settings-textarea { font: inherit; font-size: 14px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--field); color: var(--ink); resize: vertical; }
 .settings-problems { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+.settings-problems .settings-key-action { padding: 0 var(--space-2); min-height: 0; font-size: 13px; }
+.settings-problems .settings-removing { font-style: italic; }
 @media (max-width: 760px) {
   .settings-series { grid-template-columns: minmax(0, 1fr) auto; }
   .settings-series .settings-remove { grid-column: 2; }

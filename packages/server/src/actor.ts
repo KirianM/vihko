@@ -40,6 +40,10 @@ export type Actor =
  * - `space_renamed`: a shared space of 0.1.0-rc.1 or rc.2 (`from`, its
  *   `<readable>-<id>` folder) renamed to its name (`to`) when vihko started
  *   (legacySpaces.ts).
+ * - `templates_marked`: a note marked as a template when vihko started,
+ *   because `folder` was a templates folder in `file` (vihko.yaml, or a
+ *   space's settings), a key it retired (retiredKeys.ts). The same reason
+ *   for the file's own change, without the key.
  * - `recovered`: text vihko wrote back from its own copy (the collaboration
  *   hub) whose typists it doesn't know.
  * - `follow_external_move`, `keep_copy`, `crash_recovery`: the hub's own
@@ -52,6 +56,7 @@ export type Reason =
   | { code: 'alias_added'; alias: string; from: string; to: string; by: Actor }
   | { code: 'links_kept'; to: string; by: Actor }
   | { code: 'space_renamed'; from: string; to: string }
+  | { code: 'templates_marked'; folder: string; file: string }
   | { code: 'restored'; id: string; at: string }
   | { code: 'trash_restored'; id: string }
   | { code: 'reverted'; id: string; at: string }

@@ -102,12 +102,12 @@ export class NoteSettingsStore {
    * what the file has around them (core writeNoteSettings). A file that
    * isn't YAML is fixed by hand first (NoteSettingsFileError).
    */
-  async write(root: string, next: NoteSettings, opts: { ifMatch?: string } = {}): Promise<SettingsRead> {
+  async write(root: string, next: NoteSettings, opts: { ifMatch?: string; remove?: readonly string[] } = {}): Promise<SettingsRead> {
     const r = root.normalize('NFC')
     const now = this.read(r)
     if (opts.ifMatch !== undefined && opts.ifMatch !== now.etag) throw new NoteError('precondition_failed', 'the settings have changed', now.etag)
     const before = now.etag === contentHash('') && this.stamp(r) === '' ? null : readText(this.file(r))
-    const text = writeNoteSettings(before, next, settingsKind(r))
+    const text = writeNoteSettings(before, next, settingsKind(r), opts.remove ?? [])
     mkdirSync(dirname(this.file(r)), { recursive: true })
     const w = await commitText(this.file(r), text, before === null ? null : contentHash(before))
     if (!w.ok) throw new NoteError('precondition_failed', 'the settings have changed', this.read(r).etag)

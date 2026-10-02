@@ -301,7 +301,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * file without `version` gets it, first. Throws NoteSettingsFileError for a
  * file that isn't YAML or a map: it's fixed by hand.
  */
-export function writeNoteSettings(text: string | null, next: NoteSettings, kind: NoteSettingsKind = 'personal'): string {
+export function writeNoteSettings(text: string | null, next: NoteSettings, kind: NoteSettingsKind = 'personal', remove: readonly string[] = []): string {
   const doc = parseYamlDocument(text ?? '')
   if (doc.errors.length) throw new NoteSettingsFileError(`not valid YAML: ${doc.errors[0]!.message}`)
   if (doc.contents !== null && !isMap(doc.contents)) throw new NoteSettingsFileError('not a set of key: value')
@@ -309,6 +309,9 @@ export function writeNoteSettings(text: string | null, next: NoteSettings, kind:
   const was = read.settings
   // A known key whose value was left out as wrong is written over (a key vihko doesn't know stays).
   const wrong = new Set(read.errors.filter((e) => e.code !== 'unknown_key').map((e) => e.at?.split('.')[0]))
+  // Keys vihko doesn't know that the person chose to remove (`remove`, as their `at`): only those, never one it knows.
+  const unknown = new Set(read.errors.filter((e) => e.code === 'unknown_key' && e.at !== null).map((e) => e.at!))
+  for (const at of remove) if (unknown.has(at)) doc.deleteIn(at.split('.'))
   const current = (doc.toJS() ?? {}) as Record<string, unknown>
   if (doc.contents === null) doc.contents = doc.createNode({}) as never
   if (current.version === undefined) {

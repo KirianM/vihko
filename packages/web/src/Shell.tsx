@@ -632,6 +632,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <AlertsPage
             onOpen={setOpenPath}
             onSpaces={showSpaces}
+            onSettings={(space) => setTreeDialog({ kind: 'settings', space: space?.path ?? null, name: space?.name ?? null })}
             onChanged={(n) => { setAlerts(n); void loadTree() }}
             onUnauthorized={onUnauthorized}
           />

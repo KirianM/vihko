@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { isMap, isScalar, type Document, type Pair, type Scalar, type YAMLMap } from 'yaml'
-import { WORKSPACE_MIGRATIONS, WORKSPACE_VERSION, formatVersion, migrateWorkspaceText, parseWorkspaceConfig, type WorkspaceMigration } from '@vihko/core'
+import { WORKSPACE_MIGRATIONS, WORKSPACE_VERSION, deleteTopKey, formatVersion, migrateWorkspaceText, parseWorkspaceConfig, rewriteYaml, type WorkspaceMigration } from '@vihko/core'
 import { parseYamlDocument } from '../src/yaml.ts'
 import { mother } from '../../../test/mother.ts'
 
@@ -178,4 +178,15 @@ test('version: vihko\'s own migrations go from 2 up, in order, and WORKSPACE_VER
   }
   assert.equal(WORKSPACE_VERSION, formatVersion(WORKSPACE_MIGRATIONS))
   assert.equal(formatVersion([]), 1)
+})
+
+test('a top-level key removed from a YAML file: its lines go, every other byte stays; a comment above it stays too; nothing left is an empty file', () => {
+  const [a, b, c] = [m.aSentence(), m.aSentence(), m.aSentence()]
+  // Literal layout: the comments and spacing around the key are the case under test.
+  const text = `# ${a}\ngone: [x, y]   # ${b}\nkept:    1      # ${c}\n\n# ${b}\nalso: 2\n`
+  assert.equal(rewriteYaml(text, (d) => deleteTopKey(d, 'gone')), `# ${a}\nkept:    1      # ${c}\n\n# ${b}\nalso: 2\n`)
+  assert.equal(rewriteYaml(text, (d) => deleteTopKey(d, 'also')), `# ${a}\ngone: [x, y]   # ${b}\nkept:    1      # ${c}\n\n# ${b}\n`)
+  assert.equal(rewriteYaml(text, (d) => deleteTopKey(d, 'missing')), null)
+  assert.equal(rewriteYaml('only: 1\n', (d) => deleteTopKey(d, 'only')), '')
+  assert.equal(rewriteYaml('a: [', (d) => deleteTopKey(d, 'a')), null, 'not YAML: nothing')
 })

@@ -225,3 +225,32 @@ test('a hand edit with a mistake is an alert to whom the file belongs, and to no
   await expect(a.getByText('Los ajustes de tus notas tienen algo mal')).toBeVisible()
   await a.context().close()
 })
+
+test('a key vihko doesn\'t know: the alert names the file it\'s in, opens the settings, and «Quitar» takes it out on saving', async () => {
+  const unknown = m.aUniqueWord()
+  const series = m.anId()
+  mkdirSync(`${NOTES}/${MINE}/.vihko`, { recursive: true })
+  writeFileSync(settingsFile(MINE), `version: 1\n${unknown}: ${m.aWord()}\ndaily:\n  ${series}:\n    folder: ${m.aFolder()}\n`)
+  await expect(async () => {
+    await k.goto('/?view=alerts')
+    await expect(k.locator('.alert-card', { hasText: 'Los ajustes de tus notas tienen algo mal' })).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 20_000 })
+  const card = k.locator('.alert-card', { hasText: 'Los ajustes de tus notas tienen algo mal' })
+  await expect(card.getByRole('listitem')).toHaveText(`en ~${ADMIN.username}/.vihko/settings.yaml: línea 2 · ${unknown} Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.`)
+  await card.getByRole('button', { name: 'Abrir los ajustes de tus notas' }).click()
+  const dialog = k.getByRole('dialog', { name: 'Ajustes de tus notas' })
+  await dialog.getByRole('button', { name: `Quitar ${unknown} del archivo` }).click()
+  await expect(dialog).toContainText('se quitará al guardar')
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${SHOTS}/settings-remove-key-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await dialog.getByRole('button', { name: 'Guardar' }).click()
+  await expect(dialog).toHaveCount(0)
+  const file = read(settingsFile(MINE))!
+  expect(file).not.toContain(unknown)
+  expect(file).toContain(series)
+  const codes = async () => ((await (await k.request.get('/api/alerts')).json()) as { alerts: { code: string }[] }).alerts.map((x) => x.code)
+  await expect.poll(codes).not.toContain('settings_invalid')
+})

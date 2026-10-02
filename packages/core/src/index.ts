@@ -36,7 +36,7 @@ export {
 } from './spaces.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
 export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
-export { WORKSPACE_MIGRATIONS, formatVersion, migrateWorkspaceText, type MigrationOutcome, type WorkspaceMigration } from './workspaceMigrations.ts'
+export { WORKSPACE_MIGRATIONS, formatVersion, migrateWorkspaceText, deleteTopKey, rewriteYaml, type MigrationOutcome, type WorkspaceMigration } from './workspaceMigrations.ts'
 export {
   EMPTY_NOTE_SETTINGS, MAX_SPACE_GUIDE, NOTE_SETTINGS_FILE, NOTE_SETTINGS_VERSION, NoteSettingsFileError, noteSettingsPath, parseNoteSettings, resolveNoteSettings, spacePathProblem, writeNoteSettings,
   type NoteSettings, type NoteSettingsKind, type ResolvedNoteSettings, type SettingsAttachments, type SettingsSeries,
@@ -49,3 +49,4 @@ export {
 export { MIN_HUE_DISTANCE, baseHue, distinctHue, freeHue, hueDistance, isPersonHue } from './hue.ts'
 export { keyWidens, type KeyScope } from './keyScope.ts'
 export { LANGUAGES, isLanguage, type Language } from './languages.ts'
+export { parseYamlDocument } from './yaml.ts'

@@ -8,7 +8,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { seedLine, testSeed } from '../../../test/seed.ts'
-import { E2E_DIR, E2E_PORT, LOCKED_PORT, PERMISSIONS, PUBLIC_URL, SPACE, USERS } from './env.ts'
+import { ADMIN, E2E_DIR, E2E_PORT, LOCKED_PORT, LOCKED_TEMPLATES, PERMISSIONS, PUBLIC_URL, SPACE, USERS, personal } from './env.ts'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const cli = root + 'packages/server/src/cli.ts'
@@ -31,6 +31,14 @@ for (const e of [env, locked]) {
   for (const u of USERS) {
     execFileSync(process.execPath, ['--no-experimental-webstorage', cli, 'user', 'create', u.username, ...(u.role === 'admin' ? ['--admin'] : [])], { env: e, input: u.password })
   }
+}
+// On the locked server, a retired key in the admin's settings, which its start migrates (settings-migration.spec.ts).
+{
+  const home = `${locked.VIHKO_NOTES_DIR}/${personal(ADMIN)}`
+  mkdirSync(`${home}/${LOCKED_TEMPLATES.folder}`, { recursive: true })
+  writeFileSync(`${home}/${LOCKED_TEMPLATES.folder}/${LOCKED_TEMPLATES.note}.md`, `# {{title}}\n`)
+  mkdirSync(`${home}/.vihko`, { recursive: true })
+  writeFileSync(`${home}/.vihko/settings.yaml`, `version: 1\ntemplates:\n  - ${LOCKED_TEMPLATES.folder}\n  - ${LOCKED_TEMPLATES.gone}\n`)
 }
 // An open version of what's typed closes after 3 s of calm instead of 30: the history specs don't wait half a minute.
 const servers = [

@@ -312,15 +312,16 @@ test('preferences: series and «On opening: today\'s note», which never creates
 })
 
 test('vihko.yaml: an unknown key is ignored with a warning; an invalid file keeps the last good one', async () => {
-  // A key vihko doesn't know (one it no longer reads): left out, and the rest applies.
-  writeWorkspace(CONFIG.replace('# e2e\n', `# e2e\ntemplates: ${q(TEMPLATES)}\n`))
+  // A key vihko doesn't know: left out, and the rest applies.
+  const unknown = m.aUniqueWord()
+  writeWorkspace(CONFIG.replace('# e2e\n', `# e2e\n${unknown}: ${q(TEMPLATES)}\n`))
   await expect(async () => {
     await k.goto('/?view=alerts')
     await expect(k.locator('.alert-card', { hasText: 'salvo algunas partes' })).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 20_000 })
   const warnings = k.locator('.alert-card', { hasText: 'salvo algunas partes' })
   await expect(warnings).toContainText('Lo que aparece aquí no se aplica')
-  await expect(warnings.getByRole('listitem')).toHaveText('en vihko.yaml: línea 2 · templates Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.')
+  await expect(warnings.getByRole('listitem')).toHaveText(`en vihko.yaml: línea 2 · ${unknown} Clave desconocida (¿una errata, o de una versión más nueva de vihko?): se ignora.`)
   await k.screenshot({ path: `${SHOTS}/config-warnings-light.png` })
   await todayButton(k).click()
   await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
