@@ -10,6 +10,7 @@ import { Consent } from './Consent.tsx'
 import { useAccountLanguage } from './language.ts'
 import { endSession } from './session.ts'
 import { setRecentOwner } from './recent.ts'
+import { dropRescues } from './editor/rescue.ts'
 
 /** The OAuth authorization page: the server checked the request and serves the UI there. */
 const consent = location.pathname === '/oauth/authorize'
@@ -70,7 +71,7 @@ export function App() {
       return (
         <Shell
           user={state.user}
-          onLogout={() => { void api.logout().finally(() => setState({ kind: 'login', notice: null })) }}
+          onLogout={() => { dropRescues(); void api.logout().finally(() => setState({ kind: 'login', notice: null })) }}
           onUnauthorized={() => setState({ kind: 'login', notice: t('error.unauthorized') })}
         />
       )

@@ -13,7 +13,7 @@ import { Crumbs, Diamond, Icon, MenuButton, ThemeToggle, noteName } from '../ui.
 import { useMobile } from '../mobile.ts'
 import { FormatBar } from './FormatBar.tsx'
 import { SearchButton } from '../Palette.tsx'
-import { useCollab, type CollabState } from './collab.ts'
+import { useCollab, type ClaimedLevel, type CollabState } from './collab.ts'
 import type { Trashed } from '../TrashToast.tsx'
 import { CreateLinkUi, useCreateLink } from './CreateLinkMenu.tsx'
 import { AmbiguousPicker, type AmbiguousLink, type PickerState } from './AmbiguousPicker.tsx'
@@ -39,7 +39,9 @@ import { VersionView } from '../history/VersionView.tsx'
 function SaveStatus({ c, compact = false }: { c: CollabState; compact?: boolean }) {
   const t = useT()
   if (c.orphaned) return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.orphanStatus')}</span></span>
-  if (c.connection === 'offline') return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.offline')}</span></span>
+  // What's true while offline: nothing is saved, and only this tab has it.
+  if (c.connection === 'offline') return <span className="status status-warn" title={t('editor.offlineHint')}>{Icon.alert}<span className="status-label">{t('editor.offline')}</span></span>
+  if (c.cantSave) return <span className="status status-warn">{Icon.alert}<span className="status-label">{t('editor.cantSaveStatus')}</span></span>
   if (c.connection === 'connecting') return <span className="status"><span className="status-label">{t('editor.connecting')}</span></span>
   const calm = (cls: string, icon: ReactNode, text: string) => (
     <span className={`status ${cls}${compact ? ' status-calm' : ''}`} title={compact ? text : undefined}>{icon}<span className="status-label">{text}</span></span>
@@ -121,10 +123,15 @@ function useAgentHiding(path: string, c: CollabState): 'ai' | 'frontmatter' | nu
  * session is opened again: collab.ts). Null until known, and `none` when
  * they can't read it any more.
  */
-function useLevel(path: string, c: CollabState, onMovedAway?: (to: string) => void): Level | 'none' | null {
-  const [level, setLevel] = useState<{ path: string; value: Level | 'none' } | null>(null)
+function useLevel(path: string, c: CollabState, initial: Level | null, onMovedAway?: (to: string) => void): Level | 'none' | null {
+  const [level, setLevel] = useState<{ path: string; value: Level | 'none' } | null>(initial ? { path, value: initial } : null)
   useEffect(() => {
     if (c.access === 'none') return setLevel({ path, value: 'none' })
+    // What the hub just said, until the server answers (`manage` writes as `edit` for the hub).
+    if (c.access) {
+      const access = c.access
+      setLevel((l) => ({ path, value: access === 'edit' && l?.path === path && l.value === 'manage' ? 'manage' : access }))
+    }
     let live = true
     api.note(path).then((n) => { if (live) setLevel({ path, value: n.level ?? 'edit' }) }, (e) => {
       if (!live || !(e instanceof ApiError) || e.code !== 'not_found') return
@@ -172,6 +179,19 @@ function HiddenFromAgents({ why }: { why: 'ai' | 'frontmatter' }) {
   )
 }
 
+/** vihko can't save the note: why, and that it's read-only for everyone until it can. */
+function CantSaveBanner({ reason }: { reason: NonNullable<CollabState['cantSave']> }) {
+  const t = useT()
+  return (
+    <div className="banner" role="alert">
+      <div className="banner-text">
+        <b>{t('editor.cantSaveTitle')}</b>
+        <span>{t(`editor.cantSave.${reason}`)} {t('editor.cantSaveBody')}</span>
+      </div>
+    </div>
+  )
+}
+
 function OrphanBanner({ path }: { path: string }) {
   const t = useT()
   const [error, setError] = useState<string | null>(null)
@@ -185,62 +205,6 @@ function OrphanBanner({ path }: { path: string }) {
       </div>
       <Button className="btn btn-primary" onPress={() => decide('restore')}>{t('editor.orphanKeep')}</Button>
       <Button className="btn" onPress={() => decide('discard')}>{t('editor.orphanDiscard')}</Button>
-    </div>
-  )
-}
-
-/** «Name (unsent 2026-09-25 10.12).md» next to the note; never overwrites one that exists. */
-async function saveAsideCopy(path: string, text: string, name: (note: string, date: string) => string) {
-  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
-  const note = path.slice(dir.length).replace(/\.md$/i, '')
-  const d = new Date()
-  const p2 = (n: number) => String(n).padStart(2, '0')
-  const date = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}.${p2(d.getMinutes())}`
-  for (let n = 1; ; n++) {
-    const copy = `${dir}${name(note, date)}${n > 1 ? ` ${n}` : ''}.md`
-    try {
-      // A new uid: two notes with the same one would be the same note for the integrations.
-      return (await api.createNote(copy, text, { freshUid: true })).path
-    } catch (e) {
-      if (!(e instanceof ApiError && e.code === 'exists') || n >= 20) throw e
-    }
-  }
-}
-
-/**
- * The hub started this note again without the document this tab had (its saved
- * state was lost, or the file no longer matched it), so the tab's copy couldn't
- * be merged without repeating text. It had changes that never arrived: keep them
- * as a copy of the note, or discard them.
- */
-function SetAsideBanner({ path, c, onCreated }: { path: string; c: CollabState; onCreated: (p: string) => void }) {
-  const t = useT()
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  if (!c.setAside) return null
-  const text = c.setAside.text
-  const keep = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      const copy = await saveAsideCopy(path, text, (note, date) => t('editor.setAsideName', { note, date }))
-      c.clearSetAside()
-      onCreated(copy)
-    } catch (e) {
-      setError(errorText(t, e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <div className="banner" role="alert">
-      <div className="banner-text">
-        <b>{t('editor.setAsideTitle')}</b>
-        <span>{t('editor.setAsideBody')}</span>
-        {error && <span className="error-text">{error}</span>}
-      </div>
-      <Button className="btn btn-primary" isDisabled={busy} onPress={keep}>{t('editor.setAsideKeep')}</Button>
-      <Button className="btn" isDisabled={busy} onPress={c.clearSetAside}>{t('editor.setAsideDiscard')}</Button>
     </div>
   )
 }
@@ -262,7 +226,7 @@ function BarEnd({ c, level, daily, onNavigate }: { c: CollabState; level: Level;
   return (
     <>
       {daily && <DailyNav daily={daily} onNavigate={onNavigate} bar />}
-      {canEdit(level) ? <SaveStatus c={c} compact /> : <span className={daily ? 'status-compact' : undefined}><ReadOnlyBadge level={level} /></span>}
+      {canEdit(level) || c.cantSave ? <SaveStatus c={c} compact /> : <span className={daily ? 'status-compact' : undefined}><ReadOnlyBadge level={level} /></span>}
     </>
   )
 }
@@ -280,6 +244,16 @@ interface Props {
   /** You moved it and the links are still being rewritten in the background. */
   onMoveStarted: (job: MoveJob) => void
   onTrashed: (t: Trashed) => void
+  /**
+   * The note isn't where this tab had it, and the hub won't say where:
+   * moved somewhere the person can't open (`movedAway`), or found gone on
+   * reconnecting (`gone`). What wasn't sent is kept apart (rescue.ts).
+   */
+  onGone: (why: 'movedAway' | 'gone') => void
+  /** What the server said the person may do in the note when the shell checked it, if it did. */
+  initialLevel?: Level | null
+  /** Shown under the header: what the person typed that didn't reach a note (RescueBanner). */
+  rescue?: ReactNode
   /** Template notes (marked `template: true`), offered when creating a note from a broken link. */
   templates: readonly string[]
   /** A note was created from here (a broken link): refresh the tree and open it. */
@@ -295,13 +269,17 @@ interface Props {
   onRestored: (report: RestoreReport) => void
 }
 
-export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutside, onMoveStarted, onTrashed, templates, onCreated, onPickCandidate, history, version, onVersion, onRestored }: Props) {
+export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutside, onMoveStarted, onTrashed, onGone, initialLevel = null, rescue, templates, onCreated, onPickCandidate, history, version, onVersion, onRestored }: Props) {
   const t = useT()
-  const c = useCollab(path)
+  // The level the editor shows the note at, told to the hub on every connection.
+  const claim = useRef<ClaimedLevel | null>(initialLevel ? (canEdit(initialLevel) ? 'edit' : initialLevel as ClaimedLevel) : null)
+  const c = useCollab(path, claim)
   const hiding = useAgentHiding(path, c)
-  const level = useLevel(path, c, (to) => onMoved(to))
+  const level = useLevel(path, c, initialLevel, (to) => onMoved(to))
+  claim.current = level === null || level === 'none' ? null : canEdit(level) ? 'edit' : level as ClaimedLevel
   const gone = level === 'none'
-  const known: Level | null = level === 'none' ? null : level
+  /** While vihko can't save it, nobody edits it: shown as if they could only read it. */
+  const known: Level | null = level === 'none' ? null : c.cantSave && canEdit(level) ? 'read' : level
   const editable = canEdit(known)
   const [linkData, setLinkData] = useState<LinksData | null>(null)
   const links = useMemo(
@@ -368,9 +346,13 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
   useEffect(() => {
     if (c.trashed) onTrashed({ id: c.trashed.id, path, by: c.trashed.by === user.username ? null : c.trashed.by })
   }, [c.trashed]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Gone where the person can't follow: closed, as when it goes to the trash.
+  useEffect(() => {
+    if (c.gone) onGone(c.gone)
+  }, [c.gone]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // History: the note's versions, kept fresh while the tab or a version is on screen. Only with `edit`: sharing a note to read doesn't give its past.
-  const historyOn = history !== null && history.mode !== 'off' && editable
+  const historyOn = history !== null && history.mode !== 'off' && level !== null && level !== 'none' && canEdit(level)
   const versions = useVersions(historyOn || version !== null ? path : null, version !== null || (historyOn && panel.open && panel.tab === 'history'))
   // Whatever is written into the note, by anyone, may open or extend a version.
   const activity = versions.activity
@@ -402,7 +384,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
         {daily && !mobile && <DailyNav daily={daily} onNavigate={onNavigate} />}
         {hiding && <HiddenFromAgents why={hiding} />}
         <span className="spacer" />
-        {!mobile && known && (editable || c.orphaned || c.connection === 'offline' ? <SaveStatus c={c} /> : <ReadOnlyBadge level={known} />)}
+        {!mobile && known && (editable || c.orphaned || c.cantSave || c.connection === 'offline' ? <SaveStatus c={c} /> : <ReadOnlyBadge level={known} />)}
         {!gone && <Presence c={c} />}
         <SearchButton />
         <ThemeToggle />
@@ -410,7 +392,8 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
         {editable && <NoteActions path={path} onMoved={onMoved} onMoveStarted={onMoveStarted} onTrashed={(id) => onTrashed({ id, path, by: null })} onInsertImage={images.openInsert} />}
       </header>
       {c.orphaned && !gone && <OrphanBanner path={path} />}
-      <SetAsideBanner path={path} c={c} onCreated={onCreated} />
+      {c.cantSave && !gone && <CantSaveBanner reason={c.cantSave} />}
+      {rescue}
       <CreateLinkUi state={createLink} />
       <div className="note-body">
         <div className="note" hidden={version !== null}>

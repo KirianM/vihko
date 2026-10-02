@@ -314,6 +314,15 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
             </>
           ),
         })
+      case 'note_not_saved':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: a.path ? t('alerts.notSavedTitle', { note: noteName(a.path) }) : t('alerts.notSavedTitleHidden', { space: a.space ? label(a.space) : '' }),
+          body: `${t(`editor.cantSave.${a.reason}`)} ${t(a.volume === 'notes' ? 'alerts.notSavedNotes' : 'alerts.notSavedState')}`,
+          extra: a.path && <ul className="alert-paths"><li>{noteLink(a.path)}</li></ul>,
+          actions: null,
+        })
       case 'external_move': {
         const one = a.moves.length === 1 ? a.moves[0]! : null
         return frame({

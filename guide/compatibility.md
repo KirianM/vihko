@@ -131,6 +131,7 @@ The [API guide](api.md) explains how to use it.
 | A note's ETag | `sha256:<hex>` of its text, in the body and in the `ETag` header (quoted) |
 | Cursors | `next`, passed back as `cursor`: opaque (encrypted), valid until vihko restarts |
 | Conditional writes | `If-Match` (quoted or bare), `ifMatch` in the body where a route takes it, `If-None-Match: *` on `PUT /api/note` |
+| An ETag a note open in the editor had a moment ago | A write planned on it (`PUT /api/note`, `POST /api/note/edit`, `POST /api/history/restore`) goes in, applied to the text as it is now, when nothing changed since in what it replaces or right next to it (a whole text counts from the first character it changes to the last); otherwise `412 precondition_failed`. "A moment ago": the texts vihko handed out with their ETag in the last 10 minutes, the last 32 of each open note (0.1.0-rc.6) |
 | Errors | `{ "error": <code>, "message": <hint> }`, with `etag` on `precondition_failed`, `reason` on `agent_denied`, `audience` on `audience_widens`, `path` on an `exists` that names the disk's spelling, `movedTo` on a `not_found` for a note vihko moved from there in the last two minutes (only to whoever reads it where it went), `contents` on `not_empty`, `group` on `leave_via_group`, `retryAfter` on `too_many_attempts`; `Retry-After` on `429` |
 | What the key's person can't read | `404 not_found`, the same whether it exists or not |
 | What the person reads but is hidden from agents | `403 agent_denied` with `reason`: `ai_false` (the note or a folder above it is closed to agents) or `outside_key_folders` |
@@ -260,7 +261,7 @@ These are the codes a key can meet, with their status:
 | `precondition_required` | 428 | A write without the `If-Match` it needs |
 | `precondition_failed` | 412 | The note changed since that ETag, or `If-None-Match: *` over a name that is taken or not available |
 | `history_unavailable` | 503 | The history can't be read right now |
-| `internal` | 500 | Something went wrong in vihko |
+| `internal` | 500 | Something went wrong in vihko; also a write to an open note vihko can't save right now (`note_not_saved`) |
 
 Creating the first admin adds `invalid_token`, `invalid_username` and
 `weak_password` (400), `already_setup` and `personal_folder_exists` (409), and
@@ -380,6 +381,7 @@ codes 0.1.0 added for spaces:
 | `links_not_updated` | Whoever made the move | Links in other notes a move of theirs couldn't update, even retried. No path, name or count |
 | `settings_invalid` | The person, for their own settings; a shared space's managers, for the space's. Never the admin as such | `space` (null for one's own; otherwise `path` and `name`), `errors` (`code`, `at`, `line`, `detail`): what is wrong in a settings file (0.1.0-rc.3) |
 | `settings_guide_missing` | As `settings_invalid` | `space` (as there), `note`: the settings name a guide for agents (`agents`) that isn't a note, so agents get nothing from it (0.1.0-rc.4) |
+| `note_not_saved` | Every admin | `path` (null for an admin who can't read the note), `space` (its space's root), `reason` (`disk_full`, `write_denied` or `write_failed`), `volume` (`notes`: its file; `state`: its recovery log): an open note vihko can't save. It's read-only for whoever has it open until vihko can, which it keeps trying; then the alert goes (0.1.0-rc.6) |
 | `retention_ran` | Every admin | `trashEntries`, `versions`, `failed`: what a retention run (weekly, or «Run now») removed (or that it failed part way). Counts only |
 
 `history_purged` names the path only to an admin who can read where it was,

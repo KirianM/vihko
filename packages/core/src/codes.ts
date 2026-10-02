@@ -92,6 +92,16 @@ export type Alert =
   | { code: 'unreadable_notes'; paths: string[]; elsewhere: string[]; actions: never[] }
   /** A note deleted from outside, with a copy pending a decision. */
   | { code: 'orphaned_note'; path: string; actions: ('keep_copy' | 'discard_copy')[] }
+  /**
+   * An open note vihko can't save: the disk is full (`disk_full`), vihko may
+   * not write there (`write_denied`) or the write failed otherwise
+   * (`write_failed`), in the notes folder (`volume: 'notes'`) or the state
+   * volume (`'state'`, its recovery log). It's read-only for its editors until
+   * vihko can save it again, which it keeps trying; then the alert goes.
+   * To the admins: `path` only to one who reads the note (null otherwise),
+   * `space` (its space's root) to all of them.
+   */
+  | { code: 'note_not_saved'; path: string | null; space: string | null; reason: 'disk_full' | 'write_denied' | 'write_failed'; volume: 'notes' | 'state'; actions: never[] }
   /** Several notes share the same `uid`. Fixed by editing the frontmatter, never automatically. */
   | { code: 'uid_conflict'; uid: string; paths: string[]; actions: never[] }
   /**

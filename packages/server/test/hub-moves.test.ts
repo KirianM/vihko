@@ -93,8 +93,10 @@ async function renamedWhileTyping(uid: boolean) {
     await waitFor(moved, 'both editors told it moved', 15000)
     await typing
     assert.ok(renamed)
-    const msg = ma.find((m) => m.type === 'vihko:moved')!
+    const { text: closedWith, ...msg } = ma.find((m) => m.type === 'vihko:moved')! as { text?: string }
     assert.deepEqual(msg, { type: 'vihko:moved', from: NOTE, to: TO, external: true })
+    // With the text the hub had when it closed the note there: every line it acknowledged.
+    assert.ok(typed.slice(0, acks).every((l) => closedWith?.includes(`${l}\n`)), 'the text it closed with')
     assert.ok(!ma.some((m) => m.type === 'vihko:deleted-externally'), 'never announced as deleted')
     a.close(); b.close()
     const acked = typed.slice(0, acks)

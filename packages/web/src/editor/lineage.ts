@@ -37,15 +37,26 @@ export interface Lineage {
   destroy(quiet?: boolean): void
 }
 
+/**
+ * What the editor shows the note as: `edit` (writable), `comment` or `read`;
+ * null while it doesn't know yet. The hub refuses an editor that claims
+ * another level than the person has (the access changed while it was
+ * offline) before syncing anything, and says what they have (`vihko:access`).
+ */
+export type Claim = () => 'edit' | 'comment' | 'read' | null
+
 /** Opens a document on the shared socket. */
-export function openLineage(websocketProvider: HocuspocusProviderWebsocket, name: string): Lineage {
+export function openLineage(websocketProvider: HocuspocusProviderWebsocket, name: string, claim: Claim = () => null): Lineage {
   const doc = new Y.Doc()
   const provider = new HocuspocusProvider({
     websocketProvider,
     name,
     document: doc,
-    // Sent on every (re)connection, before any sync: an empty copy claims nothing.
-    token: () => JSON.stringify({ generation: generationOf(doc) }),
+    // Sent on every (re)connection, before any sync: an empty copy claims no generation.
+    token: () => {
+      const level = claim()
+      return JSON.stringify({ generation: generationOf(doc), ...(level ? { level } : {}) })
+    },
     // Each opening has its own address on the socket: what an old one still had
     // in flight when the hub refused it can't reach the next opening of the note.
     sessionAwareness: true,
@@ -87,15 +98,18 @@ export class NoteLink {
   private name: string
   private events: { onLineage: (l: Lineage) => void; onSetAside: (s: SetAside) => void }
 
-  constructor(websocketProvider: HocuspocusProviderWebsocket, name: string, events: NoteLink['events']) {
+  private claim: Claim
+
+  constructor(websocketProvider: HocuspocusProviderWebsocket, name: string, events: NoteLink['events'], claim: Claim = () => null) {
     this.websocketProvider = websocketProvider
     this.name = name
     this.events = events
+    this.claim = claim
     this.lineage = this.open()
   }
 
   private open(): Lineage {
-    const l = openLineage(this.websocketProvider, this.name)
+    const l = openLineage(this.websocketProvider, this.name, this.claim)
     l.provider.on('stateless', ({ payload }: { payload: string }) => {
       let msg: { type?: string }
       try { msg = JSON.parse(payload) } catch { return }
@@ -119,6 +133,15 @@ export class NoteLink {
       if (next.text.toString() !== aside) this.events.onSetAside({ text: aside })
     }
     next.provider.on('synced', check)
+  }
+
+  /**
+   * Stops following the hub to new generations: the current copy stays
+   * open as it is, for whoever holds it to finish with (and destroy).
+   */
+  hold(): Lineage {
+    this.closed = true
+    return this.lineage
   }
 
   destroy(quiet = false) {

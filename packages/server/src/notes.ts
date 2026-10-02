@@ -67,7 +67,11 @@ export interface HotDocuments {
    * it isn't open, or its file is gone.
    */
   text?(path: string): string | null
-  edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }>
+  /**
+   * `rebased`: `ifMatch` named a text the note had a moment ago, and the
+   * change was applied where nothing had changed since, in the text as it is now.
+   */
+  edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string; rebased?: boolean }>
   /**
    * The note is deleted: flush what is pending, close its sessions and never
    * flush it again. `run`, the deletion itself, runs with the note flushed and
@@ -602,7 +606,7 @@ export class NoteService {
    * hasn't changed since it was read. If the note had no `uid`, it gets one in
    * this same write; if it had one, it's kept even if the new text omits it.
    */
-  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string }> {
+  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string; rebased?: boolean }> {
     // An alias the edit adds is a name the note takes, as when creating one.
     const mayName = opts.mayName
     if (mayName) {
@@ -619,7 +623,7 @@ export class NoteService {
     return this.editNow(path, fn, { ifMatch: opts.ifMatch, actor: opts.actor })
   }
 
-  private async editNow(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string }> {
+  private async editNow(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor }): Promise<{ etag: string; rebased?: boolean }> {
     const hot = this.opts.hot
     if (hot?.has(path)) return hot.edit(path, fn, opts)
     const file = this.file(path)
