@@ -58,7 +58,9 @@ export async function setup(opts: SpacesSetup = {}) {
     users.addMember(g.id, created.other.id)
   }
   const profiles = new Profiles(state)
-  const workspace = new Workspace({ notesDir })
+  mkdirSync(stateDir, { recursive: true })
+  // Without the wait for a section gone to stay gone: a test writes the file once.
+  const workspace = new Workspace({ notesDir, stateDir, settleMs: 0 })
   const indexer = new Indexer({ notesDir, db: index })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   runtime.rescan({})

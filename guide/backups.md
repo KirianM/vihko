@@ -15,6 +15,7 @@ consistent, and how to restore it.
 | **Editor states** | `state/collab/` | For each note opened in the editor, its saved editor state (`.ystate`): the note as its last editor left it, so that a browser that was offline merges its typing into the same note instead of adding a second copy. And, for a note open when vihko stopped, its recovery log (`.ylog`): typing not yet written to the file. It holds one `.ystate` for every note ever opened, so it's rarely empty. Back it up with the rest of the state volume. |
 | **Retention's progress** | `state/retention.json` | What [retention](operations.md#retention) still has to finish after a run cut short, and its last run's counts. Small. |
 | **`vihko.yaml` copies** | `state/config-backups/` | The file as it was before an upgrade rewrote it. See [Upgrading](upgrading.md#what-happens-at-start). |
+| **The last good `vihko.yaml`** | `state/vihko.yaml.last-valid` and `state/vihko.yaml.last-permissions` | The last file vihko could use, which applies if it starts with one it can't; and the last one whose `permissions` shared something, which «Restore previous permissions» writes back if the section disappears. Small. |
 | **The second-factor key** | Wherever you keep `VIHKO_SECRET_KEY` or its file | Only if you use it. **Back it up apart from the state volume**, in a password manager for example: whoever has both can compute people's second-factor codes. See [The second-factor key](install.md#the-second-factor-key). |
 
 In short: the whole notes folder and the whole state volume, plus the key if

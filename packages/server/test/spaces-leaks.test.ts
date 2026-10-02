@@ -261,6 +261,9 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         ...[mine, theirs].map((p) => ({ route: 'GET /api/history/diff', method: 'GET', path: q('/api/history/diff', { path: p, id: version, against: 'current' }) })),
         ...[shared, theirs].map((p) => ({ route: 'GET /api/history/resolved', method: 'GET', path: q('/api/history/resolved', { path: p }) })),
         { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: theirs, id: memberVersion } },
+        // As a new note: from what they can't see, or into where they can't see.
+        { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: theirs, id: memberVersion, to: `${DIR.shared}/${m.aTitle()}.md` } },
+        { route: 'POST /api/history/restore', method: 'POST', path: '/api/history/restore', body: { path: mine, id: version, to: `${folder}/${m.aTitle()}.md` } },
         { route: 'POST /api/history/revert', method: 'POST', path: '/api/history/revert', body: { path: theirs, id: memberVersion, dryRun: true } },
         // Purging: what they can't see, by name, as a note, a version or a folder (the admin may, without reading it).
         { route: 'POST /api/history/purge', method: 'POST', path: '/api/history/purge', body: { path: theirs, dryRun: true }, expect: who === 'admin' ? undefined : 404 },
@@ -308,6 +311,8 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
           ['PATCH', '/api/admin/groups/nope'], ['DELETE', '/api/admin/groups/nope'], ['POST', '/api/admin/groups/nope/members'],
           ['DELETE', '/api/admin/groups/nope/members/nope'], ['GET', '/api/admin/settings'], ['PUT', '/api/admin/settings'],
           ['DELETE', '/api/admin/config-migrations/nope'], ['DELETE', '/api/admin/state-migrations/nope'],
+          // vihko.yaml's permissions gone: the last ones written back, or forgotten (nothing to restore here).
+          ['POST', '/api/admin/permissions/restore'], ['DELETE', '/api/admin/permissions/restore'],
           // Retention: counts and dates of the whole installation, never a path.
           ['GET', '/api/admin/retention'], ['POST', '/api/admin/retention/preview'], ['POST', '/api/admin/retention/run'],
         ] as const).map(([method, path]) => ({

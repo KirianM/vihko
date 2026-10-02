@@ -93,6 +93,17 @@ small team meets after months of use.
   index had it, the server's log names it, and the admins get the new
   `unreadable_notes` alert until it can be read.
 
+### Added
+
+- **«Restore previous permissions».** When the `permissions` section goes
+  from `vihko.yaml` (an example pasted over it, the file deleted), the file
+  applies, so nothing is shared, as before; now the admins get the
+  `permissions_missing` alert, and its button writes back the last section
+  that shared something, which vihko keeps in the state volume
+  (`vihko.yaml.last-permissions`), under what the file says now. Confirmed
+  at the moment. Dismissing the alert forgets it. An empty section written on
+  purpose (`permissions: {}`) raises nothing.
+
 ### Fixed
 
 - The recently opened notes the search box offers (and «When I open vihko:

@@ -305,7 +305,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   const retention = new Retention({ stateDir: config.stateDir, settings: new AdminSettings(state), trash: () => notes.trash(), history, notices, log })
   retention.start()
   const { app, services } = createServer({
-    notices, retention,
+    notices, retention, log,
     auth, profiles, workspace, notes, index, indexer, notesDir: config.notesDir, runtime, orphans: hub, webDir, externalImages: config.externalImages, externalMoves, history, keys, integrations, publicUrl: config.publicUrl, trustedProxies: config.trustedProxies, users, twoFactor,
     policy, holds, onPermissionsChanged: () => hub.recheckAccess(), configMigrations, noteSettings,
     // The MCP server, at /mcp (off until the admin turns it on).

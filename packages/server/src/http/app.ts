@@ -11,7 +11,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { bodyLimit } from 'hono/body-limit'
 import { readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
-import { NoteSettingsFileError, WORKSPACE_FILE, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, seriesPath, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type Series, type WorkspaceConfig } from '@vihko/core'
+import { NoteSettingsFileError, WORKSPACE_FILE, parseNoteSettings, writeNoteSettings, classifyPath, conflictOriginal, imageMarkdown, parseSpacePath, personalRoot, rulesInFile, seriesPath, setRule, spaceRootOf, type Alert, type ConfigError, type ErrorCode, type RuleValue, type Series, type WorkspaceConfig } from '@vihko/core'
 import { AuthError, type Auth, type User } from '../auth.ts'
 import type { Db } from '../db.ts'
 import type { Indexer, ScanOptions, ScanReport } from '../indexer.ts'
@@ -203,6 +203,8 @@ export interface AppDeps {
   noteSettings?: NoteSettingsStore
   /** Only tests: how «Save a copy» resolves names and which addresses count as public. */
   imageFetchTesting?: FetchImageOptions['testing']
+  /** The server's log (main.ts): what the admins' actions leave on record. Nothing by default. */
+  log?: (msg: string) => void
 }
 
 /**
@@ -275,6 +277,11 @@ function fail(c: Context, status: ContentfulStatusCode, error: ErrorCode, messag
   return c.json({ error, message, ...extra }, status)
 }
 
+/** The rules a vihko.yaml's text writes (none if it isn't YAML). */
+function keptRules(text: string): Map<string, RuleValue> {
+  try { return rulesInFile(text) } catch { return new Map() }
+}
+
 /** The API alone (see `createServer` for the services under it). */
 export function createApp(deps: AppDeps) {
   return createServer(deps).app
@@ -283,6 +290,7 @@ export function createApp(deps: AppDeps) {
 /** The API and the services under it (keys, switches, access, scoped operations). */
 export function createServer(deps: AppDeps): { app: Hono<Env>; services: Services } {
   const { auth, notes, index, profiles, workspace } = deps
+  const log = deps.log ?? (() => {})
   const externalImages = deps.externalImages ?? 'allow'
   const now = deps.now ?? (() => new Date())
   // Under the spaces model, a person's series are those where they can write today's note.
@@ -1029,6 +1037,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       const warnings = [...ws.warnings, ...permissions.unknownSubjects(), ...outsideSpaces(workspace.config)].map((w) => redactPermissionsWarning(w, access))
       if (warnings.length) alerts.push({ code: 'config_warnings', file: WORKSPACE_FILE, warnings, actions: [] })
       if (workspace.permissionsFallback) alerts.push({ code: 'permissions_rejected', fallback: workspace.permissionsFallback, actions: [] })
+      // The section gone from the file: nothing is shared, and the last one that shared something can be put back.
+      const kept = workspace.permissionsMissing ? workspace.lastPermissions() : null
+      if (kept !== null) alerts.push({ code: 'permissions_missing', file: WORKSPACE_FILE, folders: keptRules(kept).size, actions: ['restore_permissions', 'dismiss'] })
       for (const sr of workspace.config.daily) {
         if (sr.template && !noteExists.get(sr.template)) alerts.push({ code: 'config_template_missing', series: sr.id, template: sr.template, actions: [] })
       }
@@ -1113,6 +1124,31 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // The alert of a rewrite of vihko.yaml at start, dismissed (for every admin).
   app.delete('/api/admin/config-migrations/:id', adminOnly, (c) => {
     if (!deps.configMigrations?.dismiss(c.req.param('id') ?? '')) return fail(c, 404, 'not_found', 'no such alert')
+    return c.json({ ok: true })
+  })
+
+  // The permissions gone from vihko.yaml: the last ones that shared something,
+  // written back (each folder's rule, the rest of the file as it is), as any
+  // change to them is; confirmed at the moment, as it gives access to people.
+  // Or the alert dismissed: they're forgotten.
+  app.post('/api/admin/permissions/restore', adminOnly, async (c) => {
+    const { confirm } = await jsonBody<{ confirm?: unknown }>(c).catch(() => ({ confirm: undefined }))
+    const kept = workspace.permissionsMissing ? workspace.lastPermissions() : null
+    if (kept === null) return fail(c, 404, 'not_found', 'no permissions to restore')
+    const refused = await tf.confirmIdentity(c, confirm)
+    if (refused) return refused
+    await permissionsFile.update((t) => {
+      let out = t
+      for (const [folder, value] of keptRules(kept)) out = setRule(out, folder, value)
+      return out
+    }, { actor: c.get('access').actor })
+    log(`${WORKSPACE_FILE}: the last permissions were restored by ${c.get('user').username}`)
+    return c.json({ ok: true, folders: keptRules(kept).size })
+  })
+
+  app.delete('/api/admin/permissions/restore', adminOnly, (c) => {
+    if (!workspace.permissionsMissing) return fail(c, 404, 'not_found', 'no such alert')
+    workspace.forgetLastPermissions()
     return c.json({ ok: true })
   })
 

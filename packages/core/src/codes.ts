@@ -189,6 +189,14 @@ export type Alert =
    */
   | { code: 'permissions_rejected'; fallback: 'last_good' | 'closed'; actions: never[] }
   /**
+   * The `permissions` section is gone from vihko.yaml (or the file is):
+   * what applies is the file, so nothing is shared. vihko kept the last
+   * one that shared something (`folders`: how many folders it had rules
+   * for): `restore_permissions` writes it back; `dismiss` forgets it. Only
+   * admins see it.
+   */
+  | { code: 'permissions_missing'; file: string; folders: number; actions: ('restore_permissions' | 'dismiss')[] }
+  /**
    * Notes moved outside vihko out of `folder` to where someone who didn't
    * read them would: nobody reads them until they go back or someone
    * releases them (`release`: they get what they get where they are).

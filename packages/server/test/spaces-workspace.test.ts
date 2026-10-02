@@ -27,6 +27,48 @@ test('state.db of 0.1.0 is version 12, with the pins, «On opening», when grant
   assert.equal(STATE_VERSION, 12)
 })
 
+test('vihko.yaml without its permissions: nothing is shared, the admin is told, and «Restore previous permissions» writes them back', async () => {
+  const h = await setup()
+  try {
+    const s = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    const note = `${s.path}/${m.aTitle()}.md`
+    h.write(note, m.aParagraph())
+    const file = join(h.notesDir, 'vihko.yaml')
+    const missing = async () => (await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'permissions_missing')
+    assert.deepEqual(await missing(), [])
+    // The section pasted over: the file applies, and the space is nobody's.
+    const other = `# ${m.aSentence()}\nhistory:\n  mode: managed\n`
+    writeFileSync(file, other)
+    h.workspace.reload()
+    assert.equal((await h.other('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 404)
+    assert.deepEqual(await missing(), [{ code: 'permissions_missing', file: 'vihko.yaml', folders: 1, actions: ['restore_permissions', 'dismiss'] }])
+    // Only the admin, confirmed at the moment.
+    assert.equal((await h.member('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'permissions_missing'), false)
+    assert.equal((await h.member('POST', '/api/admin/permissions/restore', {})).status, 403)
+    assert.equal((await h.admin('POST', '/api/admin/permissions/restore', {})).body.error, 'confirmation_required')
+    const r = await h.admin('POST', '/api/admin/permissions/restore', { confirm: h.created.admin.password })
+    assert.deepEqual([r.status, r.body.folders], [200, 1])
+    // Written back under what the file says, which stays.
+    const now = readFileSync(file, 'utf8')
+    assert.ok(now.startsWith(other), now)
+    assert.equal((await h.other('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 200)
+    assert.deepEqual(await missing(), [])
+    assert.equal((await h.admin('POST', '/api/admin/permissions/restore', { confirm: h.created.admin.password })).status, 404, 'nothing left to restore')
+    // Gone again and dismissed: forgotten. An empty section on purpose isn't missing.
+    writeFileSync(file, other)
+    h.workspace.reload()
+    assert.equal((await missing()).length, 1)
+    assert.equal((await h.admin('DELETE', '/api/admin/permissions/restore')).status, 200)
+    assert.deepEqual(await missing(), [])
+    await newSpace(h, 'member')
+    writeFileSync(file, `${other}permissions: {}\n`)
+    h.workspace.reload()
+    assert.deepEqual(await missing(), [])
+  } finally {
+    h.close()
+  }
+})
+
 test('templates are no longer folders: an old templates key is ignored with a warning, and nothing names one', async () => {
   const mine = m.aFolder()
   const h = await setup()
