@@ -523,7 +523,7 @@ A person's file names a note of theirs instead: `agents: For agents`.
 
 | Setting | What a person gets |
 |---|---|
-| Daily-note series | `vihko.yaml`'s, those of the shared spaces they belong to, and their own: those where they can write today's note. Two series that give the same note are one (the first in that order is kept), so a personal series that repeats one of the installation's isn't offered twice. They're listed the other way round, their own first: until a person chooses, the first is the default |
+| Daily-note series | Their own, those of the shared spaces they belong to, and `vihko.yaml`'s: those where they can write today's note. Two series that give the same note are one, the closest to the person (their own, then a space's, then `vihko.yaml`'s), with its name and template, so a personal series that repeats one of the installation's is offered once, as theirs. Listed in that order: until a person chooses, the first is the default. If the series they chose goes away, «Today's note» asks them to choose again; it never moves to another series by itself |
 | Templates | Not a setting: every note marked `template: true` they can read, wherever it is ([Templates](notes.md#templates)) |
 | Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
 | Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. `vihko.yaml`'s and the person's are notes the agent must be able to read; a space's is text in its settings |

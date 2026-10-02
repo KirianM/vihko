@@ -58,14 +58,71 @@ test('one\'s own settings: a series and a guide of one\'s own, written into thei
   }
 })
 
-test('a series of one\'s own with the pattern of vihko.yaml\'s is one series: no note twice', async () => {
+test('a series of one\'s own with the pattern of vihko.yaml\'s is one series, the closest: theirs, with its label and template; no note twice', async () => {
   const folder = m.aFolder()
-  const id = m.anId()
+  const [id, own] = [m.anId(), m.anId()]
+  const [template, line] = [m.aTitle(), m.aSentence()]
   const h = await setup({ config: `daily:\n  ${id}:\n    folder: ${JSON.stringify(`people/{user}/${folder}`)}\n` })
   try {
-    assert.equal((await put(h, 'member', (s) => { s.daily.push({ id: m.anId(), label: m.aHeading(), folder, name: '{YYYY}-{MM}-{DD}', template: null }) })).status, 200)
+    h.clock.now = today()
+    // The member chose the installation's series and used it.
+    assert.equal((await h.member('POST', '/api/daily', {})).body.series, id)
+    const first = `${h.home('member')}/${folder}/${ymd}.md`
+    assert.ok((await h.member('GET', `/api/note?path=${encodeURIComponent(first)}`)).status === 200)
+    h.write(`${h.home('member')}/${template}.md`, `# {{title}}\n\n${line}\n`)
+    const label = m.aHeading()
+    assert.equal((await put(h, 'member', (s) => { s.daily.push({ id: own, label, folder, name: '{YYYY}-{MM}-{DD}', template }) })).status, 200)
     const daily = (await h.member('GET', '/api/workspace')).body.daily
-    assert.deepEqual(daily.map((s: any) => s.id), [id])
+    assert.deepEqual(daily.map((s: any) => [s.id, s.label]), [[`me-${own}`, label]])
+    // Their choice of the installation's means the same notes: it opens theirs, and the choice follows it.
+    const same = await h.member('POST', '/api/daily', {})
+    assert.deepEqual([same.status, same.body.series, same.body.path], [200, `me-${own}`, first], same.text)
+    assert.equal((await h.member('GET', '/api/profile')).body.dailySeries, `me-${own}`)
+    // Asked for by the installation's id (an agent that kept it): the same series.
+    assert.equal((await h.member('GET', `/api/daily?series=${id}`)).body.series, `me-${own}`)
+    // A new note of it comes from their template, not the installation's (which has none).
+    h.clock.now = new Date('2026-10-01T10:00:00Z')
+    const next = await h.member('POST', '/api/daily', {})
+    assert.equal(next.status, 201, next.text)
+    assert.ok((await h.member('GET', `/api/note?path=${encodeURIComponent(next.body.path)}`)).body.text.includes(line))
+    // Someone without a series of their own still gets the installation's.
+    assert.deepEqual((await h.other('GET', '/api/workspace')).body.daily.map((s: any) => s.id), [id])
+  } finally {
+    h.close()
+  }
+})
+
+test('«Today\'s note» never falls back to another series when the one chosen is gone: it asks (series_gone), and the answer stays', async () => {
+  const mine = m.anId()
+  const h = await setup()
+  try {
+    h.clock.now = today()
+    // A shared space with a series of its own, and the member's own series, which they choose.
+    const space = (await h.member('POST', '/api/spaces', { name: m.aSpaceName(), members: { [h.names.other]: 'edit' } })).body.space.path as string
+    assert.equal((await put(h, 'member', (s) => { s.daily.push({ id: m.anId(), label: null, folder: m.aFolder(), name: '{YYYY}-{MM}-{DD}', template: null }) }, space)).status, 200)
+    assert.equal((await put(h, 'member', (s) => { s.daily.push({ id: mine, label: null, folder: m.aFolder(), name: '{YYYY}-{MM}-{DD}', template: null }) })).status, 200)
+    assert.equal((await h.member('POST', '/api/daily', {})).body.series, `me-${mine}`)
+    // Their series is removed: nothing falls into the space's series, nothing is created.
+    assert.equal((await put(h, 'member', (s) => { s.daily = [] })).status, 200)
+    const before = (await h.member('GET', '/api/tree')).body.notes.length
+    for (const [method, body] of [['GET', undefined], ['POST', {}]] as const) {
+      const r = await h.member(method, '/api/daily', body)
+      assert.deepEqual([r.status, r.body.error], [409, 'series_gone'], r.text)
+    }
+    assert.equal((await h.member('GET', '/api/tree')).body.notes.length, before)
+    assert.equal((await h.member('GET', '/api/profile')).body.dailySeries, `me-${mine}`, 'the choice isn\'t changed for them')
+    // They choose (as the dialog does): that one opens, and stays.
+    const offered = (await h.member('GET', '/api/workspace')).body.daily.map((s: any) => s.id) as string[]
+    assert.equal(offered.length, 1)
+    assert.equal((await h.member('PUT', '/api/profile', { dailySeries: offered[0] })).status, 200)
+    const opened = await h.member('POST', '/api/daily', {})
+    assert.deepEqual([opened.status, opened.body.series], [201, offered[0]], opened.text)
+    // Leaving the space takes its series away: asked again.
+    const left = await h.other('POST', '/api/daily', {})
+    assert.equal(left.body.series, offered[0], 'the other member uses the space\'s too')
+    assert.equal((await h.other('POST', '/api/spaces/leave', { path: space })).status, 200)
+    const after = await h.other('POST', '/api/daily', {})
+    assert.deepEqual([after.status, after.body.error], [409, 'not_configured'], 'no series at all: nothing to ask')
   } finally {
     h.close()
   }

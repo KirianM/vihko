@@ -87,7 +87,9 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
   useBackClose(useMobile(), onClose)
   const series = workspace?.daily ?? []
   const [timezone, setTimezone] = useState(profile.timezone ?? browserTimeZone())
-  const [dailySeries, setDailySeries] = useState(series.find((s) => s.id === profile.dailySeries)?.id ?? series[0]?.id ?? '')
+  // A choice that no longer exists shows as none, so saving the rest never picks a series for them.
+  const gone = profile.dailySeries !== null && !series.some((s) => s.id === profile.dailySeries)
+  const [dailySeries, setDailySeries] = useState(series.find((s) => s.id === profile.dailySeries)?.id ?? (gone ? '' : series[0]?.id ?? ''))
   // «Daily note» is offered only to someone with a series; one chosen before stays shown while it's the choice.
   const [onOpen, setOnOpen] = useState<OnOpen>(profile.onOpen)
   const [onOpenNote, setOnOpenNote] = useState<string | null>(profile.onOpenNote)
@@ -106,7 +108,7 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
       // The series is only stored when there is a choice to make: with no
       // series, whatever was chosen before stays for when they come back.
       const opening = onOpen === 'note' && !onOpenNote ? 'home' : onOpen
-      onSaved(await api.updateProfile({ timezone, onOpen: opening, onOpenNote: opening === 'note' ? onOpenNote : null, ...(series.length ? { dailySeries } : {}) }))
+      onSaved(await api.updateProfile({ timezone, onOpen: opening, onOpenNote: opening === 'note' ? onOpenNote : null, ...(series.length && dailySeries ? { dailySeries } : {}) }))
     } catch (err) {
       setError(errorText(t, err))
       setBusy(false)
@@ -137,6 +139,7 @@ export function PreferencesDialog({ profile, workspace, onClose, onSaved, onAgen
                   <label className="field">
                     <span>{t('prefs.series')}</span>
                     <select className="select" value={dailySeries} onChange={(e) => setDailySeries(e.target.value)}>
+                      {dailySeries === '' && <option value="">{t('series.none')}</option>}
                       {series.map((s) => <option key={s.id} value={s.id}>{s.label ?? s.id}</option>)}
                     </select>
                     <span className="hint">{t('prefs.seriesHint')}</span>

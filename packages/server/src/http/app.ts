@@ -252,7 +252,7 @@ export type ApiEnv = { Variables: { user: User; token: string; access: Access } 
 type Env = ApiEnv
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409, series_gone: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -283,8 +283,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const noteSettings = deps.noteSettings ?? new NoteSettingsStore({ notesDir: deps.notesDir })
   /** The shared spaces someone belongs to: whose settings add to theirs. */
   const spacesOf = (user: { id: string; username: string }) => permissions.spacesFor(user).spaces.map((s) => s.path)
-  const seriesOf = (user: User) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username)
-  const daily = new DailyNotes({ workspace, profiles, notes, now, offered, seriesOf })
+  const seriesOf = (user: User) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username).list
+  const sameSeries = (user: User, id: string) => noteSettings.series(workspace.config.daily, spacesOf(user), personalRoot(user.username), user.username).sameAs.get(id) ?? null
+  const daily = new DailyNotes({ workspace, profiles, notes, now, offered, seriesOf, sameAs: sameSeries })
   const jobs = new MoveJobs()
   const moveWaitMs = deps.moveWaitMs ?? 1000
   const keys = deps.keys ?? new ApiKeys(auth.state)

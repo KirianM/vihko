@@ -8,6 +8,7 @@ import { renamedPath } from './legacyAddress.ts'
 import { openingNote } from './onOpen.ts'
 import { HomePage } from './Home.tsx'
 import { NoteSettingsDialog } from './NoteSettings.tsx'
+import { ChooseSeriesDialog } from './ChooseSeries.tsx'
 import { addressOf } from '@vihko/core/spaces'
 import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
 import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
@@ -179,6 +180,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [prefsOpen, setPrefsOpen] = useState(false)
+  /** «Today's note» asks which series to use: the one chosen is gone. */
+  const [choosingSeries, setChoosingSeries] = useState(false)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -234,6 +237,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       if (r.created) void loadTree()
       setOpenPath(r.path)
     } catch (err) {
+      // The series they chose is gone: they choose again, never another one by itself.
+      if (err instanceof ApiError && err.code === 'series_gone') {
+        void loadWorkspace()
+        setChoosingSeries(true)
+        return
+      }
       fail(err)
     }
   }
@@ -853,6 +862,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           onMode={setPalette}
           onOpen={setOpenPath}
           onCreated={(p) => { setCreateIn(null); created(p) }}
+        />
+      )}
+      {choosingSeries && workspace && (
+        <ChooseSeriesDialog
+          series={workspace.daily}
+          onClose={() => setChoosingSeries(false)}
+          onChosen={(p) => { setProfile(p); setChoosingSeries(false); void openToday() }}
         />
       )}
       {prefsOpen && profile && (

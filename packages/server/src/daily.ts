@@ -24,6 +24,8 @@ export interface DailyOptions {
   offered?: (user: User, series: Series) => boolean
   /** Every series a person may be offered (vihko.yaml's and their spaces' and own settings, noteSettings.ts); vihko.yaml's by default. */
   seriesOf?: (user: User) => Series[]
+  /** A series left out because a closer one gives the same notes: that one's id (noteSettings.ts `series`). */
+  sameAs?: (user: User, id: string) => string | null
 }
 
 export interface DailyToday {
@@ -45,20 +47,29 @@ export class DailyNotes {
 
   /**
    * The series a person's «Today» uses: the one asked for, their own choice
-   * or else the first offered (`seriesOf` lists their own first, then their
-   * spaces', then vihko.yaml's). A choice no longer offered falls back to
-   * the first. With no series, daily notes are off.
+   * or, with no choice yet, the first offered (`seriesOf` lists their own
+   * first, then their spaces', then vihko.yaml's). A series left out for a
+   * closer one with the same notes is that one. A choice that no longer
+   * exists, or is no longer offered, never falls back to another series
+   * (which could be another space's): `series_gone`, so the person chooses
+   * again. With no series, daily notes are off.
    */
   seriesFor(user: User, requested?: string | null): Series {
     const all = (this.opts.seriesOf?.(user) ?? this.opts.workspace.config.daily).filter((s) => this.opts.offered?.(user, s) ?? true)
+    const find = (id: string) => {
+      const same = all.find((x) => x.id === id) ? id : this.opts.sameAs?.(user, id) ?? id
+      return all.find((x) => x.id === same)
+    }
     if (requested) {
-      const s = all.find((x) => x.id === requested)
-      if (!s) throw new NoteError('not_found', `no daily-note series ${requested} in vihko.yaml`)
+      const s = find(requested)
+      if (!s) throw new NoteError('not_found', `no daily-note series ${requested} for this person`)
       return s
     }
+    if (all.length === 0) throw new NoteError('not_configured', 'no daily-note series for this person')
     const chosen = this.opts.profiles.get(user.id).dailySeries
-    const s = all.find((x) => x.id === chosen) ?? all[0]
-    if (!s) throw new NoteError('not_configured', 'no daily-note series in vihko.yaml')
+    if (chosen === null) return all[0]!
+    const s = find(chosen)
+    if (!s) throw new NoteError('series_gone', `the daily-note series ${chosen} this person chose no longer exists for them: they choose another (dailySeries in the profile)`)
     return s
   }
 
@@ -99,8 +110,10 @@ export class DailyNotes {
     // The first time «Today's note» opens without a choice, the series it
     // used becomes the choice: a series added later (a space's, say) never
     // takes its place without the person choosing it in Preferences.
+    // A choice of a series left out for a closer one with the same notes becomes that one.
     const opened = (created: boolean) => {
-      if (!requested && this.opts.profiles.get(user.id).dailySeries === null) this.opts.profiles.update(user.id, { dailySeries: series.id })
+      const chosen = this.opts.profiles.get(user.id).dailySeries
+      if (!requested && chosen !== series.id) this.opts.profiles.update(user.id, { dailySeries: series.id })
       return { series: series.id, path, created }
     }
     try {

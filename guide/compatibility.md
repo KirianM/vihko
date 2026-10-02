@@ -244,7 +244,8 @@ These are the codes a key can meet, with their status:
 | `space_root` | 400 | A space's root named as a folder to create, rename, move or delete |
 | `exists` | 409 | The name is taken, or isn't available there (see [Known limits](#known-limits)) |
 | `edit_mismatch` | 409 | An edit operation doesn't fit the text |
-| `not_configured` | 409 | The daily note, with no series in `vihko.yaml` |
+| `not_configured` | 409 | The daily note, with no series for the person |
+| `series_gone` | 409 | The daily note without `series`, when the series the person chose (`dailySeries`) no longer exists for them: they choose another (0.1.0-rc.6) |
 | `audience_widens` | 409 | A move would show the note to someone who can't see it now |
 | `not_revertible` | 409 | Reverting a version that creates or deletes the note |
 | `history_off` | 409 | The history is off |
@@ -577,14 +578,19 @@ explains it.
   apply it. A key never reads or changes a settings file. Nobody gets it as a
   note or a file.
 - **How it adds up** with `vihko.yaml`, for each person: daily-note series
-  are `vihko.yaml`'s, then those of each shared space they're in, then their
-  own, and two that give the same note are one (the first is kept); only
-  those where they can write today's note are offered, listed the other way
-  round (their own first, `vihko.yaml`'s last: `GET /api/workspace`'s
-  `daily`). With no `dailySeries` in the profile, today's note is the first
-  listed, and the first `POST /api/daily` (or `daily_note` that opens or
-  creates it) without a `series` writes that series' id as the profile's
-  `dailySeries`. Templates aren't a setting (since 0.1.0-rc.5; an old
+  are their own, then those of each shared space they're in, then
+  `vihko.yaml`'s, and two that give the same note are one: the closest is
+  kept, with its label and template (since 0.1.0-rc.6; before, `vihko.yaml`'s
+  was). Only those where they can write today's note are offered, in that
+  order (`GET /api/workspace`'s `daily`). The id of a series left out that
+  way still works, as the one kept: as `series`, and as `dailySeries`, which
+  the next `POST /api/daily` without `series` rewrites to the kept id. With
+  no `dailySeries` in the profile, today's note is the first listed, and the
+  first `POST /api/daily` (or `daily_note` that opens or creates it) without
+  a `series` writes that series' id as the profile's `dailySeries`. A
+  `dailySeries` that no longer exists for the person is `409 series_gone`
+  (since 0.1.0-rc.6; before, the first listed was used), and nothing is
+  created. Templates aren't a setting (since 0.1.0-rc.5; an old
   `templates` key is an unknown one): every note marked `template: true` the
   person reads is one. New images of a note follow
   its space's `attachments`, otherwise `vihko.yaml`'s. The guides for agents

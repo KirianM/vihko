@@ -5,9 +5,10 @@
 //
 // - daily-note series: a person is offered vihko.yaml's, those of the shared
 //   spaces they belong to and their own, where they can write today's note;
-//   two that give the same path are one (the first: vihko.yaml's, then a
-//   space's, then theirs). A daily note is its path: nothing is duplicated or
-//   moved by declaring a series twice.
+//   two that give the same path are one, the closest to the person (theirs,
+//   then a space's, then vihko.yaml's), with its label and template. A daily
+//   note is its path: nothing is duplicated or moved by declaring a series
+//   twice.
 // - where new images go: a space's setting for the notes of that space,
 //   otherwise vihko.yaml's.
 // - the guide for agents: vihko.yaml's, then that of each shared space the
@@ -122,24 +123,31 @@ export class NoteSettingsStore {
 
   /**
    * Daily-note series, one per path (see the header): when two give the same
-   * note, vihko.yaml's (`installation`) is kept over a space's (`spaces`), and
-   * a space's over the person's own (`own`). Listed the other way round: the
-   * person's own first, then their spaces', then the installation's, so the
-   * first is the one closest to them (the default of «Today's note» until
-   * they choose). Who is offered which is the caller's to judge.
+   * note, the person's own (`own`) is kept over a space's (`spaces`), and a
+   * space's over vihko.yaml's (`installation`): the closest, with its
+   * template. Listed in that order too, so the first is the one closest to
+   * them (the default of «Today's note» until they choose). `sameAs`: for
+   * each series left out, the id of the one kept for its path (a choice of
+   * it still means those notes). Who is offered which is the caller's to
+   * judge.
    */
-  series(installation: readonly Series[], spaces: readonly string[], own: string, username: string): Series[] {
-    const seen = new Set<string>()
+  series(installation: readonly Series[], spaces: readonly string[], own: string, username: string): { list: Series[]; sameAs: Map<string, string> } {
+    const kept = new Map<string, string>()
+    const sameAs = new Map<string, string>()
     const keep = (list: readonly Series[]) => list.filter((s) => {
       const key = seriesPattern(s).replaceAll('{user}', username).normalize('NFC').toLowerCase()
-      if (seen.has(key)) return false
-      seen.add(key)
+      const first = kept.get(key)
+      if (first !== undefined) {
+        if (first !== s.id) sameAs.set(s.id, first)
+        return false
+      }
+      kept.set(key, s.id)
       return true
     })
-    const fromInstallation = keep(installation)
-    const fromSpaces = keep(spaces.flatMap((root) => this.read(root).resolved.daily))
     const fromOwn = keep(this.read(own).resolved.daily)
-    return [...fromOwn, ...fromSpaces, ...fromInstallation]
+    const fromSpaces = keep(spaces.flatMap((root) => this.read(root).resolved.daily))
+    const fromInstallation = keep(installation)
+    return { list: [...fromOwn, ...fromSpaces, ...fromInstallation], sameAs }
   }
 
   /** A person's own space's root. */

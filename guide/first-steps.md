@@ -330,7 +330,14 @@ should open → **Save**. Until you pick one, it opens the first in that list:
 your own series come first, then your spaces', then the installation's. The
 first time you open «Today's note», the series it opened becomes your choice,
 so a series a space adds later never takes its place: you change it only in
-Preferences.
+Preferences. If the series you chose goes away (it was removed or renamed,
+or you left its space), «Today's note» asks which one to use instead, and
+remembers your answer: it never moves to another series, perhaps a shared
+space's, by itself.
+
+A series of your own that writes the same notes as one of the installation's
+(the same folder and name) is one series, yours: its name and its template are
+the ones used.
 
 ### Templates
 

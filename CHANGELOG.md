@@ -21,6 +21,16 @@ its entries are kept at the end of this file.
   agents were told. `PUT /api/settings` takes `guide` for a shared space and
   refuses `agents` there (`space_guide_note`). A person's own guide is still
   a note of theirs, and `mcp.instructions` in `vihko.yaml` is unchanged.
+- **«Today's note» asks when the series you chose is gone** (removed,
+  renamed, or in a space you left), and remembers your answer, instead of
+  quietly moving to another series, perhaps a shared space's.
+  `GET/POST /api/daily` and the MCP `daily_note` without a series answer
+  `409 series_gone` then; Preferences shows no series chosen until you pick
+  one.
+- **The closest daily series wins.** When your own series (or a space's)
+  writes the same notes as one of `vihko.yaml`'s, yours is the one offered,
+  with its name and template; before, the installation's hid it. A choice or
+  a `series` naming the installation's id still works, as yours.
 
 ### Upgrade notes
 
@@ -28,6 +38,9 @@ its entries are kept at the end of this file.
   no longer reaches agents. Its managers get a `settings_invalid` alert
   (`space_guide_note`, with the note's name); copy the note's text into the
   space's «Settings…» → «Guide for agents» and save.
+- Scripts and agents calling `POST /api/daily` (or `daily_note`) without a
+  series may now get `409 series_gone`: pass a `series`, or set
+  `dailySeries` in the profile.
 
 ## [0.1.0-rc.5] - 2026-10-02
 

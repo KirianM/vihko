@@ -31,6 +31,7 @@ export type ErrorCode =
   | 'fetch_failed' // an image URL could not be downloaded
   | 'busy' // too many images being received at once (uploads and copies from a URL): try again in a moment (Retry-After)
   | 'not_configured' // a feature that vihko.yaml doesn't turn on (daily notes with no series)
+  | 'series_gone' // «Today's note»: the series the person chose no longer exists for them; they choose another
   | 'not_empty' // a folder that still holds files can't be deleted
   | 'history_off' // vihko.yaml turns the history off
   | 'history_unavailable' // the history can't be read right now (see /api/history/status)

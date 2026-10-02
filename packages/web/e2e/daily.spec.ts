@@ -200,6 +200,32 @@ test('palette: «today\'s note» command and a new note from a template', async 
   expect((await k.request.delete(`/api/note?path=${encodeURIComponent(`${inVault(title)}.md`)}`)).ok()).toBe(true)
 })
 
+test('the series chosen is gone: «Today» asks which one to use, never another by itself, and the answer stays', async () => {
+  // A choice that no longer exists (a series removed, a space left or renamed).
+  expect((await k.request.put('/api/profile', { data: { dailySeries: seriesId() } })).ok()).toBe(true)
+  await k.goto(`/?note=${encodeURIComponent(inVault('Plan.md'))}`)
+  await expect(k.locator('.crumbs b')).toHaveText('Plan')
+  await todayButton(k).click()
+  const dialog = k.getByRole('dialog', { name: '¿Qué serie usa «Nota de hoy»?' })
+  await expect(dialog).toBeVisible()
+  await expect(k.locator('.crumbs b')).toHaveText('Plan')
+  // Each series with where it writes.
+  await expect(dialog.getByRole('radio')).toHaveCount(2)
+  await expect(dialog.getByRole('radio', { name: OWN.label })).toBeVisible()
+  await expect(dialog).toContainText(`Mis notas / ${OWN.folder}`)
+  await expect(dialog.getByRole('button', { name: 'Usar y abrir' })).toBeDisabled()
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${SHOTS}/series-gone-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await dialog.getByRole('radio', { name: OWN.label }).check()
+  await dialog.getByRole('button', { name: 'Usar y abrir' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(k.locator('.crumbs b')).toHaveText(dateIn(EAST))
+  await expect.poll(async () => (await (await k.request.get('/api/profile')).json()).dailySeries).toBe(OWN.id)
+})
+
 test('another timezone near midnight gets another date', async ({ browser }) => {
   const member = await signInAt(browser, MEMBER, WEST)
   await todayButton(member).click()

@@ -31,7 +31,7 @@ const NO_HISTORY: NoteHistory = {
   operation: (_a, _r, fn) => fn(),
 }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'control_characters' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'control_characters' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty' | 'series_gone'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
