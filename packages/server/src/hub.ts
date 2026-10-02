@@ -580,7 +580,8 @@ export class CollabHub implements HotDocuments {
       for (const path of this.hot.keys()) this.checkExternal(path).catch((e) => this.log(`check of ${path}: ${e}`))
     }, this.opts.checkMs ?? 1000)
     // Groups and users change outside what vihko writes: looked at again now and then.
-    if (this.opts.policy) this.accessTimer = setInterval(() => this.recheckAccess(), this.opts.accessCheckMs ?? 5000)
+    // So do sessions, which also end by themselves when they expire: their connections end too.
+    if (this.opts.policy) this.accessTimer = setInterval(() => { this.recheckAccess(); this.endExpiredSessions() }, this.opts.accessCheckMs ?? 5000)
   }
 
   /**
@@ -736,6 +737,12 @@ export class CollabHub implements HotDocuments {
       this.sockets.delete(s)
       s.close(SESSION_ENDED_CODE, SESSION_ENDED_MESSAGE)
     }
+  }
+
+  /** The connections of sessions no longer in force, however they ended (expired too): ended as `checkSessions` ends them. */
+  endExpiredSessions() {
+    const users = new Set([...this.sockets].filter((s) => !this.opts.auth.session(s.token)).map((s) => s.userId))
+    for (const id of users) this.checkSessions(id)
   }
 
   async close() {

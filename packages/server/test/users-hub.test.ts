@@ -3,6 +3,7 @@
 // password ends the other sessions' editors, never the one that changed it.
 // On a real server.
 import { writeFileSync } from 'node:fs'
+import Database from 'better-sqlite3'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -96,6 +97,30 @@ test('a new password ends the editors of the other sessions, not the one that ch
     await waitFor(async () => (await api(srv, admin, 'GET', `/api/note?path=${encodeURIComponent(NOTE)}`)).body?.text?.includes(stillHere), 'this session keeps writing')
     assert.ok(!hereSeen.heard.includes('vihko:session-ended'))
     assert.equal(hereSeen.status(), 'connected')
+  } finally {
+    closeAll()
+    await srv.stop()
+  }
+})
+
+test('a session that expires on its own ends its open editor too, within seconds', async () => {
+  const { env } = dirs()
+  const srv = await startServer(env)
+  try {
+    const expiring = await login(srv)
+    const staying = await login(srv)
+    const a = await connect(srv, expiring, NOTE)
+    const b = await connect(srv, staying, NOTE)
+    const [seenA, seenB] = [watch(a), watch(b)]
+    // The first session's time runs out (as the clock would make it), with nobody signing out.
+    const db = new Database(join(env.VIHKO_STATE_DIR!, 'state.db'))
+    try {
+      const rows = db.prepare('select token_hash from sessions order by created_at').all() as { token_hash: string }[]
+      assert.equal(rows.length, 2)
+      db.prepare("update sessions set expires_at = '2000-01-01T00:00:00.000Z' where token_hash = ?").run(rows[0]!.token_hash)
+    } finally { db.close() }
+    await waitFor(() => seenA.status() === 'disconnected' || seenB.status() === 'disconnected', 'one editor ends', 15_000)
+    assert.ok(seenA.heard.includes('vihko:session-ended') !== seenB.heard.includes('vihko:session-ended'), 'only the expired one')
   } finally {
     closeAll()
     await srv.stop()

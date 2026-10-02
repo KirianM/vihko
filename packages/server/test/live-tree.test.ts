@@ -23,11 +23,12 @@ async function listen(h: Spaces, who: Name) {
   const events: { event: string; data: string }[] = []
   const raw: string[] = []
   let buffer = ''
+  let finished = false
   void (async () => {
     try {
       for (;;) {
         const { done, value } = await reader.read()
-        if (done) return
+        if (done) { finished = true; return }
         buffer += new TextDecoder().decode(value)
         raw.push(new TextDecoder().decode(value))
         let at: number
@@ -46,6 +47,11 @@ async function listen(h: Spaces, who: Name) {
   const trees = () => events.filter((e) => e.event === 'tree').length
   return {
     events, raw, trees,
+    /** Whether the server ended the stream, waiting up to `ms` for it. */
+    async ended(ms = 3000) {
+      for (let t = 0; t < ms && !finished; t += 25) await sleep(25)
+      return finished
+    },
     /** Waits for one more `tree` than `seen`, up to a while; whether it came. */
     async next(seen: number, ms = 3000) {
       for (let t = 0; t < ms; t += 25) { if (trees() > seen) return true; await sleep(25) }
@@ -143,6 +149,21 @@ test('live tree: an agent has no event stream; nobody signed in, neither', async
     assert.equal((await h.withKey(key.token)('GET', '/api/events')).status, 404)
     assert.equal((await h.app.request('/api/events')).status, 401)
     assert.equal(h.services.live.size, 0)
+  } finally {
+    h.close()
+  }
+})
+
+test('live tree: a stream ends with its session, signed out or disabled, and the others stay', async () => {
+  const h = await setup()
+  try {
+    const [member, other, admin] = [await listen(h, 'member'), await listen(h, 'other'), await listen(h, 'admin')]
+    assert.equal((await h.member('POST', '/api/auth/logout', {})).status, 200)
+    assert.equal(await member.ended(), true, 'signed out: it ends at once')
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.other.id}/disable`, { confirm: h.created.admin.password })).status, 200)
+    assert.equal(await other.ended(), true, 'disabled: it ends at once')
+    assert.equal(await admin.ended(300), false, 'the admin\'s goes on')
+    for (const s of [member, other, admin]) s.close()
   } finally {
     h.close()
   }

@@ -26,6 +26,11 @@ small team meets after months of use.
   still goes with it, and so do its grants for whoever manages the
   destination, who could give them there anyway. Within a space nothing
   changes.
+- The live tree's event stream (`GET /api/events`) ends with its session:
+  at once when the person signs out, is disabled or changes their password;
+  at the next keep-alive when the session expires. An open editor's
+  connection also ends within seconds of its session expiring, not only
+  when someone ends it.
 - Disabling or deleting someone, and a new invitation link for an admin who
   hasn't chosen a password yet, are confirmed at the moment (the admin's
   current code, or their password without a second factor), as the other

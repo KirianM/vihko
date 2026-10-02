@@ -335,6 +335,14 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
   // Deleting someone closes their space for everyone: open editors are checked again at once.
   users.hooks.onUserRemoved ??= () => { permissionsChanged() }
+  // The event streams open (GET /api/events), each with its session: those of a session that ends go at once,
+  // after whatever else hears it (the hub's editors).
+  const streams = new Set<{ userId: string; token: string; end: () => void }>()
+  const sessionsEnded = users.hooks.onSessionsEnded
+  users.hooks.onSessionsEnded = (userId) => {
+    sessionsEnded?.(userId)
+    for (const s of streams) if (s.userId === userId && !auth.session(s.token)) s.end()
+  }
   // So does taking someone out of a group: they stop seeing what it gave them at once.
   users.hooks.onMembersChanged ??= () => { permissionsChanged() }
   const spaces = new SpaceService({
@@ -742,16 +750,23 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
     c.header('Cache-Control', 'no-store')
     c.header('X-Accel-Buffering', 'no')
+    const token = c.get('token')
     return streamSSE(c, async (stream) => {
       let wake: (() => void) | null = null
+      let ended = false
       const stop = live.subscribe(c.get('user'), () => { void stream.writeSSE({ event: 'tree', data: '{}' }).catch(() => {}) })
+      // Its session ending (signed out, disabled, a new password) ends it at once; one that expires, at the next keep-alive.
+      const open = { userId: c.get('user').id, token, end: () => { ended = true; wake?.() } }
+      streams.add(open)
       stream.onAbort(() => { stop(); wake?.() })
       await stream.writeSSE({ event: 'ready', data: '{}' })
-      while (!stream.aborted && !stream.closed) {
+      while (!stream.aborted && !stream.closed && !ended) {
         // Unref'd: a stream left waiting never keeps the process alive.
         await new Promise<void>((resolve) => { wake = resolve; setTimeout(resolve, 25_000).unref() })
-        if (!stream.aborted && !stream.closed) await stream.write(': keep-alive\n\n').catch(() => {})
+        if (!auth.session(token)) break
+        if (!stream.aborted && !stream.closed && !ended) await stream.write(': keep-alive\n\n').catch(() => {})
       }
+      streams.delete(open)
       stop()
     })
   })
