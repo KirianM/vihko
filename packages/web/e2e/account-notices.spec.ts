@@ -104,10 +104,12 @@ test('the admin resets a member\'s second factor with his own password; she is t
   expect((await personSetup.request.post('/api/account/2fa/enable', { data: { code: totp(s.secret) } })).status()).toBe(200)
   await personSetup.context().close()
 
-  await openUsers(admin)
-  await row(admin, PERSON.username).getByRole('button', { name: `Acciones para ${PERSON.username}` }).click()
-  await admin.getByRole('menuitem', { name: 'Restablecer la verificación en dos pasos' }).click()
-  const dialog = admin.getByRole('alertdialog')
+  // A browser of its own: a confirmation lasts a while in the one that made it (the users above were confirmed there).
+  const k = await signIn(browser, ADMIN)
+  await openUsers(k)
+  await row(k, PERSON.username).getByRole('button', { name: `Acciones para ${PERSON.username}` }).click()
+  await k.getByRole('menuitem', { name: 'Restablecer la verificación en dos pasos' }).click()
+  const dialog = k.getByRole('alertdialog')
   await expect(dialog.getByRole('heading')).toHaveText(`¿Restablecer la verificación en dos pasos de ${PERSON.username}?`)
   await expect(dialog).toContainText(`${PERSON.username} verá un aviso al entrar, y los demás administradores también.`)
   await expect(dialog.getByRole('button', { name: 'Restablecer' })).toBeDisabled()
@@ -115,10 +117,11 @@ test('the admin resets a member\'s second factor with his own password; she is t
   await dialog.getByRole('button', { name: 'Restablecer' }).click()
   await expect(dialog.getByRole('alert')).toHaveText('La contraseña actual no es correcta.')
   await dialog.getByLabel('Tu contraseña').fill(ADMIN.password)
-  await admin.screenshot({ path: `${SHOTS}/notices-reset-confirm-light.png`, animations: 'disabled' })
+  await k.screenshot({ path: `${SHOTS}/notices-reset-confirm-light.png`, animations: 'disabled' })
   await dialog.getByRole('button', { name: 'Restablecer' }).click()
   await expect(dialog).toHaveCount(0)
-  await expect(row(admin, PERSON.username)).not.toContainText('Activada')
+  await expect(row(k, PERSON.username)).not.toContainText('Activada')
+  await k.context().close()
 
   // The member signs in (with her password alone now): the notice says it at once, and stays in «Avisos».
   const person = await password(browser, PERSON)
@@ -164,42 +167,45 @@ test('a purge tells whoever wrote in it, without the content; what the admin can
 
   // The admin purges from «Recent changes»: the shared note (he reads it: no confirmation) at his desk,
   // and the member's own (he can't: his password) on a phone.
-  await admin.goto('/?view=changes')
-  await expect(admin.getByRole('heading', { level: 1 })).toHaveText('Cambios recientes')
+  // In a browser of its own: a confirmation lasts a while in the one that made it.
+  const desk = await signIn(browser, ADMIN)
+  await desk.goto('/?view=changes')
+  await expect(desk.getByRole('heading', { level: 1 })).toHaveText('Cambios recientes')
   for (const path of [SHARED, PRIVATE]) {
-    if (path === PRIVATE) await admin.setViewportSize({ width: 390, height: 844 })
-    await admin.getByRole('button', { name: 'Purgar del historial…' }).click()
-    const form = admin.getByRole('dialog', { name: 'Purgar del historial' })
+    if (path === PRIVATE) await desk.setViewportSize({ width: 390, height: 844 })
+    await desk.getByRole('button', { name: 'Purgar del historial…' }).click()
+    const form = desk.getByRole('dialog', { name: 'Purgar del historial' })
     // As the admin sees it (the system folders are never shown): the space by its name, or the person's whose it is; never `people/` nor `spaces/`.
     const typed = path === PRIVATE ? `${PERSON.username} / ${PRIVATE_NAME} / ${title(PRIVATE)}` : `${SPACE_NAME} / ${SHARED_NAME} / ${title(SHARED)}`
     await form.getByLabel('Ruta (nota o carpeta)').fill(typed)
-    await admin.screenshot({ path: `${SHOTS}/notices-purge-form-${path === PRIVATE ? 'mobile' : 'light'}.png`, animations: 'disabled' })
+    await desk.screenshot({ path: `${SHOTS}/notices-purge-form-${path === PRIVATE ? 'mobile' : 'light'}.png`, animations: 'disabled' })
     await form.getByRole('button', { name: 'Purgar…' }).click()
     // Where he can't read, nothing tells a note from a folder of that name: he says which.
     if (path === PRIVATE) await form.getByRole('button', { name: `${typed} nota`, exact: true }).click()
     await expect(form).toHaveCount(0)
-    const dialog = admin.getByRole('alertdialog')
+    const dialog = desk.getByRole('alertdialog')
     const go = dialog.getByRole('button', { name: 'Purgar el historial' })
     await expect(go).toBeVisible()
     if (path === PRIVATE) {
       await expect(dialog).toContainText('Incluye algo que no puedes leer: confírmalo en el momento.')
       await expect(go).toBeDisabled()
       await dialog.getByLabel('Tu contraseña').fill(ADMIN.password)
-      await admin.screenshot({ path: `${SHOTS}/notices-purge-confirm-light.png`, animations: 'disabled' })
+      await desk.screenshot({ path: `${SHOTS}/notices-purge-confirm-light.png`, animations: 'disabled' })
     } else {
       await expect(dialog.getByLabel('Tu contraseña')).toHaveCount(0)
     }
     await go.click()
     // Rewriting the whole history takes a while on a server whose history every spec has written.
     await expect(dialog).toHaveCount(0, { timeout: 30_000 })
-    await expect(admin.locator('.changes-page .alerts-done')).toContainText('purgado')
+    await expect(desk.locator('.changes-page .alerts-done')).toContainText('purgado')
     // The list comes back without what went, once the history has rewritten it (never an error meanwhile).
-    await expect(admin.locator('.changes-page')).not.toContainText('Cargando…', { timeout: 30_000 })
-    await expect(admin.locator('.changes-page').getByRole('alert')).toHaveCount(0)
+    await expect(desk.locator('.changes-page')).not.toContainText('Cargando…', { timeout: 30_000 })
+    await expect(desk.locator('.changes-page').getByRole('alert')).toHaveCount(0)
   }
-  expect(await admin.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
-  await admin.screenshot({ path: `${SHOTS}/notices-purge-done-mobile.png`, animations: 'disabled' })
-  await admin.setViewportSize({ width: 1280, height: 800 })
+  expect(await desk.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  await desk.screenshot({ path: `${SHOTS}/notices-purge-done-mobile.png`, animations: 'disabled' })
+  await desk.setViewportSize({ width: 1280, height: 800 })
+  await desk.context().close()
 
   // The member, on her phone: who purged what she wrote, and where (she can read both); never the content.
   const phone = await password(browser, PERSON, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })

@@ -108,16 +108,14 @@ test('the admin turns retention on after a preview and the password, lengthens i
   await expect(section(page).getByTestId('retention-status')).toContainText('Próxima:')
   await section(page).screenshot({ path: `${SHOTS}/retention-on.png` })
 
-  // Run now: the same preview and confirmation, then the last run says so.
+  // Run now: the same preview; confirmed a moment ago in this browser, nothing to type. Then the last run says so.
   await section(page).getByRole('button', { name: 'Aplicar ahora' }).click()
   const run = page.getByRole('alertdialog')
   await expect(run.getByRole('heading')).toHaveText('¿Aplicar la retención ahora?')
   await expect(run.getByTestId('retention-preview')).toContainText('papelera')
   await expect(run.getByTestId('retention-preview')).not.toContainText('cada semana')
-  await run.getByLabel('Tu contraseña').fill(m.aPassword())
-  await run.getByRole('button', { name: 'Borrar ahora' }).click()
-  await expect(run.getByRole('alert')).toBeVisible()
-  await run.getByLabel('Tu contraseña').fill(ADMIN.password)
+  await expect(run.getByRole('button', { name: 'Borrar ahora' })).toBeEnabled()
+  await expect(run.getByLabel('Tu contraseña')).toHaveCount(0)
   await run.getByRole('button', { name: 'Borrar ahora' }).click()
   await expect(run).toBeHidden()
   await expect(section(page).getByTestId('retention-status')).toContainText('Última vez:')
