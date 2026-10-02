@@ -245,7 +245,10 @@ Links into them by name from what stayed in «My notes» break, as in the UI.
 
 Your name, at the bottom of the sidebar, opens **Preferences**:
 
-- **Timezone**: what day «today» is for you.
+- **Timezone**: what day «today» is for you. It's your browser's the first
+  time you sign in, and then stays put: when you travel and your browser is
+  in another time zone, vihko offers once, at the bottom of the page, to use
+  that one («Use …») or keep yours («Keep»); it never changes it by itself.
 - **Daily notes**, a box with two things that are easy to
   mix up:
   - **Daily note series** chooses which of the series you already have

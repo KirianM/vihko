@@ -28,6 +28,7 @@ import { BackContext, Brand, Crumbs, DismissGuardContext, FolderPermissionsConte
 import { TrashToast, type Trashed } from './TrashToast.tsx'
 import { managesFolder, noteFolder } from './levels.ts'
 import { PinOfferToast, type PinOffer } from './PinOffer.tsx'
+import { TimeZoneToast, timeZoneOffer } from './TimeZoneOffer.tsx'
 import { MoveToast, moveNotice } from './MoveToast.tsx'
 import { MoveProgress, type JobEnd } from './MoveProgress.tsx'
 import { shiftedNotice } from './Shifts.tsx'
@@ -162,6 +163,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [trashed, setTrashed] = useState<Trashed | null>(null)
   /** You opened one of an ambiguous link's candidates: pin the link there? */
   const [pinOffer, setPinOffer] = useState<PinOffer | null>(null)
+  /** The browser's timezone, offered once instead of the profile's (someone travelling). */
+  const [zoneOffer, setZoneOffer] = useState<{ saved: string; browser: string } | null>(null)
   /** Your last rename or move, if some link could not be rewritten. */
   const [moveIssue, setMoveIssue] = useState<MoveReport | null>(null)
   /** The open note was moved by another tool and followed its file; `links`: left behind (null until known). */
@@ -213,6 +216,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       // First sign-in: the browser's timezone becomes the person's (editable in Preferences).
       if (!p.timezone) p = await api.updateProfile({ timezone: browserTimeZone() }).catch(() => p)
       setProfile(p)
+      // Afterwards, a browser somewhere else is offered once (TimeZoneOffer.tsx); never changed by itself.
+      const browser = timeZoneOffer(p.timezone)
+      if (browser && p.timezone) setZoneOffer({ saved: p.timezone, browser })
       // «On opening», when nothing else was asked for: a note only if it exists and they
       // read it (today's is never created on coming in: no empty notes); otherwise Home stays.
       if (!startedEmpty) return
@@ -741,6 +747,9 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           </div>
         )}
         {moveJob && <MoveProgress key={moveJob.id} job={moveJob} onFinished={(end) => moveEnded(moveJob, end)} />}
+        {zoneOffer && (
+          <TimeZoneToast saved={zoneOffer.saved} browser={zoneOffer.browser} onChanged={(p) => { setProfile(p); setZoneOffer(null) }} onDismiss={() => setZoneOffer(null)} />
+        )}
         {pinOffer && pinOffer.target === openPath && (
           <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
         )}

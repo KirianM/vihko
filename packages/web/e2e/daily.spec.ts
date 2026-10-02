@@ -63,7 +63,8 @@ test.afterAll(async ({ browser }) => {
   const dirs = [TEMPLATES, ownFolder(ADMIN), ownFolder(MEMBER), TEAM.folder]
   for (const user of [ADMIN, MEMBER]) {
     const page = await signIn(browser, user)
-    await page.request.put('/api/profile', { data: { dailySeries: null, openDailyOnStart: false } })
+    // The time zone back to the browser's, as a first sign-in leaves it: nothing to offer in the other specs.
+    await page.request.put('/api/profile', { data: { dailySeries: null, openDailyOnStart: false, timezone: await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone) } })
     if (user === ADMIN) {
       const { notes } = await (await page.request.get('/api/tree')).json() as { notes: { path: string }[] }
       for (const n of notes) if (dirs.some((d) => n.path.startsWith(`${d}/`))) await page.request.delete(`/api/note?path=${encodeURIComponent(n.path)}`)
@@ -108,7 +109,51 @@ test('first sign-in: the profile takes the browser\'s timezone', async ({ browse
   await page.getByRole('button', { name: 'Entrar' }).last().click()
   await expect(page.getByRole('treegrid').first()).toBeVisible()
   await expect.poll(async () => (await (await page.request.get('/api/profile')).json()).timezone).toBe(canonical(zone))
+  // A first sign-in offers nothing: the browser's zone is the one saved.
+  await expect(page.locator('.timezone-offer')).toHaveCount(0)
   await ctx.close()
+})
+
+test('someone travelling: a browser in another time zone is offered once, never applied by itself', async ({ browser }) => {
+  // Saved: one zone; the browser: another, never at the same time of day.
+  const before = await signIn(browser, MEMBER)
+  expect((await before.request.put('/api/profile', { data: { timezone: EAST } })).ok()).toBe(true)
+  await before.context().close()
+  const timezone = async (page: Page) => (await (await page.request.get('/api/profile')).json()).timezone as string
+  const signInFrom = async (zone: string) => {
+    const ctx = await browser.newContext({ timezoneId: zone })
+    const page = await ctx.newPage()
+    await page.goto('/')
+    await page.getByLabel('Nombre de usuario').fill(MEMBER.username)
+    await page.getByLabel('Contraseña').fill(MEMBER.password)
+    await page.getByRole('button', { name: 'Entrar' }).last().click()
+    await expect(page.getByRole('treegrid').first()).toBeVisible()
+    return page
+  }
+  const shown = (z: string) => canonical(z).replaceAll('_', ' ')
+  const page = await signInFrom(WEST)
+  const offer = page.locator('.timezone-offer')
+  await expect(offer).toContainText(`Tu navegador está en la zona horaria ${shown(WEST)}, y tus notas usan ${shown(EAST)} para decidir qué día es hoy.`)
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    await offer.screenshot({ path: `${SHOTS}/timezone-offer-${theme}.png` })
+  }
+  await page.emulateMedia({ colorScheme: null })
+  expect(await timezone(page)).toBe(canonical(EAST))
+  // Kept: not asked again in this browser.
+  await offer.getByRole('button', { name: 'Mantener' }).click()
+  await expect(offer).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('treegrid').first()).toBeVisible()
+  await expect(offer).toHaveCount(0)
+  expect(await timezone(page)).toBe(canonical(EAST))
+  await page.context().close()
+  // Another browser on the same trip: offered there too, and taken.
+  const other = await signInFrom(WEST)
+  await other.locator('.timezone-offer').getByRole('button', { name: `Usar ${shown(WEST)}` }).click()
+  await expect(other.locator('.timezone-offer')).toHaveCount(0)
+  await expect.poll(() => timezone(other)).toBe(canonical(WEST))
+  await other.context().close()
 })
 
 test('«Today» creates the note from the template in the series folder, then only opens it', async ({ browser }) => {
@@ -320,7 +365,8 @@ test('screenshots: note header with previous/next, light and dark', async () => 
 })
 
 test('phone: «Today» from the drawer, previous/next in the header', async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES' })
+  // A phone in the admin's own time zone: nothing to offer about it.
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES', timezoneId: EAST })
   const page = await ctx.newPage()
   await page.goto('/')
   await page.getByLabel('Nombre de usuario').fill(ADMIN.username)
