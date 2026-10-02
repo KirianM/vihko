@@ -133,6 +133,7 @@ export async function setup(opts: M4Setup = {}) {
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments })
   const policy = new AccessPolicy({ index, permissions, holds })
   const { app, services } = createServer({
+    confirmWindowMs: 0,
     auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, policy, holds, groups,
     now: () => new Date('2026-09-27T10:00:00Z'),
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },

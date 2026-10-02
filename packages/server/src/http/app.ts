@@ -105,6 +105,12 @@ export interface Orphans {
 }
 
 export interface AppDeps {
+  /**
+   * How long a confirmation at the moment lasts for its browser session
+   * (http/twoFactor.ts, CONFIRM_WINDOW_MS by default). The tests of what each
+   * route asks for set 0: every one asks.
+   */
+  confirmWindowMs?: number
   orphans?: Orphans
   auth: Auth
   /** Each person's timezone and preferences (state.db). */
@@ -342,6 +348,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   users.hooks.onSessionsEnded = (userId) => {
     sessionsEnded?.(userId)
     for (const s of streams) if (s.userId === userId && !auth.session(s.token)) s.end()
+    // A confirmation doesn't outlive a change of who may be signed in (a new password, sessions ended).
+    tf.endConfirmations(userId)
   }
   // So does taking someone out of a group: they stop seeing what it gave them at once.
   users.hooks.onMembersChanged ??= () => { permissionsChanged() }
@@ -499,7 +507,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // The second factor (http/twoFactor.ts): after the password, the session or the second step.
   const tf = twoFactorHttp({
     auth, users, twoFactor, settings: adminSettings, limiter, deviceCookie: DEVICE_COOKIE, ipOf, tooMany, signedIn, notices,
-    publicUrl: deps.publicUrl ?? null, now: () => now().getTime(),
+    publicUrl: deps.publicUrl ?? null, now: () => now().getTime(), confirmWindowMs: deps.confirmWindowMs,
   })
 
   // The password: the session, or (with a second factor) a pending sign-in

@@ -22,6 +22,8 @@ export interface AgentSetup {
   /** Locked off by the server's administrator (VIHKO_INTEGRATIONS=off). */
   locked?: boolean
   now?: Date
+  /** How long a confirmation at the moment lasts (0 by default here: every action asks). */
+  confirmWindowMs?: number
   /** VIHKO_PUBLIC_URL: with it, OAuth for the MCP server (while it's on). */
   publicUrl?: string
   /** A stand-in for the built UI (one index.html), for the pages the UI serves. */
@@ -79,7 +81,9 @@ export async function setup(opts: AgentSetup = {}) {
     mkdirSync(join(webDir, 'icons'))
     writeFileSync(join(webDir, 'icons', 'icon-192.png'), randomBytes(64))
   }
+  // Every confirmation asks (no window): the tests of the window give their own.
   const { app, services } = createServer({
+    confirmWindowMs: opts.confirmWindowMs ?? 0,
     auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now, publicUrl: opts.publicUrl ?? null, webDir, clientMetadata: opts.clientMetadata,
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25, icons: markIcons(webDir) }) },
   })

@@ -68,6 +68,7 @@ export async function setup(opts: SpacesSetup = {}) {
   /** How many times open editors would have been checked again (the hub's `recheckAccess`). */
   const rechecks = { n: 0 }
   const { app, services } = createServer({
+    confirmWindowMs: 0,
     auth, profiles, workspace, notes, index, indexer, notesDir, runtime, keys, integrations, users, permissionsModel: 'spaces', noteSettings,
     now: () => clock.now, onPermissionsChanged: () => { rechecks.n++ },
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },

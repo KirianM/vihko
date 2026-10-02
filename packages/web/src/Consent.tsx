@@ -12,7 +12,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from 'react-aria-components'
 import { ApiError, api, type OAuthRequest, type User } from './api.ts'
 import { FolderPicker, allFolders } from './Agents.tsx'
-import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { Brand, Icon, ThemeToggle } from './ui.tsx'
 import './actions.css'
@@ -154,7 +154,7 @@ export function Consent({ user, onSignOut }: { user: User; onSignOut: () => void
           {noneChosen && <p className="hint">{t('keys.foldersNeeded')}</p>}
           <div className="consent-actions">
             <Button className="btn btn-xl" onPress={() => void decide(false)} isDisabled={busy}>{t('consent.deny')}</Button>
-            <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy || noneChosen || !confirm.trim()}>{t('consent.approve')}</Button>
+            <Button type="submit" className="btn btn-primary btn-xl" isDisabled={busy || noneChosen || !confirmReady(confirmWith, confirm)}>{t('consent.approve')}</Button>
           </div>
         </form>
       )}

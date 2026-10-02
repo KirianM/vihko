@@ -689,6 +689,14 @@ app's code, or your password if you have no second factor.
 
 A session left open on someone's computer isn't enough to do any of these.
 
+A confirmation lasts **15 minutes in that browser**: the current code, a
+recovery code, your password (without a second factor), or signing in with
+your code. Meanwhile these actions don't ask again, and their dialogs show no
+field for it; after that, they ask as before. It's only that browser's
+session: another browser, an agent key or an app authorized with OAuth never
+skips a confirmation. Signing out, changing your password, and turning your
+second factor off (or an admin resetting it) end it at once.
+
 Agent keys never ask for a second factor: they're separate credentials, made
 from a session that already passed it, and you can revoke them.
 

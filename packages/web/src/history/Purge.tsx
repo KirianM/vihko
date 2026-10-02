@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Text, TextField } from 'react-aria-components'
 import { errorText, useT } from '../i18n.tsx'
-import { ConfirmField, codeError, useConfirmWith } from '../TwoFactor.tsx'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from '../TwoFactor.tsx'
 import { normKey } from '@vihko/core/resolve'
 import { parseSpacePath } from '@vihko/core/spaces'
 import { api } from '../api.ts'
@@ -44,6 +44,7 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [secret, setSecret] = useState('')
+  const how = useConfirmWith()
 
   useEffect(() => {
     let live = true
@@ -104,7 +105,7 @@ export function PurgeDialog({ path, version, onCancel, onDone }: {
           {error && <p className="error-text dialog-error" role="alert">{error}</p>}
           <div className="dialog-actions">
             <Button className="btn" autoFocus isDisabled={busy} onPress={onCancel}>{t('common.cancel')}</Button>
-            <Button className="btn btn-danger" isDisabled={busy || !preview || (n === 0 && !hidden) || (asks && !secret.trim())} onPress={() => void purge()}>{t(version ? 'purge.confirmVersion' : 'purge.confirm')}</Button>
+            <Button className="btn btn-danger" isDisabled={busy || !preview || (n === 0 && !hidden) || (asks && !confirmReady(how, secret))} onPress={() => void purge()}>{t(version ? 'purge.confirmVersion' : 'purge.confirm')}</Button>
           </div>
         </Dialog>
       </Modal>

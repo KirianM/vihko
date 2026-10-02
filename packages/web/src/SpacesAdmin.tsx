@@ -8,7 +8,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Text, TextField } from 'react-aria-components'
 import { ApiError, LEVELS, api, type AdminSettings, type Alert, type ClosedSpace, type Grants, type Level, type PersonalSpacePlan, type SpaceInfo, type User, type UserInfo } from './api.ts'
-import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT } from './i18n.tsx'
 import { LEVEL_LABEL } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
@@ -42,12 +42,13 @@ function ConfirmedDialog({ title, children, confirm, danger, ready = true, onClo
   onConfirm: (secret: string) => Promise<void>
 }) {
   const t = useT()
+  const how = useConfirmWith()
   const [secret, setSecret] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (busy || !ready || !secret.trim()) return
+    if (busy || !ready || !confirmReady(how, secret)) return
     setBusy(true)
     setError(null)
     try {
@@ -68,7 +69,7 @@ function ConfirmedDialog({ title, children, confirm, danger, ready = true, onClo
         </div>
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || !ready || !secret.trim()}>{confirm}</Button>
+          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || !ready || !confirmReady(how, secret)}>{confirm}</Button>
         </div>
       </form>
     </Dialog>
@@ -275,13 +276,14 @@ export function DeletePersonDialog({ user, summary, users, groups, consequences,
   const [choice, setChoice] = useState<'later' | 'transfer' | 'convert'>('later')
   const [input, setInput] = useState<SettleInput>({ to: '', name: user.username, members: {} })
   const [secret, setSecret] = useState('')
+  const how = useConfirmWith()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const action = choice === 'later' ? null : choice
   const { plan, error: planError, ready } = useSettlePlan(user.id, action, input, true)
   const settles = action !== null
   // Deleting someone is confirmed at the moment, whatever becomes of their space.
-  const canGo = !busy && !!secret.trim() && (!settles || (ready && plan !== null))
+  const canGo = !busy && confirmReady(how, secret) && (!settles || (ready && plan !== null))
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (!canGo) return

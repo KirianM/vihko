@@ -15,6 +15,18 @@ its entries are kept at the end of this file.
 Fixes from two reviews before 0.1.0: security, and flows that a family or a
 small team meets after months of use.
 
+### Changed
+
+- **A confirmation lasts 15 minutes in that browser**, as GitHub's «sudo
+  mode» does: after the current code, a recovery code, the password (without
+  a second factor) or a sign-in with a code, the actions «confirmed at the
+  moment» (keys, OAuth, recovery codes, the admin's changes to accounts and
+  spaces, retention, purges) don't ask again until it ends, and their dialogs
+  show no field for it. Only that browser session: another one, an agent key
+  or an OAuth token never skips one. Signing out, a new password, and a second
+  factor turned off or reset end it. `GET /api/account/2fa` says whether
+  confirming is needed now (`confirmNeeded`, `confirmedUntil`).
+
 ### Security
 
 - **Moving a folder into another space no longer brings its grants along

@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 're
 import { Button, Dialog, Heading, Input, Label, Menu, MenuItem, MenuTrigger, Modal, ModalOverlay, Popover, Text, TextField } from 'react-aria-components'
 import { ApiError, api, type AdminSettings, type GroupInfo, type NewLink, type TwoFactorPolicy, type User, type UserInfo } from './api.ts'
 import { CopyButton, Toggle } from './Agents.tsx'
-import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { AccessDialog } from './Permissions.tsx'
@@ -64,9 +64,10 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [name, setName] = useState('')
   const [role, setRole] = useState<UserInfo['role']>('member')
   const [secret, setSecret] = useState('')
+  const how = useConfirmWith()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const needsSecret = role === 'admin' && !secret.trim()
+  const needsSecret = role === 'admin' && !confirmReady(how, secret)
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (busy || !name.trim() || needsSecret) return
@@ -161,9 +162,10 @@ function ConfirmDialog({ title, items, confirm, danger, identity, onClose, onCon
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [secret, setSecret] = useState('')
+  const how = useConfirmWith()
   const go = async (e?: FormEvent) => {
     e?.preventDefault()
-    if (busy || (identity && !secret.trim())) return
+    if (busy || (identity && !confirmReady(how, secret))) return
     setBusy(true)
     setError(null)
     try {
@@ -184,7 +186,7 @@ function ConfirmDialog({ title, items, confirm, danger, identity, onClose, onCon
         </div>
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose} autoFocus={!identity}>{t('common.cancel')}</Button>
-          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || (!!identity && !secret.trim())}>{confirm}</Button>
+          <Button type="submit" className={danger ? 'btn btn-danger' : 'btn btn-primary'} isDisabled={busy || (!!identity && !confirmReady(how, secret))}>{confirm}</Button>
         </div>
       </form>
     </Dialog>

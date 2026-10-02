@@ -83,6 +83,38 @@ test('the admin turns on the API and the MCP server', async ({ browser }) => {
   await page.context().close()
 })
 
+test('two keys in a row: the password once, then a while without asking again', async ({ browser }) => {
+  const page = await signIn(browser, ADMIN)
+  await openAgents(page)
+  const names = [m.aKeyName(), m.aKeyName()]
+  for (const [i, name] of names.entries()) {
+    await page.getByRole('button', { name: 'Nueva clave' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Nueva clave' })
+    await dialog.getByLabel('Nombre').fill(name)
+    if (i === 0) {
+      await expect(dialog.getByRole('button', { name: 'Crear la clave' })).toBeDisabled()
+      await dialog.getByLabel('Tu contraseña').fill(ADMIN.password)
+    } else {
+      // Confirmed a moment ago in this browser: nothing to type.
+      await expect(dialog.getByLabel('Tu contraseña')).toHaveCount(0)
+      await expect(dialog.getByRole('button', { name: 'Crear la clave' })).toBeEnabled()
+    }
+    await dialog.getByRole('button', { name: 'Crear la clave' }).click()
+    const shown = page.getByRole('dialog', { name: `Clave para «${name}»` })
+    await expect(shown.locator('.token')).toBeVisible()
+    await shown.getByRole('button', { name: 'Ya la he guardado' }).click()
+  }
+  // Another browser of the same person still asks.
+  const other = await signIn(browser, ADMIN)
+  await openAgents(other)
+  await other.getByRole('button', { name: 'Nueva clave' }).click()
+  await expect(other.getByRole('dialog', { name: 'Nueva clave' }).getByLabel('Tu contraseña')).toBeVisible()
+  const { keys } = await (await page.request.get('/api/keys')).json() as { keys: { id: string; name: string }[] }
+  for (const k of keys.filter((x) => names.includes(x.name))) await page.request.delete(`/api/keys/${k.id}`)
+  await other.context().close()
+  await page.context().close()
+})
+
 test('a read-only key for one folder: shown once, with its MCP configurations', async ({ browser }) => {
   const page = await signIn(browser, ADMIN)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])

@@ -20,7 +20,7 @@ import { errorText, useT, type MessageKey } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { AccessDialog } from './Permissions.tsx'
 import { SearchButton } from './Palette.tsx'
-import { ConfirmField, codeError, useConfirmWith } from './TwoFactor.tsx'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import { BackButton, Diamond, Icon, MenuButton, ThemeToggle } from './ui.tsx'
 import { usePathLabels } from './spaces.tsx'
 import { typedSegments } from './typedPath.ts'
@@ -147,7 +147,7 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
   const asks = !edit || keyWidens(edit, input())
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (busy || !name.trim() || noneChosen || (asks && !confirm.trim())) return
+    if (busy || !name.trim() || noneChosen || (asks && !confirmReady(confirmWith, confirm))) return
     setBusy(true)
     setError(null)
     try {
@@ -206,7 +206,7 @@ function KeyDialog({ edit, onClose, onCreated, onSaved }: {
         <div className="dialog-actions">
           {noneChosen && <span className="hint key-need">{t('keys.foldersNeeded')}</span>}
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || noneChosen || (asks && !confirm.trim())}>{t(edit ? 'keys.save' : 'keys.create')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !name.trim() || noneChosen || (asks && !confirmReady(confirmWith, confirm))}>{t(edit ? 'keys.save' : 'keys.create')}</Button>
         </div>
       </form>
     </Dialog>
@@ -361,7 +361,7 @@ function RotateDialog({ keyInfo, onClose, onRotated }: { keyInfo: KeyInfo; onClo
   const [confirm, setConfirm] = useState('')
   const rotate = async (e: FormEvent) => {
     e.preventDefault()
-    if (busy || !confirm.trim()) return
+    if (busy || !confirmReady(confirmWith, confirm)) return
     setBusy(true)
     setError(null)
     try {
@@ -384,7 +384,7 @@ function RotateDialog({ keyInfo, onClose, onRotated }: { keyInfo: KeyInfo; onClo
         </div>
         <div className="dialog-actions">
           <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" className="btn btn-primary" isDisabled={busy || !confirm.trim()}>{t('keys.rotateConfirm')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !confirmReady(confirmWith, confirm)}>{t('keys.rotateConfirm')}</Button>
         </div>
       </form>
     </Dialog>

@@ -423,6 +423,9 @@ export interface TwoFactorInfo {
   enabledAt: string | null
   recoveryCodesLeft: number
   confirmWith: 'code' | 'password'
+  /** Whether what confirms at the moment asks now: not while a confirmation of this browser session lasts (`confirmedUntil`). */
+  confirmNeeded: boolean
+  confirmedUntil: string | null
 }
 /** One of one's own sessions. */
 export interface SessionInfo { id: string; createdAt: string; lastSeenAt: string; expiresAt: string; userAgent: string | null; current: boolean }
