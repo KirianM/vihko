@@ -302,7 +302,8 @@ as a prefix. Filters narrow it:
 
 Keys and values ignore case, and are compared whole, as written. Only simple
 frontmatter values count: text, numbers, `true`/`false`, dates and lists of
-them; nested maps don't. A word with a colon in it is a filter (`re:x` looks
+them; nested maps don't. A word with a colon in it is a filter, unless it's
+quoted (`"re:x"` is searched as text; `re:x` looks
 for a key `re`); times (`10:30`) and addresses (`https://…`) stay words.
 Templates (notes with `template: true`) are left out unless the query asks
 for them by their mark: `template:true`, `prop:template`. The reserved

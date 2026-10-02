@@ -337,7 +337,8 @@ term, the last one also a prefix), and filters, each a word of its own:
   meaning. Any other name is free for your frontmatter (`type:`, `status:`,
   `created:`, `modified:`…).
 - `-` in front of any filter excludes instead; `"…"` quotes a value (or a
-  `prop:` key) with spaces. Several filters all apply.
+  `prop:` key) with spaces. Several filters all apply. A filter starts a
+  word: a word quoted whole (`"re:budget"`) is searched as text.
 - Keys and values compare case-insensitively (full case folding, NFC), whole.
   A list matches when any of its items does. A number matches the same number
   however it's written (`5`, `5.0`). Only simple values are searched: text,

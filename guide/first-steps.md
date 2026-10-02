@@ -130,6 +130,7 @@ instead):
   | `prop:tag=urgent` | The same as `key:value`, for any key: also a name vihko keeps for its own filters (`tag`, `path`, `is`, `has`, `in`, `prop`, `before`, `after`) |
   | `-tag:done`, `-path:archive/`, `-status:done` | Leaves those out |
   | `path:"my notes/"`, `status:"in progress"` | Quotes for values with spaces |
+  | `"re:budget"` | A whole word quoted is text: any `word:word` unquoted is a field filter |
 
   So `budget tag:projects -tag:done` finds «budget» in the open projects, and
   `type:decision -status:done` lists the decisions not yet done. Keys and

@@ -65,6 +65,9 @@ test('search filters: what only looks like one stays text (a time, a URL, a colo
   }
   assert.equal(parseSearchQuery('meet at 10:30').text, 'meet at 10:30')
   assert.equal(parseSearchQuery('see https://example.org/x').text, 'see https://example.org/x')
+  // A word with a colon, quoted: searched as text, never a filter.
+  assert.deepEqual(parseSearchQuery('budget "re:budget"'), { text: 'budget "re:budget"', filters: [] })
+  assert.ok(!hasSearchFilter('"re:budget"'))
 })
 
 test('search filters: combined with text, tags and paths, in the order written', () => {
