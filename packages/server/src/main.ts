@@ -343,6 +343,11 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   await migrateRetiredKeys({ notesDir: config.notesDir, index, state, notes, file: services.permissionsFile, notices, managersOf: (root) => permissions.managersOf(root), log })
     .catch((err) => log(`migrating retired settings keys: ${err instanceof Error ? err.message : String(err)}`))
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
+  // Node closes an idle connection after 5 s; a client or a reverse proxy that keeps them longer
+  // (60 s is common) may reuse one as it closes, and gets a reset (a 502 behind a proxy). Idle
+  // connections stay longer than those of the usual proxies; the headers' limit stays above it.
+  server.keepAliveTimeout = 65_000
+  server.headersTimeout = 66_000
   hub.attach(server, SESSION_COOKIE)
   // serve() opens the port asynchronously: only announced once it's actually listening.
   if (!server.listening) {

@@ -284,6 +284,9 @@ small team meets after months of use.
 
 ### Fixed
 
+- Idle connections stay open 65 s instead of Node's 5: a reverse proxy (or
+  any client) that reuses a connection as vihko closes it no longer gets a
+  reset, which behind a proxy showed as an occasional 502.
 - The recently opened notes the search box offers (and «When I open vihko:
   Last note») are each person's, and are forgotten when they sign out: on a
   shared browser, whoever signs in next no longer sees, nor opens, the notes
