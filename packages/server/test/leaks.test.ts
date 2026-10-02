@@ -146,7 +146,8 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
         const r = await key(call.method, call.path, call.body, call.headers)
         // The query as the server reads it (form encoding: a space is `+`).
         const asked = decodeURIComponent(call.path.replace(/\+/g, ' ')) + JSON.stringify(call.body ?? '')
-        const shown = r.text + JSON.stringify([...r.headers.entries()])
+        // The headers too, but for the security policy: the server's own words (data:, self, sandbox), never a note's.
+        const shown = r.text + JSON.stringify([...r.headers.entries()].filter(([k]) => k !== 'content-security-policy'))
         assert.deepEqual(leaked(shown, asked), [], `${route} ${call.path} ${JSON.stringify(call.body ?? '')} → ${r.status} ${r.text.slice(0, 400)}`)
         const where = `${route} ${call.path} ${JSON.stringify(call.body ?? '')}: ${r.text.slice(0, 300)}`
         if (call.expect !== undefined) assert.equal(r.status, call.expect, where)
