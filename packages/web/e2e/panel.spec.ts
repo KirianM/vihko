@@ -100,8 +100,14 @@ test('links: backlinks with context', async () => {
 test('links: a note\'s links to itself are neither outgoing nor backlinks, and still show as working links in the editor', async () => {
   const self = distinct()
   const heading = m.aHeading()
-  writeFileSync(`${NOTES}/${DIR}/${self}.md`, `# ${self}\n\n## ${heading}\n\n${m.aWord()} [[#${heading}]] y [[${self}]]. ${m.aWord()} [[${TITLE}]].\n`)
-  await k.goto(`/?note=${encodeURIComponent(`${DIR}/${self}.md`)}`)
+  const path = `${DIR}/${self}.md`
+  writeFileSync(`${NOTES}/${path}`, `# ${self}\n\n## ${heading}\n\n${m.aWord()} [[#${heading}]] y [[${self}]]. ${m.aWord()} [[${TITLE}]].\n`)
+  // Written on the disk: opened once vihko has indexed it, or the panel would show what the index had before.
+  await expect.poll(async () => {
+    const r = await k.request.get(`/api/note/links?path=${encodeURIComponent(path)}`)
+    return r.ok() && ((await r.json()) as { outgoing: { raw: string }[] }).outgoing.some((l) => l.raw === `[[${TITLE}]]`)
+  }).toBe(true)
+  await k.goto(`/?note=${encodeURIComponent(path)}`)
   await k.getByRole('tab', { name: /Enlaces/ }).click()
   const panel = k.getByRole('complementary', { name: 'Comentarios y contexto' })
   await expect(panel.getByRole('heading', { name: 'Salientes · 1' })).toBeVisible()
