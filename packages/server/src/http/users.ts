@@ -52,6 +52,7 @@ import type { AttemptResult, LoginLimiter } from '../loginLimit.ts'
 import { UsersError, type NewLink, type Users } from '../users.ts'
 import type { Notices } from '../notices.ts'
 import { POLICIES, type TwoFactorPolicy } from '../twoFactor.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -105,7 +106,7 @@ export function inviteRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   })
 
   app.post('/api/invite/:token', async (c) => {
-    const { password } = await c.req.json<{ password?: unknown }>()
+    const { password } = await jsonBody<{ password?: unknown }>(c)
     const a = attempt(c)
     if (!a.ok) return deps.tooMany(c, a.retryAfter)
     const token = c.req.param('token')
@@ -125,7 +126,7 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     await next()
   }
   const body = async (c: Context<Env>, optional = false) => {
-    const b = optional ? await c.req.json<unknown>().catch(() => ({})) : await c.req.json<unknown>()
+    const b = optional ? await jsonBody<unknown>(c).catch(() => ({})) : await jsonBody<unknown>(c)
     if (typeof b !== 'object' || b === null || Array.isArray(b)) throw new UsersError('invalid', 'expected an object')
     return b as Record<string, unknown>
   }

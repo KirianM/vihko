@@ -72,6 +72,7 @@ import { dismissStateMigration, stateMigrationAlerts } from '../state.ts'
 import { FolderRefs } from '../folderRefs.ts'
 import { SpaceError, SpaceService } from '../spaceService.ts'
 import { spaceRoutes } from './spaces.ts'
+import { jsonBody } from './jsonBody.ts'
 
 export const SESSION_COOKIE = 'vihko_session'
 /** A browser that signed in before, for the login limits (loginLimit.ts). */
@@ -447,7 +448,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   const text = (v: unknown) => (typeof v === 'string' ? v : '')
 
   app.post('/api/setup', authBody, async (c) => {
-    const { token, username, password } = await c.req.json<{ token?: unknown; username?: unknown; password?: unknown }>()
+    const { token, username, password } = await jsonBody<{ token?: unknown; username?: unknown; password?: unknown }>(c)
     const attempt: AttemptResult = limiter.begin({ ip: ipOf(c), account: SETUP_ACCOUNT, byAddress: true })
     if (!attempt.ok) return tooMany(c, attempt.retryAfter)
     try {
@@ -496,7 +497,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // The password: the session, or (with a second factor) a pending sign-in
   // that its second step completes (http/twoFactor.ts).
   app.post('/api/auth/login', authBody, async (c) => {
-    const body = await c.req.json<{ username?: unknown; password?: unknown }>()
+    const body = await jsonBody<{ username?: unknown; password?: unknown }>(c)
     const username = text(body?.username)
     const device = limiter.deviceFor(getCookie(c, DEVICE_COOKIE), username)
     const attempt = limiter.begin({ ip: ipOf(c), account: username, device })
@@ -583,7 +584,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // 'resolve', thread }`. 412 if the place or the thread isn't there any more;
   // 403 to resolve someone else's thread without `edit`.
   app.post('/api/note/comment', async (c) => {
-    const body = await c.req.json<Record<string, unknown>>()
+    const body = await jsonBody<Record<string, unknown>>(c)
     const op = commentOp(body)
     if (!op || typeof body.path !== 'string') return fail(c, 400, 'invalid', 'expected a path and an operation: add, reply or resolve')
     const r = await scoped(c).comment(body.path, op)
@@ -598,7 +599,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // the trash first; otherwise 409 `not_empty` with its `contents`). A dry
   // run of a move says whose access changes (`audience`), for the UI to confirm.
   app.post('/api/folder', async (c) => {
-    const { path } = await c.req.json<{ path: string }>()
+    const { path } = await jsonBody<{ path: string }>(c)
     return c.json(await scoped(c).createFolder(path), 201)
   })
 
@@ -610,7 +611,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // confirm. A key writes the mark like any frontmatter key (`set_frontmatter`).
   app.post('/api/folder/templates', async (c) => {
     if (c.get('access').isAgent) return fail(c, 404, 'not_found', 'does not exist')
-    const { path, dryRun } = await c.req.json<{ path?: unknown; dryRun?: unknown }>()
+    const { path, dryRun } = await jsonBody<{ path?: unknown; dryRun?: unknown }>(c)
     if (typeof path !== 'string') return fail(c, 400, 'invalid', 'path: the folder')
     return c.json(await scoped(c).markFolderTemplates(path, { dryRun: dryRun === true }))
   })
@@ -618,7 +619,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // One note made a template (`template: true`) or not one any more (the key goes); nothing else of it changes.
   app.post('/api/note/template', async (c) => {
     if (c.get('access').isAgent) return fail(c, 404, 'not_found', 'does not exist')
-    const { path, template } = await c.req.json<{ path?: unknown; template?: unknown }>()
+    const { path, template } = await jsonBody<{ path?: unknown; template?: unknown }>(c)
     if (typeof path !== 'string' || typeof template !== 'boolean') return fail(c, 400, 'invalid', 'path, and template: true or false')
     return c.json(written(c, await scoped(c).markTemplate(path, template)))
   })
@@ -626,7 +627,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // With `background`, a move that takes long answers 202 with a job as soon
   // as the folder (or note) is in place; GET /api/move-jobs/:id follows it.
   app.post('/api/folder/move', async (c) => {
-    const { from, to, dryRun, background } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean }>()
+    const { from, to, dryRun, background } = await jsonBody<{ from: string; to: string; dryRun?: boolean; background?: boolean }>(c)
     const s = scoped(c)
     if (!background || dryRun) return c.json(await s.moveFolder(from, to, { dryRun }))
     const r = await jobs.start(c.get('user').username, 'folder', from, to, (hooks) => s.moveFolder(from, to, hooks), moveWaitMs)
@@ -647,7 +648,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // A new note, with the given text or from a template note (its variables
   // filled in with the person's date and name). Never overwrites.
   app.post('/api/note', async (c) => {
-    const { path, text, template, freshUid, fromLink } = await c.req.json<{ path: string; text?: string; template?: string; freshUid?: boolean; fromLink?: string }>()
+    const { path, text, template, freshUid, fromLink } = await jsonBody<{ path: string; text?: string; template?: string; freshUid?: boolean; fromLink?: string }>(c)
     if (template !== undefined && typeof template !== 'string') return fail(c, 400, 'invalid', 'template must be a note path')
     if (text !== undefined && typeof text !== 'string') return fail(c, 400, 'invalid', 'text must be text')
     // `fromLink`: the note whose broken link this creates (never one of someone else's personal space: a link there that looks broken may lead to a note this person can't read).
@@ -699,7 +700,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   app.put('/api/settings', async (c) => {
-    const body = await c.req.json<{ space?: unknown; settings?: unknown; ifMatch?: unknown }>()
+    const body = await jsonBody<{ space?: unknown; settings?: unknown; ifMatch?: unknown }>(c)
     const root = settingsRoot(c, body.space, true)
     if (root instanceof Response) return root
     const next = settingsFromBody(body.settings)
@@ -724,7 +725,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.get('/api/profile', (c) => c.json(shownProfile(profiles.get(c.get('user').id), c.get('access'))))
 
   app.put('/api/profile', async (c) => {
-    const body = await c.req.json<Record<string, unknown>>()
+    const body = await jsonBody<Record<string, unknown>>(c)
     if (typeof body !== 'object' || body === null) return fail(c, 400, 'invalid', 'expected an object')
     const patch: Partial<Profile> = {}
     for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'onOpen', 'onOpenNote', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
@@ -772,7 +773,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   app.get('/api/daily', (c) => c.json(scoped(c).dailyToday(c.req.query('series'))))
 
   app.post('/api/daily', async (c) => {
-    const { series } = await c.req.json<{ series?: string }>().catch(() => ({ series: undefined }))
+    const { series } = await jsonBody<{ series?: string }>(c).catch(() => ({ series: undefined }))
     if (series !== undefined && series !== null && typeof series !== 'string') return fail(c, 400, 'invalid', 'series must be a series id')
     const r = await scoped(c).dailyOpen(series)
     return c.json(r, r.created ? 201 : 200)
@@ -785,7 +786,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const ifMatch = unquote(c.req.header('if-match'))
     const ifNoneMatch = c.req.header('if-none-match')?.trim()
     if (!ifMatch && ifNoneMatch !== '*') return fail(c, 428, 'precondition_required', 'missing If-Match: a note that hasn\'t been read won\'t be overwritten')
-    const { text } = await c.req.json<{ text: string }>()
+    const { text } = await jsonBody<{ text: string }>(c)
     if (typeof text !== 'string') return fail(c, 400, 'invalid', 'text must be text')
     const { created, ...r } = await scoped(c).write(c.req.query('path') ?? '', text, { ifMatch, ifNoneMatch })
     return c.json(written(c, r), created ? 201 : 200)
@@ -796,7 +797,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // substitutions, so it never overwrites what it didn't read. `dryRun`: what it would change, without writing.
   // An edit that hides the note from the agent making it answers `nowHidden`.
   app.post('/api/note/edit', async (c) => {
-    const { path, ops, ifMatch, dryRun } = await c.req.json<{ path: string; ops: EditOp[]; ifMatch?: string; dryRun?: boolean }>()
+    const { path, ops, ifMatch, dryRun } = await jsonBody<{ path: string; ops: EditOp[]; ifMatch?: string; dryRun?: boolean }>(c)
     const r = await scoped(c).editOps(path, ops, { ifMatch: unquote(ifMatch ?? c.req.header('if-match')), dryRun: dryRun === true })
     return c.json('dryRun' in r ? r : written(c, r))
   })
@@ -811,7 +812,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // `confirmAudience: true` (the person agreed), or it's 409 `audience_widens` with
   // the change; `dryRun` says it beforehand.
   app.post('/api/note/move', async (c) => {
-    const { from, to, dryRun, background, confirmAudience } = await c.req.json<{ from: string; to: string; dryRun?: boolean; background?: boolean; confirmAudience?: boolean }>()
+    const { from, to, dryRun, background, confirmAudience } = await jsonBody<{ from: string; to: string; dryRun?: boolean; background?: boolean; confirmAudience?: boolean }>(c)
     const s = scoped(c)
     const opts = { ifMatch: unquote(c.req.header('if-match')), confirmAudience: confirmAudience === true }
     if (!background || dryRun || s.access.isAgent) return c.json(written(c, await s.move(from, to, { ...opts, dryRun })))
@@ -825,7 +826,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // nearest to `at`) is rewritten to the shortest form that reaches `target`,
   // in a note the person can write, to a candidate they can see.
   app.post('/api/note/link/pin', async (c) => {
-    const { path, raw, at, target } = await c.req.json<{ path: string; raw: string; at?: number; target: string }>()
+    const { path, raw, at, target } = await jsonBody<{ path: string; raw: string; at?: number; target: string }>(c)
     if (typeof raw !== 'string' || typeof target !== 'string' || (at !== undefined && typeof at !== 'number')) return fail(c, 400, 'invalid', 'expected path, raw, target and an optional numeric at')
     const r = await scoped(c).pinLink(path, { raw, at }, target)
     c.header('ETag', `"${r.etag}"`)
@@ -837,7 +838,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // would do. With `background`, as a move job. The report names only what
   // they can see.
   app.post('/api/external-moves/:id/relink', async (c) => {
-    const { dryRun, background } = await c.req.json<{ dryRun?: boolean; background?: boolean }>().catch(() => ({}) as { dryRun?: boolean; background?: boolean })
+    const { dryRun, background } = await jsonBody<{ dryRun?: boolean; background?: boolean }>(c).catch(() => ({}) as { dryRun?: boolean; background?: boolean })
     const s = scoped(c)
     const id = c.req.param('id')
     if (dryRun || !background) return c.json(await s.relinkExternal(id, { dryRun: dryRun === true }))
@@ -885,7 +886,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Members only from public addresses, unless the admin lets them reach the
   // local network (so a member can't probe it); the vihko admin, from anywhere.
   app.post('/api/attachments/fetch', imageSlot, async (c) => {
-    const { note, url } = await c.req.json<{ note: string; url: string }>()
+    const { note, url } = await jsonBody<{ note: string; url: string }>(c)
     const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
     const r = await scoped(c).attachFromUrl(note ?? '', async () => (await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })).bytes)
     return c.json(withMarkdown(r), 201)
@@ -936,7 +937,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // now, and restores with `edit` where it goes.
   app.get('/api/trash', (c) => c.json({ entries: scoped(c).trash() }))
   app.post('/api/trash/:id/restore', async (c) => {
-    const { to } = await c.req.json<{ to?: string }>().catch(() => ({ to: undefined }))
+    const { to } = await jsonBody<{ to?: string }>(c).catch(() => ({ to: undefined }))
     return c.json(await scoped(c).restoreTrash(c.req.param('id'), to))
   })
 
@@ -1055,7 +1056,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Note deleted from outside with an open copy: keep it or treat it as
   // deleted (`edit` where it was).
   app.post('/api/note/orphan', async (c) => {
-    const { path, action } = await c.req.json<{ path: string; action: 'restore' | 'discard' }>()
+    const { path, action } = await jsonBody<{ path: string; action: 'restore' | 'discard' }>(c)
     if (action !== 'restore' && action !== 'discard') return fail(c, 400, 'invalid', 'action must be restore or discard')
     return c.json(await scoped(c).orphan(path, action))
   })
@@ -1063,7 +1064,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // `confirmRemoval`: the number of notes the alert said would be removed.
   // The mass deletion is only accepted if that number still matches (Indexer.scan).
   app.post('/api/admin/rescan', adminOnly, async (c) => {
-    const body = await c.req.json<{ force?: boolean; confirmRemoval?: number }>().catch(() => ({}) as { force?: boolean; confirmRemoval?: number })
+    const body = await jsonBody<{ force?: boolean; confirmRemoval?: number }>(c).catch(() => ({}) as { force?: boolean; confirmRemoval?: number })
     const confirmRemoval = Number.isInteger(body.confirmRemoval) ? body.confirmRemoval : undefined
     const r = deps.runtime.rescan({ force: body.force === true, confirmRemoval })
     // Numbers, never paths: what changed may be in anyone's space, which the admin doesn't read.

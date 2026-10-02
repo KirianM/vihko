@@ -21,6 +21,7 @@ import type { User } from '../auth.ts'
 import type { Access } from '../access.ts'
 import type { Integrations } from '../integrations.ts'
 import { OAuthRequestError, type AuthorizeCheck, type OAuthServer } from '../oauth.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -68,7 +69,7 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
   app.post('/oauth/register', limit, async (c) => {
     if (!oauth.registrationOpen()) return none(c)
     let body: unknown
-    try { body = await c.req.json() } catch { return oauthFail(c, new OAuthRequestError('invalid_client_metadata', 'expected a JSON object')) }
+    try { body = await jsonBody(c) } catch { return oauthFail(c, new OAuthRequestError('invalid_client_metadata', 'expected a JSON object')) }
     try {
       return c.json(oauth.register(body, deps.clientAddress(c)), 201, { 'Cache-Control': 'no-store' })
     } catch (err) {
@@ -150,7 +151,7 @@ export function oauthRoutes(app: Hono<Env>, deps: OAuthRoutesDeps) {
 
   app.post('/api/oauth/authorize', async (c) => {
     if (!oauth.available() || c.get('access').isAgent) return none(c)
-    const b = await c.req.json<{ query?: unknown; approve?: unknown; canWrite?: unknown; folders?: unknown; confirm?: unknown }>()
+    const b = await jsonBody<{ query?: unknown; approve?: unknown; canWrite?: unknown; folders?: unknown; confirm?: unknown }>(c)
     if (typeof b !== 'object' || b === null || typeof b.query !== 'string' || typeof b.approve !== 'boolean') {
       return c.json({ error: 'invalid', message: 'expected { query, approve, canWrite?, folders?, confirm? }' }, 400)
     }

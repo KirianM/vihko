@@ -26,6 +26,7 @@ import { holdAccess, type PermissionHolds } from '../permissionHolds.ts'
 import type { PermissionsEngine } from '../permissions.ts'
 import type { PermissionsFile } from '../permissionsFile.ts'
 import { RequestError } from '../scoped.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -100,7 +101,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
   })
 
   app.put('/api/permissions', async (c) => {
-    const body = await c.req.json<{ folder?: unknown; grants?: unknown; ai?: unknown; ifMatch?: unknown }>()
+    const body = await jsonBody<{ folder?: unknown; grants?: unknown; ai?: unknown; ifMatch?: unknown }>(c)
     const folder = folderParam(body?.folder)
     assertManage(c, folder)
     const written = engine.spaceRules().own(folder)
@@ -196,7 +197,7 @@ export function permissionRoutes(app: Hono<Env>, deps: PermissionRoutesDeps) {
   // were and where they are) sees the hold and releases it; for anyone else
   // it doesn't exist.
   app.post('/api/permissions/holds/:id', async (c) => {
-    const { action } = await c.req.json<{ action?: unknown }>().catch(() => ({ action: undefined }))
+    const { action } = await jsonBody<{ action?: unknown }>(c).catch(() => ({ action: undefined }))
     const hold = deps.holds?.get(c.req.param('id'))
     const access = c.get('access')
     if (!hold || access.isAgent || !holdAccess(hold, { level: (f) => access.level(f) }).decides) throw new NoteError('not_found', 'no such hold')

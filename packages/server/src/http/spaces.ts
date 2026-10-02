@@ -29,6 +29,7 @@ import type { Context, Hono } from 'hono'
 import type { Access } from '../access.ts'
 import type { User } from '../auth.ts'
 import type { SpaceService } from '../spaceService.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -41,7 +42,7 @@ export interface SpaceRoutesDeps {
 export function spaceRoutes(app: Hono<Env>, deps: SpaceRoutesDeps) {
   const { spaces } = deps
   const body = async (c: Context<Env>): Promise<Record<string, unknown>> => {
-    const b = await c.req.json<unknown>()
+    const b = await jsonBody<unknown>(c)
     return typeof b === 'object' && b !== null && !Array.isArray(b) ? b as Record<string, unknown> : {}
   }
   const access = (c: Context<Env>) => c.get('access')

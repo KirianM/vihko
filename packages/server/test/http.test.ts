@@ -137,6 +137,22 @@ test('request bodies: over the limit is 413, and nothing changes', async () => {
   assert.ok(await auth.login(admin.username, admin.password), 'the password is still the same')
 })
 
+test('a JSON body that isn\'t an object is 400 invalid, before any route takes it apart (with or without a session)', async () => {
+  const admin = m.aUser({ role: 'admin' })
+  const { auth, req } = await setup({ members: { [admin.username]: 'manage' } })
+  // The values are the case: what isn't an object.
+  for (const body of ['null', '3', '"x"', '[]']) {
+    assert.deepEqual(errorOf(await req('POST', '/api/setup', body, {}, true)), [400, 'invalid'], `setup ${body}`)
+    assert.deepEqual(errorOf(await req('POST', `/api/invite/${m.aSecret(43)}`, body, {}, true)), [400, 'invalid'], `invite ${body}`)
+  }
+  await auth.createUser(admin.username, admin.password, admin.role)
+  await req('POST', '/api/auth/login', { username: admin.username, password: admin.password })
+  assert.deepEqual(errorOf(await req('POST', '/api/note', 'null', {}, true)), [400, 'invalid'])
+  assert.deepEqual(errorOf(await req('POST', '/api/attachments/fetch', 'null', {}, true)), [400, 'invalid'])
+  // An object goes through as ever.
+  assert.equal((await req('POST', '/api/note', { path: m.aNotePath(inShared('')), text: m.aParagraph() })).status, 201)
+})
+
 test('first boot: one-time token to create the admin', async () => {
   const { auth, req } = await setup()
   const admin = m.aUser({ role: 'admin' })

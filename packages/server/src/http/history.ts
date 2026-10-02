@@ -36,6 +36,7 @@ import { revertVersion } from '../history/revert.ts'
 import { NoteError, NoteService, type Actor } from '../notes.ts'
 import { agentGuard, hiddenAfterWrite, revertWritten } from '../scoped.ts'
 import { written } from './written.ts'
+import { jsonBody } from './jsonBody.ts'
 
 export interface HistoryRoutesDeps {
   history: History
@@ -184,7 +185,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   // Writes through the core like any edit, as whoever asks (the user, or an
   // agent on their behalf), with the reason `restored`.
   app.post('/api/history/restore', async (c) => {
-    const body = await c.req.json<{ path?: string; id?: string; ifMatch?: string }>()
+    const body = await jsonBody<{ path?: string; id?: string; ifMatch?: string }>(c)
     const path = writableNote(c, body.path)
     const reader = readerOf(c)
     const v = await versionOf(reader, path, body.id)
@@ -207,7 +208,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   // asks (the user, or an agent on their behalf), with the reason `reverted`.
   // An agent reverts only a version it can see (agentHistory.ts).
   app.post('/api/history/revert', async (c) => {
-    const body = await c.req.json<{ path?: string; id?: string; ifMatch?: string; dryRun?: boolean }>()
+    const body = await jsonBody<{ path?: string; id?: string; ifMatch?: string; dryRun?: boolean }>(c)
     const path = writableNote(c, body.path)
     if (typeof body.id !== 'string' || !body.id) throw new HistoryError('invalid', 'missing id')
     const access = c.get('access')
@@ -252,7 +253,7 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
   // The answer names no other path the person can't read, and nothing of
   // the content.
   app.post('/api/history/purge', async (c) => {
-    const body = await c.req.json<{ path?: unknown; version?: unknown; dryRun?: unknown; confirm?: unknown }>()
+    const body = await jsonBody<{ path?: unknown; version?: unknown; dryRun?: unknown; confirm?: unknown }>(c)
     if (typeof body.path !== 'string' || (body.version !== undefined && typeof body.version !== 'string')) throw new HistoryError('invalid', 'expected a path and, optionally, a version')
     const access = c.get('access')
     const user = c.get('user')

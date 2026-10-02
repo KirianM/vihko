@@ -46,6 +46,7 @@ import type { LoginLimiter } from '../loginLimit.ts'
 import type { Notices } from '../notices.ts'
 import type { TwoFactor } from '../twoFactor.ts'
 import type { Users } from '../users.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -143,7 +144,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
   }
   const startSession = (c: Context, user: User) => deps.signedIn(c, user.username, auth.startSession(user.id, c.req.header('user-agent')))
   const body = async (c: Context): Promise<Record<string, unknown>> => {
-    const b = await c.req.json<unknown>().catch(() => null)
+    const b = await jsonBody<unknown>(c).catch(() => null)
     return typeof b === 'object' && b !== null && !Array.isArray(b) ? b as Record<string, unknown> : {}
   }
 

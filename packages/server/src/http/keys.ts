@@ -16,6 +16,7 @@ import type { User } from '../auth.ts'
 import type { Access } from '../access.ts'
 import { KeyError, type ApiKeys, type KeyInput } from '../keys.ts'
 import type { Integrations } from '../integrations.ts'
+import { jsonBody } from './jsonBody.ts'
 
 type Env = { Variables: { user: User; token: string; access: Access } }
 
@@ -37,7 +38,7 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
   /** An admin always may; a member, if the admin allows it. */
   const mayCreate = (c: Context<Env>) => isAdmin(c) || integrations.view().membersCanCreateKeys
   const body = async (c: Context<Env>) => {
-    const b = await c.req.json<unknown>()
+    const b = await jsonBody<unknown>(c)
     if (typeof b !== 'object' || b === null || Array.isArray(b)) throw new KeyError('invalid', 'expected an object')
     return b as Record<string, unknown>
   }
@@ -108,7 +109,7 @@ export function keyRoutes(app: Hono<Env>, deps: KeyRoutesDeps) {
   app.post('/api/keys/:id/rotate', async (c) => {
     const key = own(c)
     if (!mayCreate(c)) return c.json({ error: 'forbidden', message: 'members may not change keys here' }, 403)
-    const b = await c.req.json<{ confirm?: unknown }>().catch(() => ({}) as { confirm?: unknown })
+    const b = await jsonBody<{ confirm?: unknown }>(c).catch(() => ({}) as { confirm?: unknown })
     const refused = await deps.confirm(c, b?.confirm)
     if (refused) return refused
     return c.json(keys.rotate(key.id))

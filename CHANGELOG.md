@@ -51,6 +51,10 @@ small team meets after months of use.
 
 ### Fixed
 
+- A JSON body that isn't an object (`null`, a number, a list) is `400
+  invalid` on every route, where some answered 500 and wrote a trace to the
+  log, the first boot's and an invitation's among them, which need no
+  session.
 - A manager the admin disables no longer counts as one: the space shows
   without managers (the admin's directory, `GET /api/spaces`, the
   `space_without_managers` alert), and the admin can name another. Enabled
