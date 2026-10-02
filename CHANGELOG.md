@@ -44,6 +44,10 @@ small team meets after months of use.
 
 ### Fixed
 
+- A manager the admin disables no longer counts as one: the space shows
+  without managers (the admin's directory, `GET /api/spaces`, the
+  `space_without_managers` alert), and the admin can name another. Enabled
+  again, they manage it as before.
 - vihko starting with a `vihko.yaml` that can't be used (a typo before a
   restart, an upgrade's among them) no longer goes on with nothing
   configured, which dropped `history.exclude` and recorded what it keeps

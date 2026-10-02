@@ -370,7 +370,8 @@ export class SpaceService {
     const root = this.existingShared(path)
     const target = typeof userId === 'string' ? this.opts.users.get(userId) : null
     if (!target) throw new NoteError('not_found', 'no such user')
-    if (this.engine.spaceAudience(root).some((u) => u.level === 'manage')) throw new SpaceError(409, 'space_has_managers', 'this space has managers: they add people')
+    // A disabled manager adds nobody: the admin may name another meanwhile.
+    if (this.engine.spaceAudience(root).some((u) => u.level === 'manage' && !u.disabled)) throw new SpaceError(409, 'space_has_managers', 'this space has managers: they add people')
     return { admin, root, target }
   }
 
@@ -381,7 +382,7 @@ export class SpaceService {
    */
   async join(access: Access, path: unknown, level: unknown): Promise<SharedSpaceInfo> {
     const { admin, root, level: l } = this.checkJoin(access, path, level)
-    const managers = this.engine.spaceAudience(root).filter((u) => u.level === 'manage' && u.id !== admin.id).map((u) => u.id)
+    const managers = this.engine.spaceAudience(root).filter((u) => u.level === 'manage' && !u.disabled && u.id !== admin.id).map((u) => u.id)
     await this.grant(root, admin.username, l, access.actor)
     this.opts.notices.spaceChanged(managers, admin.id, { change: 'admin_joined', user: admin.id, to: null, space: root })
     return this.info(root)

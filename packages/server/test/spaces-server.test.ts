@@ -411,6 +411,27 @@ test('the admin assigns a manager only to a space without one, confirmed, and th
   }
 })
 
+test('a disabled manager manages nothing meanwhile: the space shows without managers and the admin may name another', async () => {
+  const h = await setup()
+  try {
+    const s = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    const space = async () => ((await h.admin('GET', '/api/admin/spaces')).body.spaces as { path: string; managers: string[] }[]).find((x) => x.path === s.path)!
+    assert.deepEqual((await space()).managers, [h.names.member])
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/disable`, { confirm: h.created.admin.password })).status, 200)
+    assert.deepEqual((await space()).managers, [])
+    const alerts = (await h.admin('GET', '/api/alerts')).body.alerts as { code: string; path?: string }[]
+    assert.ok(alerts.some((a) => a.code === 'space_without_managers' && a.path === s.path), JSON.stringify(alerts))
+    const r = await h.admin('POST', '/api/admin/spaces/managers', { path: s.path, userId: h.created.other.id, confirm: h.created.admin.password })
+    assert.equal(r.status, 200, r.text)
+    assert.deepEqual(r.body.space.managers, [h.names.other])
+    // Enabled again, they manage it as before, next to the new one.
+    assert.equal((await h.admin('POST', `/api/admin/users/${h.created.member.id}/enable`, {})).status, 200)
+    assert.deepEqual((await space()).managers, [h.names.member, h.names.other].sort())
+  } finally {
+    h.close()
+  }
+})
+
 test('the admin joins a space as a member, visibly: its managers and the other admins are told', async () => {
   const h = await setup()
   try {

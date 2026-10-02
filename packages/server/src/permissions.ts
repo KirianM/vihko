@@ -31,6 +31,8 @@ export interface DirectoryUser {
   id: string
   username: string
   role: Role
+  /** Disabled by the admin: their grants stay, but they don't count as anyone's manager while so. */
+  disabled?: boolean
 }
 
 /** Who exists, for the grants: users (active or disabled; a deleted one is not here) and groups. */
@@ -60,7 +62,8 @@ export function groupSource(users: { groupsOf(userId: string): string[]; groups(
  */
 export function stateDirectory(state: Db, groups: Partial<GroupSource> = {}): Directory {
   return {
-    users: () => state.prepare('select id, username, role from users where deleted_at is null order by username').all() as DirectoryUser[],
+    users: () => (state.prepare('select id, username, role, disabled from users where deleted_at is null order by username').all() as (Omit<DirectoryUser, 'disabled'> & { disabled: number })[])
+      .map((u) => ({ ...u, disabled: u.disabled !== 0 })),
     groupsOf: groups.groupsOf ?? (() => []),
     groups: groups.groups ?? (() => []),
   }
@@ -115,6 +118,8 @@ export interface UserAccess {
   level: Level
   /** The grants that give it: to them, or to a group of theirs; or their ownership of the space. */
   via: GrantSource[]
+  /** Disabled by the admin: their access stays for when they're enabled, but they manage nothing meanwhile. */
+  disabled?: true
 }
 
 /** A shared space as its members see it (GET /api/spaces): `{path, name}`, the name its folder's. */
@@ -240,19 +245,23 @@ export class PermissionsEngine {
     return s.space.name
   }
 
-  /** The users who manage a folder, sorted by name. */
+  /**
+   * The users who manage a folder, sorted by name. A disabled one doesn't
+   * count: nobody could add people to a space whose only manager left, and
+   * the admin couldn't name another (they assign one only where there's none).
+   */
   managersOf(folder: string, rules: SpaceRules = this.spaceRules()): string[] {
-    return this.readers(folder, rules).filter((r) => r.level === 'manage').map((r) => r.username).sort()
+    return this.readers(folder, rules).filter((r) => r.level === 'manage' && !r.disabled).map((r) => r.username).sort()
   }
 
   /** Every user with some level in a folder, with it (under `rules`, the rules in force by default). */
-  readers(folder: string, rules: SpaceRules = this.spaceRules()): { id: string; username: string; level: Level }[] {
+  readers(folder: string, rules: SpaceRules = this.spaceRules()): { id: string; username: string; level: Level; disabled: boolean }[] {
     const users = this.opts.directory.users()
     const exists = this.ownerCheck(users)
-    const out: { id: string; username: string; level: Level }[] = []
+    const out: { id: string; username: string; level: Level; disabled: boolean }[] = []
     for (const u of users) {
       const level = rules.level(folder, this.grantee(u), exists)
-      if (level) out.push({ id: u.id, username: u.username, level })
+      if (level) out.push({ id: u.id, username: u.username, level, disabled: u.disabled === true })
     }
     return out
   }
@@ -324,7 +333,7 @@ export class PermissionsEngine {
       const readers = this.readers(s.root, rules)
       out.push({
         path: s.root, name: s.name,
-        managers: readers.filter((r) => r.level === 'manage').map((r) => r.username).sort(),
+        managers: readers.filter((r) => r.level === 'manage' && !r.disabled).map((r) => r.username).sort(),
         members: readers.length, aiClosed: rules.aiClosedAt(s.root) !== null,
       })
     }
@@ -350,7 +359,7 @@ export class PermissionsEngine {
         if (k === subjectKey(u.username) || groups.has(k)) via.push({ subject: g.subject, level: g.level, from: g.from })
       }
       const level = via.reduce<Level | null>((l, v) => maxLevel(l, v.level), null)
-      if (level) out.push({ id: u.id, username: u.username, level, via })
+      if (level) out.push({ id: u.id, username: u.username, level, via, ...(u.disabled ? { disabled: true } : {}) })
     }
     return out
   }
