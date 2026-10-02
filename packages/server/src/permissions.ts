@@ -200,8 +200,19 @@ export class PermissionsEngine {
    */
   spaceRules(): SpaceRules {
     const p = this.opts.source()
-    if (this.compiled?.from !== p) this.compiled = { from: p, set: new SpaceRules(rulesOf(p)) }
+    if (this.compiled?.from !== p) {
+      this.compiled = { from: p, set: new SpaceRules(rulesOf(p)) }
+      for (const fn of this.listeners) fn(this.compiled.set.rules)
+    }
     return this.compiled.set
+  }
+
+  private listeners: ((rules: readonly PermissionRule[]) => void)[] = []
+
+  /** Called with the rules each time those in force change (and once now): when each grant began is kept by them (grantStarts.ts). */
+  onRules(fn: (rules: readonly PermissionRule[]) => void): void {
+    this.listeners.push(fn)
+    fn(this.spaceRules().rules)
   }
 
   /** What exists on the disk (the default: the spaces the rules name, and every folder). */

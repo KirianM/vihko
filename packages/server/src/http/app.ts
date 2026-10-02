@@ -70,6 +70,7 @@ import { VERSION } from '../version.ts'
 import type { ConfigMigrations } from '../configMigrations.ts'
 import { dismissStateMigration, stateMigrationAlerts } from '../state.ts'
 import { FolderRefs } from '../folderRefs.ts'
+import { GrantStarts } from '../grantStarts.ts'
 import { SpaceError, SpaceService } from '../spaceService.ts'
 import { spaceRoutes } from './spaces.ts'
 import { jsonBody } from './jsonBody.ts'
@@ -306,6 +307,12 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }),
   })
   const permissions = policy.permissions
+  // When each grant began (grantStarts.ts): each person sees the past only from when they could read it.
+  const grantStarts = policy.starts ?? new GrantStarts(auth.state, { now })
+  if (!policy.starts) {
+    policy.starts = grantStarts
+    permissions.onRules((rules) => grantStarts.sync(rules))
+  }
   // The tree and the sidebar, live (liveTree.ts): told what changes the tree, and when who reaches what may have.
   const live = new LiveTree({
     policy,
@@ -317,7 +324,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     },
   })
   deps.indexer.onTreeChange((paths) => live.pathsChanged(paths))
-  const permissionsChanged = () => { deps.onPermissionsChanged?.(); live.viewChanged() }
+  // The rules are compiled at once: a grant starts when it's written (grantStarts.ts), not when someone next asks.
+  const permissionsChanged = () => { permissions.spaceRules(); deps.onPermissionsChanged?.(); live.viewChanged() }
   const permissionsFile = new PermissionsFile({
     notesDir: deps.notesDir, workspace, engine: permissions, history: deps.history?.recorder, onChange: permissionsChanged,
     // Whoever a share or a new member reaches is told (spaceService.ts `notifyShared`).
@@ -333,6 +341,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     notes, index, notesDir: deps.notesDir, daily, profiles, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, now, links: () => deps.indexer.links,
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
     onFolderMoved: (from, to) => { refs.moved(from, to) },
+    onFolderMoving: (from, to) => { grantStarts.moving(from, to) },
   }
   // A user deleted, a group renamed or deleted: their grants in vihko.yaml
   // follow, first (if vihko.yaml can't be written, nothing changes).
@@ -358,6 +367,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     deleteFolder: (access, path, o) => new ScopedNotes(scopedDeps, access).deleteFolder(path, o),
     moveFolder: (access, from, to, o) => new ScopedNotes(scopedDeps, access).moveFolder(from, to, o),
     pastPaths: deps.history ? () => deps.history!.pastPaths() : undefined,
+    starts: grantStarts,
   })
   const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces, live, noteSettings }
   const app = new Hono<Env>()

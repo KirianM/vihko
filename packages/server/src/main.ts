@@ -219,6 +219,8 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   /** Rereads vihko.yaml and applies what the index, the history and open editors depend on. */
   const reloadWorkspace = () => {
     if (!workspace.reload()) return
+    // Compiled at once: a grant written by hand starts when vihko sees it (grantStarts.ts).
+    permissions.spaceRules()
     indexer.setLinkAliases(workspace.config.links.aliases)
     history.configure().catch((e) => log(`history: ${e instanceof Error ? e.message : String(e)}`))
     follow?.recheckAccess()
@@ -311,7 +313,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   })
   liveTree = services.live
   // Shared spaces of 0.1.0-rc.1 and rc.2 take their names as folders, before anyone can ask for them.
-  await renameLegacySpaces({ notesDir: config.notesDir, file: services.permissionsFile, notes, refs: new FolderRefs({ state, stateDir: config.stateDir }), indexer, log })
+  await renameLegacySpaces({ notesDir: config.notesDir, file: services.permissionsFile, notes, refs: new FolderRefs({ state, stateDir: config.stateDir }), indexer, starts: policy.starts ?? undefined, log })
     .catch((err) => log(`renaming the shared spaces of earlier versions: ${err instanceof Error ? err.message : String(err)}`))
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   hub.attach(server, SESSION_COOKIE)

@@ -310,7 +310,7 @@ export class UnmanagedReader implements HistoryReader {
     })
   }
 
-  changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string) => boolean }) {
+  changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string, at: string) => boolean }) {
     return this.run(async (repo) => {
       const c = decodeCursor(page.cursor, isCursor)
       const start = c?.start ?? await resolveRef(repo.git, 'HEAD')
@@ -332,8 +332,9 @@ export class UnmanagedReader implements HistoryReader {
           this.see(authors[0]!)
           if (!matchesAuthor(authors, page.author)) continue
           // Where a readable file came from is only said if that path is readable too.
-          const files = mapFiles(repo, commit).filter((f) => page.canRead(f.path))
-            .map((f) => (f.from !== undefined && !page.canRead(f.from) ? { ...f, from: undefined } : f))
+          const at = iso(commit.authorTime)
+          const files = mapFiles(repo, commit).filter((f) => page.canRead(f.path, at))
+            .map((f) => (f.from !== undefined && !page.canRead(f.from, at) ? { ...f, from: undefined } : f))
           if (files.length) found.push({ commit, files })
         }
         return false

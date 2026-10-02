@@ -341,7 +341,8 @@ export class Users {
   addMember(groupId: string, userId: string): GroupInfo {
     this.group(groupId)
     this.must(userId)
-    this.db.prepare('insert or ignore into group_members (group_id, user_id) values (?, ?)').run(groupId, userId)
+    // Since when they're in it: a grant to the group shows them the past only from then (grantStarts.ts).
+    this.db.prepare('insert or ignore into group_members (group_id, user_id, added_at) values (?, ?, ?)').run(groupId, userId, this.now().toISOString())
     this.hooks.onMembersChanged?.()
     return this.group(groupId)
   }

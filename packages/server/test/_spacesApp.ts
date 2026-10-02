@@ -45,7 +45,8 @@ export async function setup(opts: SpacesSetup = {}) {
   }
   const config = typeof opts.config === 'function' ? opts.config(names) : opts.config
   if (config !== undefined) writeFileSync(join(notesDir, 'vihko.yaml'), config)
-  const users = new Users(auth)
+  const clock = { now: new Date('2026-09-30T10:00:00Z') }
+  const users = new Users(auth, { now: () => clock.now })
   const created = {} as Record<Name, { id: string; username: string; password: string }>
   for (const [role, u] of Object.entries(people) as [Name, typeof people.admin][]) {
     created[role] = { ...(await auth.createUser(u.username, u.password, u.role)), password: u.password }
@@ -65,7 +66,6 @@ export async function setup(opts: SpacesSetup = {}) {
   const integrations = new Integrations(state)
   // As main.ts: a space's note settings say where its new images go.
   const noteSettings = new NoteSettingsStore({ notesDir })
-  const clock = { now: new Date('2026-09-30T10:00:00Z') }
   // The history, on the same clock as the app: its versions say when they were made by it.
   const history = opts.history ? new History({
     notesDir, stateDir, config: () => workspace.config.history, quietMs: 100, maxOpenMs: 60_000, tickMs: 20, retryMs: 50, log: () => {}, now: () => clock.now.getTime(),

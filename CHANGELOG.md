@@ -36,6 +36,21 @@ small team meets after months of use.
   converting a deleted person's space answer `409 space_name_taken` for it,
   as for a space that exists, until the retention or a purge empties that
   past. A space can still change the case of its own name.
+- **Sharing a folder no longer shares its past.** Each person sees a note's
+  history, and the trash, only from when they could read it: a folder
+  shared with someone (or a space they're added to, or a group they join)
+  shows them the versions made, and the notes deleted, since then. vihko
+  keeps in `state.db` when each grant began; a grant written by hand in
+  `vihko.yaml` counts from when vihko first reads it. The same in «History»,
+  «Recent changes», versions, diffs, restore and revert, through the UI, the
+  API and the MCP `history` tool.
+- **A note with the same path as an earlier one has a history of its own**
+  when their `uid` differs: a note deleted and another made later with its
+  name no longer share their versions. Restoring a version of the earlier
+  note over the one there now is `409 uid_mismatch`, and the UI offers
+  «Restore as a new note» instead (`POST /api/history/restore` with `to`).
+- What was deleted in a folder before it moved to another space stays in the
+  trash where it was, with who could see it there, as its history does.
 - **Moving a folder into another space no longer brings its grants along
   unless you manage where it goes.** With only `edit` in a shared space (or in
   a folder someone shares from their own space), moving a folder of yours
@@ -142,6 +157,12 @@ small team meets after months of use.
 
 ### Upgrade notes
 
+- `state.db` goes to version 12 (a copy of version 11 is kept as
+  `state.db.bak-v11`): when each grant began, since when each person is in a
+  group, and the shared spaces deleted to the trash. The grants in
+  `vihko.yaml` when 0.1.0-rc.6 first starts count from the start, and so do
+  the groups' members then: nobody loses a past they could see. From then on,
+  whoever is given access sees the past only from that moment.
 - A folder (or a note's folder of images) moved into another space where you
   only edit no longer keeps who it was shared with: it's shared as the
   folder it lands in. Whoever manages that space can share it again.

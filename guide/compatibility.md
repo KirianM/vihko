@@ -167,7 +167,7 @@ write (write).
 | `GET /api/history/diff` | read | `path`, `id`, `against`? (`previous`, `current` or a version id) | `ops` (pairs of `-1`, `0` or `1` and a piece of text), `added`, `removed` |
 | `GET /api/history/changes` | read | `limit`?, `cursor`?, `author`? | `changes` (`id`, `at`, `authors`, `reason`, `foundAtStartup`, `files`), `next`, `authors` |
 | `GET /api/history/resolved` | read | `path` | `threads` (`id`, `comments`, `anchor`, `place`, `resolvedAt`, `resolvedBy`, `version`, `reopenable`), `complete` |
-| `POST /api/history/restore` | write | `path`, `id`, `ifMatch`? | `etag`, `images` (`restored`, `missing`) |
+| `POST /api/history/restore` | write | `path`, `id`, `ifMatch`?, `to`? (since 0.1.0-rc.6) | `etag`, `images` (`restored`, `missing`); with `to`, also `path`. Over a note with another `uid` than the version's: `409 uid_mismatch`; `to` restores it as a new note there instead (`409 exists` over a note) |
 | `POST /api/history/revert` | write | `path`, `id`, `ifMatch`?, `dryRun`? | `dryRun`, `changed`, `etag`, `counts`, `reverted`, `skipped` |
 
 Details that go with them:
@@ -200,7 +200,13 @@ Details that go with them:
   holding the link) has the reason `links_kept`, with `to` (the note that
   took the name, or null where the reader can't read it) and `by`. A space
   of 0.1.0-rc.1 or rc.2 renamed to its name when vihko started has the
-  reason `space_renamed`, with `from` and `to` (its roots).
+  reason `space_renamed`, with `from` and `to` (its roots). Since
+  0.1.0-rc.6, a key's person (as everyone) sees the versions, and the
+  trash entries, only from when they could read where the note is: the
+  grant that reaches them, or their joining the group it names. A note's
+  versions are those of the note at that path now: a note that had the path
+  before with another `uid` keeps its own, which `GET /api/history/version`
+  still opens by id.
 - **Edits by operation**: `append` (`text`), `append_under_heading`
   (`heading`, `text`), `find_replace` (`find`, `replace`, `expectedCount`),
   `replace_section` (`heading`, `text`) and `set_frontmatter` (`key`,
@@ -253,6 +259,7 @@ These are the codes a key can meet, with their status:
 | `not_configured` | 409 | The daily note, with no series in `vihko.yaml` |
 | `audience_widens` | 409 | A move would show the note to someone who can't see it now |
 | `not_revertible` | 409 | Reverting a version that creates or deletes the note |
+| `uid_mismatch` | 409 | Restoring, over the note at a path, a version of another note that had that path before (since 0.1.0-rc.6): restore it with `to` instead |
 | `history_off` | 409 | The history is off |
 | `too_large` | 413 | An image over the size limit |
 | `unsupported_type` | 415 | Not an image type vihko stores |

@@ -71,7 +71,8 @@ export type ErrorCode =
   | 'space_needs_manager' // a deleted person's space made a shared space needs at least one member who manages it
   | 'permissions_invalid' // what is moved has sharing rules of its own in vihko.yaml, which can't be changed as it is (a mistake the admin fixes by hand first)
   | 'query_too_complex' // a search with more characters, filters or words than it takes (SEARCH_LIMITS)
-  | 'space_name_taken' // a new shared space's name (or a new name for one) that a space in the installation already has, in any case (`name`: as that one writes it)
+  | 'space_name_taken' // a new shared space's name (or a new name for one) that a space in the installation already has (or had, while its trash or history is there), in any case (`name`: as that one writes it)
+  | 'uid_mismatch' // restoring a version of another note that had this path before (another `uid`) over the note there: it goes back as a new note instead (`to`)
 
 /**
  * Space-level alerts: what vihko has detected in the notes folder that needs

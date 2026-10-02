@@ -23,8 +23,8 @@ async function newSpace(h: Spaces, who: Name, members?: Record<string, string>) 
   return { name, path: r.body.space.path as string }
 }
 
-test('state.db of 0.1.0 is version 11, with the pins and «On opening»', () => {
-  assert.equal(STATE_VERSION, 11)
+test('state.db of 0.1.0 is version 12, with the pins, «On opening», when grants began and deleted spaces', () => {
+  assert.equal(STATE_VERSION, 12)
 })
 
 test('templates are no longer folders: an old templates key is ignored with a warning, and nothing names one', async () => {

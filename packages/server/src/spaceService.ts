@@ -27,6 +27,7 @@ import type { Actor } from './actor.ts'
 import type { AdminSettings } from './adminSettings.ts'
 import type { Db } from './db.ts'
 import type { FolderRefs } from './folderRefs.ts'
+import type { GrantStarts } from './grantStarts.ts'
 import { followable } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService } from './notes.ts'
@@ -132,6 +133,8 @@ export interface SpaceServiceOptions {
    * None without a history.
    */
   pastPaths?: () => Promise<string[]>
+  /** When grants began (grantStarts.ts): a deleted person's space moved keeps its grants' starts. */
+  starts?: Pick<GrantStarts, 'moving'>
   log?: (msg: string) => void
   now?: () => Date
 }
@@ -478,6 +481,7 @@ export class SpaceService {
     }
 
     const dest = action === 'transfer' ? this.freeFolder(to!) : await this.newSharedFolder(name, { claim: false })
+    this.opts.starts?.moving(from, dest)
     // Its rules first at the new path too, then the folder, then the old rules go (as a folder move does, scoped.ts).
     await this.opts.file.update((t) => {
       // Rules left at a new space's path by one that went outside vihko aren't this one's.
@@ -510,7 +514,8 @@ export class SpaceService {
       for (const folder of rulesInFile(t).keys()) if (folder === from || folder.startsWith(from + '/')) out = setRule(out, folder, { grants: null, ai: null })
       return out
     }, { actor: access.actor }).catch((err) => this.opts.log?.(`the old rules of ${from} stay in vihko.yaml after it moved to ${dest}: ${err instanceof Error ? err.message : String(err)}`))
-    this.opts.refs.moved(from, dest)
+    // Its trash goes along, whatever space it lands in: what was shared stays so, with what was deleted there.
+    this.opts.refs.moved(from, dest, { trash: 'always' })
     // A person's settings (their `.vihko/`) aren't a shared space's: they don't come along.
     if (action === 'convert') {
       for (const entry of readdirSync(join(this.opts.notesDir, dest))) {

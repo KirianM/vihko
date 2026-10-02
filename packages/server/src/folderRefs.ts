@@ -14,6 +14,7 @@ import { readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Db } from './db.ts'
 import { writeTmp } from './fsutil.ts'
+import { keepsLineage } from './history/trailers.ts'
 
 /** `path` with the folder `from` (or what's under it) now at `to`; null if it isn't there. */
 export function movedPath(path: string, from: string, to: string): string | null {
@@ -41,12 +42,19 @@ export class FolderRefs {
     this.stateDir = opts.stateDir
   }
 
-  /** Everything kept by a path under `from` now names it under `to`. */
-  moved(from: string, to: string): RefsReport {
+  /**
+   * Everything kept by a path under `from` now names it under `to`. The
+   * trash only within its space (or a space renamed), as the history judges
+   * its past: what was deleted before a folder went to another space stays
+   * with who could see it where it was. With `trash: 'always'`, wherever it
+   * goes (a deleted person's space transferred or converted: nobody is left
+   * where it was).
+   */
+  moved(from: string, to: string, opts: { trash?: 'lineage' | 'always' } = {}): RefsReport {
     const keys = this.rewriteFolders(from, to)
     const pins = this.rewritePins(from, to)
     const notices = this.rewriteNotices(from, to)
-    const trash = this.rewriteTrash(from, to)
+    const trash = opts.trash === 'always' || keepsLineage({ from, to }) ? this.rewriteTrash(from, to) : 0
     return { keys, pins, notices, trash }
   }
 

@@ -27,6 +27,7 @@ export { planRetention, retainRunning, retentionPreview, type DeletedFile, type 
 export { SpaceError, SpaceService, type ClosedSpace, type PersonalAction, type PersonalSpacePlan, type PersonalSummary, type SharedView, type SpaceServiceOptions, type SpacesResponse } from './spaceService.ts'
 export { spaceRoutes, type SpaceRoutesDeps } from './http/spaces.ts'
 export { FolderRefs, movedPath, type RefsReport } from './folderRefs.ts'
+export { GrantStarts, type PastViewer } from './grantStarts.ts'
 export { legacyTarget, renameLegacySpaces, type LegacySpacesDeps, type LegacySpacesReport } from './legacySpaces.ts'
 export { NoteSettingsStore, seriesPrefix, type SettingsRead } from './noteSettings.ts'
 export { PersonalFolderExists, PersonalFolders } from './personalFolders.ts'

@@ -45,9 +45,14 @@ class PrincipalHistory implements HistoryReader {
     return this.access.canHistory(path) && (classifyPath(path) === 'note' || this.access.canRead(path))
   }
 
-  /** Whether a version (or its text) is for it: judged where the reader says (`judgedPath`), at its own path otherwise. */
-  private reachesVersion(v: { path: string; judgedPath?: string }): boolean {
-    return this.reaches(v.judgedPath ?? v.path)
+  /**
+   * Whether a version (or its text) is for it: judged where the reader says
+   * (`judgedPath`), at its own path otherwise; and made since its person
+   * could read there (access.ts `sawAt`: sharing doesn't share the past).
+   */
+  private reachesVersion(v: { path: string; judgedPath?: string; at: string }): boolean {
+    const judged = v.judgedPath ?? v.path
+    return this.reaches(judged) && this.access.sawAt(folderOf(judged), v.at)
   }
 
   async versions(path: string, page: { cursor?: string | null; limit: number }) {
@@ -79,8 +84,8 @@ class PrincipalHistory implements HistoryReader {
     return bytes
   }
 
-  async changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string) => boolean }) {
-    const r = await this.inner.changes({ ...page, canRead: (p) => page.canRead(p) && this.reaches(p) })
+  async changes(page: { cursor?: string | null; limit: number; author?: string | null; canRead: (path: string, at: string) => boolean }) {
+    const r = await this.inner.changes({ ...page, canRead: (p, at) => page.canRead(p, at) && this.reaches(p) && this.access.sawAt(folderOf(p), at) })
     const changes: RawChange[] = []
     for (const c of r.changes) {
       const files: RawChange['files'] = []

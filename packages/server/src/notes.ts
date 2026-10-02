@@ -476,6 +476,11 @@ export class NoteService {
     return rows[0]!.path
   }
 
+  /** Whether a note is at `path` (on the disk, or open in an editor). */
+  exists(path: string): boolean {
+    return this.opts.hot?.has(path) === true || readText(this.file(path)) !== null
+  }
+
   read(path: string): NoteRead {
     const text = readText(this.file(path))
     if (text === null) throw new NoteError('not_found', `does not exist: ${path}`)
@@ -1893,7 +1898,7 @@ export class NoteService {
    * One commit, by `actor`, with the reason `restored`. A note that no
    * longer exists is created again (with `mayName`, as `create` does).
    */
-  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean }): Promise<RestoreReport> {
+  async restoreVersion(path: string, version: { id: string; at: string; path: string; text: string }, opts: { ifMatch?: string; actor: Actor; file: (path: string) => Promise<Uint8Array | null>; canWrite?: (path: string) => boolean; mayName?: (path: string) => boolean; freshUid?: boolean }): Promise<RestoreReport> {
     const file = this.file(path)
     const reason: Reason = { code: 'restored', id: version.id, at: version.at }
     return this.history.operation(opts.actor, reason, async () => {
@@ -1902,7 +1907,10 @@ export class NoteService {
         etag = (await this.edit(path, () => version.text, { ifMatch: opts.ifMatch, actor: opts.actor })).etag
       } else {
         if (opts.ifMatch !== undefined) throw new NoteError('precondition_failed', `the note doesn't exist: ${path}`)
-        etag = (await this.create(path, version.text, opts.actor, { mayName: opts.mayName })).etag
+        // A new uid only when the version's is another note's now (`freshUid`): otherwise it comes back as it was.
+        const uid = this.uidIn(version.text)
+        const fresh = opts.freshUid === true && uid !== null && this.opts.db.prepare('select 1 from notes where uid = ?').get(uid) !== undefined
+        etag = (await this.create(path, version.text, opts.actor, { mayName: opts.mayName, freshUid: fresh })).etag
       }
       const images: RestoreReport['images'] = { restored: [], missing: [] }
       const seen = new Set<string>()
