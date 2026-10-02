@@ -126,6 +126,12 @@ export interface SpaceServiceOptions {
    * (`renameSpace`).
    */
   moveFolder: (access: Access, from: string, to: string, opts: { dryRun: boolean; newSpace?: true; renameSpace?: true }) => Promise<ScopedFolderMove>
+  /**
+   * Every path the history holds a version of (history/index.ts
+   * `pastPaths`): a shared space's name stays taken while its past is there.
+   * None without a history.
+   */
+  pastPaths?: () => Promise<string[]>
   log?: (msg: string) => void
   now?: () => Date
 }
@@ -185,7 +191,7 @@ export class SpaceService {
     // The creator manages it, whatever `members` says of them.
     for (const k of Object.keys(members)) if (subjectKey(k) === subjectKey(user.username)) delete members[k]
     const grants: Record<string, Level> = { [user.username]: 'manage', ...members }
-    const root = this.newSharedFolder(name)
+    const root = await this.newSharedFolder(name)
     let before = ''
     try {
       await this.opts.file.update((t) => {
@@ -220,7 +226,7 @@ export class SpaceService {
     if (isSpaceRoot(folder)) throw new RequestError(400, 'space_root', 'only a folder inside a space becomes a space of its own')
     const name = this.spaceName(input.name ?? folder.slice(folder.lastIndexOf('/') + 1))
     const dryRun = input.dryRun === true
-    const root = this.newSharedFolder(name, { claim: false })
+    const root = await this.newSharedFolder(name, { claim: false })
     const report = await this.opts.moveFolder(access, folder, root, { dryRun, newSpace: true })
     if (dryRun) return { space: null, report }
     this.opts.indexer.indexFolders([root])
@@ -241,7 +247,7 @@ export class SpaceService {
     const n = this.spaceName(name)
     const to = sharedRoot(n)
     if (to === root) return this.entry(access, root)
-    this.checkFree(n, root)
+    await this.checkFree(n, root)
     await this.opts.moveFolder(access, root, to, { dryRun: false, renameSpace: true })
     this.opts.indexer.indexFolders([root, to])
     return this.entry(access, to)
@@ -453,7 +459,7 @@ export class SpaceService {
     const shared = this.sharedCounts(from, gone.username)
     const plan = (dest: string | null): PersonalSpacePlan => ({ action, from, to: dest, ...counts, sharedFolders: shared.folders, people: shared.people })
     // A conversion's name must be free, in the dry run too.
-    if (action === 'convert') to = this.newSharedFolder(name, { claim: false })
+    if (action === 'convert') to = await this.newSharedFolder(name, { claim: false })
     if (dryRun) return plan(to)
 
     if (action === 'delete') {
@@ -471,7 +477,7 @@ export class SpaceService {
       return plan(null)
     }
 
-    const dest = action === 'transfer' ? this.freeFolder(to!) : this.newSharedFolder(name, { claim: false })
+    const dest = action === 'transfer' ? this.freeFolder(to!) : await this.newSharedFolder(name, { claim: false })
     // Its rules first at the new path too, then the folder, then the old rules go (as a folder move does, scoped.ts).
     await this.opts.file.update((t) => {
       // Rules left at a new space's path by one that went outside vihko aren't this one's.
@@ -642,14 +648,15 @@ export class SpaceService {
 
   /**
    * A new shared space's root, `spaces/<name>`: `space_name_taken`
-   * if something in `spaces/` has that name in any case (core nameKey). With
-   * `claim` (the default) its folder is made at once, never over one that
-   * exists (`space_name_taken` too).
+   * if something in `spaces/` has that name in any case (core nameKey), or
+   * a space that had it left its past behind (`checkFree`). With `claim`
+   * (the default) its folder is made at once, never over one that exists
+   * (`space_name_taken` too).
    */
-  private newSharedFolder(name: string, opts: { claim?: boolean } = {}): string {
+  private async newSharedFolder(name: string, opts: { claim?: boolean } = {}): Promise<string> {
     const dir = join(this.opts.notesDir, SPACES)
     mkdirSync(dir, { recursive: true })
-    this.checkFree(name)
+    await this.checkFree(name)
     const root = sharedRoot(name)
     if (opts.claim === false) return root
     try {
@@ -667,8 +674,13 @@ export class SpaceService {
    * name as that one writes it. Names of shared spaces are visible to
    * everyone in the installation: saying one exists reveals
    * nothing else.
+   *
+   * A name a space had (deleted, or renamed) stays taken while its trash or
+   * its history holds anything under it: both are judged by path, and a new
+   * space by that name would inherit them. It's free again once the
+   * retention or a purge empties that past.
    */
-  private checkFree(name: string, self: string | null = null): void {
+  private async checkFree(name: string, self: string | null = null): Promise<void> {
     const key = nameKey(name)
     let entries: string[] = []
     try { entries = readdirSync(join(this.opts.notesDir, SPACES)) } catch { /* none yet */ }
@@ -677,6 +689,32 @@ export class SpaceService {
       if (e.startsWith('.') || sharedRoot(e) === self) continue
       if (nameKey(e) === key) throw taken(e)
     }
+    const held = await this.heldName(key, self)
+    if (held !== null) throw taken(held)
+  }
+
+  /**
+   * The name (as its past spells it) of a space no longer there whose trash
+   * entries or history are under `spaces/<a name with this key>`, but for
+   * `self`'s (the space being renamed: its own past); null if none.
+   */
+  private async heldName(key: string, self: string | null): Promise<string | null> {
+    const of = (path: string): string | null => {
+      const p = path.normalize('NFC')
+      if (!p.startsWith(SPACES + '/')) return null
+      const folder = p.slice(SPACES.length + 1).split('/')[0]!
+      if (!folder || folder.startsWith('.') || sharedRoot(folder) === self || nameKey(folder) !== key) return null
+      return folder
+    }
+    for (const e of this.opts.notes.trash()) {
+      const found = of(e.kind === 'files' ? `${e.path}/_` : e.path)
+      if (found !== null) return found
+    }
+    for (const p of (await this.opts.pastPaths?.()) ?? []) {
+      const found = of(p)
+      if (found !== null) return found
+    }
+    return null
   }
 
   /** Adds (or raises) one person's grant at a shared space's root, keeping its name, members and `ai`. */

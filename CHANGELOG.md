@@ -29,6 +29,13 @@ small team meets after months of use.
 
 ### Security
 
+- **A deleted or renamed space's name stays taken while its trash or its
+  history holds anything.** A new space with that name inherited both: its
+  members could read and restore what the old space's members deleted, and
+  read its versions. Creating a space, renaming one, «Move to a new space» and
+  converting a deleted person's space answer `409 space_name_taken` for it,
+  as for a space that exists, until the retention or a purge empties that
+  past. A space can still change the case of its own name.
 - **Moving a folder into another space no longer brings its grants along
   unless you manage where it goes.** With only `edit` in a shared space (or in
   a folder someone shares from their own space), moving a folder of yours
