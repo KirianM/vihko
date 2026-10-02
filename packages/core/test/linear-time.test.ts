@@ -56,6 +56,11 @@ test('Markdown: long paragraphs of emphasis, strikethrough, brackets and links',
   assert.deepEqual(x.tags.map((t) => t.name), ['topic'])
   assert.equal(x.comments.length, 1)
   assert.equal(text.slice(x.comments[0]!.from, x.comments[0]!.to), '<!-- @a 2026-09-28 · a comment\nover two lines -->')
+  // Without a space anywhere: a comment right after a long word is still one.
+  const glued = 'a'.repeat(N) + '<!-- @a 2026-09-28 · x -->' + '*a'.repeat(N / 2) + '[[Note]]'
+  const g = fast('no spaces', () => extract(glued))
+  assert.deepEqual(g.comments.map((c) => glued.slice(c.from, c.to)), ['<!-- @a 2026-09-28 · x -->'])
+  assert.deepEqual(g.links.map((l) => l.target), ['Note'])
 })
 
 test('a heading closing sequence, removed as the pattern did', () => {

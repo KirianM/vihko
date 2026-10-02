@@ -129,10 +129,12 @@ function inlineCut(text: string, start: number): number {
   let cut = lastAfter(text, '\n', half, max)
   if (cut === -1) cut = lastAfter(text, ' ', half, max)
   if (cut === -1) {
-    // No space: after the last character a tag can't hold (never inside a tag), or after the run of them.
+    // No space: where a word (what a tag holds) ends and a mark begins (never inside a tag, nor inside a
+    // `<!--`, `[[` or `](`); with none, after the run of word characters, or where the piece ends.
+    const boundary = (i: number) => TAG_CHAR.test(text[i - 1]!) && !TAG_CHAR.test(text[i]!)
     cut = max
-    while (cut > half && TAG_CHAR.test(text[cut - 1]!)) cut--
-    if (cut === half) for (cut = max; cut < text.length && TAG_CHAR.test(text[cut - 1]!);) cut++
+    while (cut > half && !boundary(cut)) cut--
+    if (cut === half) for (cut = max; cut < text.length && TAG_CHAR.test(text[cut]!);) cut++
   }
   // Never between the two halves of a surrogate pair.
   if (/[\uDC00-\uDFFF]/.test(text[cut] ?? '')) cut--
