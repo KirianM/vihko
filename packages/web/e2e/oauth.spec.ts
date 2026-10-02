@@ -10,7 +10,7 @@ import { expect, test, type APIRequestContext, type Browser, type Page } from '@
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { ADMIN, BASE_URL, E2E_DIR, MEMBER, PUBLIC_URL, SPACE_NAME, specMother } from './env.ts'
-import { signIn } from './helpers.ts'
+import { dismissNoticesOf, signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
@@ -44,6 +44,8 @@ test.beforeAll(async ({ browser }) => {
 })
 
 test.afterAll(async ({ browser }) => {
+  // The keys made here are told to their owners: not left for other specs.
+  await dismissNoticesOf(ADMIN, MEMBER)
   const page = await admin(browser)
   for (const k of (await (await page.request.get('/api/keys?all=1')).json()).keys as { id: string; name: string; status: string }[]) {
     if (k.name === NAME && k.status === 'active') await page.request.delete(`/api/keys/${k.id}`)
