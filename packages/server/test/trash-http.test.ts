@@ -1,10 +1,12 @@
 // Through the API: a note deleted with its images is one version and one
-// trash entry; a folder that holds more than notes says what blocks it
-// (capped, relative to it: whoever manages it sees all of it) and can go to
-// the trash whole; an agent's deletion takes only the images it may write.
+// trash entry; a folder that holds more than notes says what it holds, its
+// hidden folders too (capped, relative to it: whoever manages it sees all of
+// it), and can go to the trash whole, hidden folders included, and come
+// back; only a link stops it; an agent's deletion takes only the images it
+// may write.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { FOLDER_LIST_CAP } from '@vihko/server'
 import { PNG, setup } from './_agents.ts'
@@ -44,15 +46,16 @@ test('a note and the images only it uses are deleted in one version, and restore
   } finally { await h.close() }
 })
 
-test('deleting a folder with files in it says what they are; with trash=true they go to the trash with its notes', async () => {
-  const [SUB, NOTE] = [token(), token()]
+test('deleting a folder with files in it says what they are, its hidden folders too; with trash=true all of it goes to the trash, and comes back', async () => {
+  const [SUB, NOTE, LINK] = [token(), token(), token()]
   const DIR = inShared(token())
   const images = Array.from({ length: FOLDER_LIST_CAP + 3 }, () => `${SUB}/${token()}.png`)
+  // Literals: other tools' folders (Git's, Obsidian's, one inside a subfolder), which vihko doesn't show, are the case under test.
+  const hidden = { '.git/HEAD': m.aSentence(), '.git/refs/heads/main': m.aSentence(), '.obsidian/app.json': `{"x":"${m.aWord()}"}`, [`${SUB}/.trash/${token()}.md`]: m.aSentence() }
   const h = await setup({ files: {
     [`${DIR}/${NOTE}.md`]: `# ${m.aHeading()}\n`,
     ...Object.fromEntries(images.map((p) => [`${DIR}/${p}`, PNG])),
-    // Literal: another tool's folder, which vihko never touches, is the case under test.
-    [`${DIR}/.git/HEAD`]: m.aSentence(),
+    ...Object.fromEntries(Object.entries(hidden).map(([p, text]) => [`${DIR}/${p}`, text])),
   } })
   try {
     const plain = await h.admin('DELETE', `/api/folder${q(DIR)}`)
@@ -62,21 +65,23 @@ test('deleting a folder with files in it says what they are; with trash=true the
     assert.deepEqual(c.notes, { total: 1, paths: [`${NOTE}.md`] })
     assert.equal(c.files.total, images.length)
     assert.deepEqual(c.files.paths, [...images].sort().slice(0, FOLDER_LIST_CAP), 'capped, relative to the folder')
-    assert.deepEqual(c.kept, { total: 1, paths: ['.git/'] })
+    assert.deepEqual(c.hidden, { total: 3, paths: ['.git/', '.obsidian/', `${SUB}/.trash/`].sort(), files: 4 })
+    assert.deepEqual(c.kept, { total: 0, paths: [] })
     assert.ok(!('locked' in c), 'whoever deletes a folder manages it and sees all of it: nothing is only counted')
 
-    // While vihko can't take everything, nothing moves.
+    // A link vihko never follows stops it: nothing moves.
+    symlinkSync(join(h.notesDir, DIR, `${NOTE}.md`), join(h.notesDir, DIR, '.obsidian', LINK))
     const refused = await h.admin('DELETE', `/api/folder${q(DIR, '&trash=true')}`)
-    assert.deepEqual([refused.status, refused.body.error, refused.body.contents.kept.total], [409, 'not_empty', 1])
+    assert.deepEqual([refused.status, refused.body.error, refused.body.contents.kept], [409, 'not_empty', { total: 1, paths: [`.obsidian/${LINK}`] }])
     assert.ok(existsSync(join(h.notesDir, DIR, `${NOTE}.md`)))
     assert.deepEqual((await h.admin('GET', '/api/trash')).body.entries, [])
+    rmSync(join(h.notesDir, DIR, '.obsidian', LINK))
 
-    rmSync(join(h.notesDir, DIR, '.git'), { recursive: true })
     // Only whoever manages the folder deletes it: the member edits it.
     assert.equal((await h.member('DELETE', `/api/folder${q(DIR, '&trash=true')}`)).status, 403)
     const done = await h.admin('DELETE', `/api/folder${q(DIR, '&trash=true')}`)
     assert.equal(done.status, 200, done.text)
-    assert.ok(!existsSync(join(h.notesDir, DIR)))
+    assert.ok(!existsSync(join(h.notesDir, DIR)), 'hidden folders went with it')
     const ids = (done.body.trashed as { id: string }[]).map((e) => e.id)
     assert.deepEqual((await h.admin('GET', '/api/trash')).body.entries.map((e: { id: string }) => e.id).sort(), [...ids].sort())
     assert.ok(!(await h.admin('GET', '/api/tree')).body.folders.includes(DIR))
@@ -84,6 +89,8 @@ test('deleting a folder with files in it says what they are; with trash=true the
     for (const id of ids) assert.equal((await h.admin('POST', `/api/trash/${id}/restore`, {})).status, 200)
     assert.ok(existsSync(join(h.notesDir, DIR, `${NOTE}.md`)))
     for (const p of images) assert.ok(readFileSync(join(h.notesDir, DIR, p)).equals(PNG), p)
+    for (const [p, text] of Object.entries(hidden)) assert.equal(readFileSync(join(h.notesDir, DIR, p), 'utf8'), text, p)
+    assert.deepEqual((await h.admin('GET', '/api/trash')).body.entries, [], 'nothing left behind')
   } finally { await h.close() }
 })
 

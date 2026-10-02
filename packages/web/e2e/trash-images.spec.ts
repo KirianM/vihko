@@ -3,7 +3,7 @@
 // the tree; a folder that holds files besides notes shows them, and sends
 // them to the trash with its notes in one step, all of it restorable.
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { markdownDest } from '../../core/src/images.ts'
 import { ADMIN, E2E_DIR, NOTES, freshFolder, inVault, specMother } from './env.ts'
 import { png, sendFiles, signIn } from './helpers.ts'
@@ -28,10 +28,10 @@ const images = () => (existsSync(`${NOTES}/${DIR}`) ? readdirSync(`${NOTES}/${DI
 const row = (page: Page, name: string) => page.getByRole('row', { name, exact: true })
 const shot = (page: Page, name: string) => page.screenshot({ path: `${E2E_DIR}/shots/${name}.png`, animations: 'disabled' })
 
+/** Opens a folder's delete dialog: what it holds is named before anything goes. */
 async function deleteFolder(page: Page, name: string) {
   await row(page, name).click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Eliminar carpeta' }).click()
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Eliminar' }).click()
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -68,6 +68,7 @@ test('a pasted image goes to the trash with its note; the folder can then be del
 
   // Nothing is left in its folder: it goes at once.
   await deleteFolder(k, DIR_NAME)
+  await k.getByRole('alertdialog').getByRole('button', { name: 'Eliminar', exact: true }).click()
   await expect(row(k, DIR_NAME)).toHaveCount(0)
   expect(existsSync(`${NOTES}/${DIR}`)).toBe(false)
 
@@ -108,18 +109,47 @@ test('a folder with files besides its notes lists them, and sends them to the tr
   expect(existsSync(`${NOTES}/${FULL}/${KEEP}`)).toBe(true)
 })
 
-test('what vihko never touches keeps the folder, and the dialog says why without offering to delete', async () => {
-  // Another program's hidden folder: its name is the case under test.
-  mkdirSync(`${NOTES}/${FULL}/.obsidian`, { recursive: true })
-  writeFileSync(`${NOTES}/${FULL}/.obsidian/app.json`, '{}')
+test('hidden folders vihko doesn\'t show are named before anything goes (the known ones by what they are), go to the trash with the folder and come back', async () => {
+  // Other programs' hidden folders: their names are the case under test.
+  const other = `.${m.aUniqueWord()}`
+  const hidden = { '.obsidian/app.json': `{"theme":"${m.aWord()}"}`, '.git/HEAD': m.aSentence(), [`${other}/x`]: m.aSentence() }
+  for (const [p, text] of Object.entries(hidden)) {
+    mkdirSync(`${NOTES}/${FULL}/${p.slice(0, p.lastIndexOf('/'))}`, { recursive: true })
+    writeFileSync(`${NOTES}/${FULL}/${p}`, text)
+  }
   await deleteFolder(k, FULL_NAME)
   const dialog = k.getByRole('alertdialog')
-  await expect(dialog.getByText('vihko nunca toca las carpetas ocultas ni los enlaces', { exact: false })).toBeVisible()
-  await expect(dialog.getByRole('list', { name: 'Lo que vihko no toca' })).toHaveText('.obsidian/')
+  await expect(dialog.getByText('También van a la papelera estas carpetas ocultas, que vihko no muestra (3 archivos):')).toBeVisible()
+  // In the order of their paths, as listed.
+  const named = [['.git/', 'Repositorio de Git (.git)'], ['.obsidian/', 'Ajustes de Obsidian (.obsidian)'], [`${other}/`, other]].sort(([a], [b]) => (a! < b! ? -1 : 1)).map(([, label]) => label!)
+  await expect(dialog.getByRole('list', { name: 'Carpetas ocultas' }).getByRole('listitem')).toHaveText(named)
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${E2E_DIR}/shots/folder-delete-hidden-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
+  await dialog.getByRole('button', { name: 'Mandar a la papelera y eliminar' }).click()
+  await expect(row(k, FULL_NAME)).toHaveCount(0)
+  expect(existsSync(`${NOTES}/${FULL}`)).toBe(false)
+  const toast = k.locator('.toast', { hasText: `La carpeta «${FULL_NAME}» se ha eliminado; lo que contenía está en la papelera.` })
+  await toast.getByRole('button', { name: 'Restaurar' }).click()
+  await expect(toast).toHaveCount(0)
+  await expect(row(k, FULL_NAME)).toBeVisible()
+  for (const [p, text] of Object.entries(hidden)) expect(read(`${FULL}/${p}`)).toBe(text)
+  for (const dir of ['.obsidian', '.git', other]) rmSync(`${NOTES}/${FULL}/${dir}`, { recursive: true })
+})
+
+test('a link vihko never follows keeps the folder, and the dialog says why without offering to delete', async () => {
+  const link = m.aUniqueWord()
+  symlinkSync(`${NOTES}/${INSIDE}`, `${NOTES}/${FULL}/${link}`)
+  await deleteFolder(k, FULL_NAME)
+  const dialog = k.getByRole('alertdialog')
+  await expect(dialog.getByText('vihko nunca sigue ni borra los enlaces', { exact: false })).toBeVisible()
+  await expect(dialog.getByRole('list', { name: 'Lo que vihko no toca' })).toHaveText(link)
   await expect(dialog.getByRole('button', { name: /Eliminar|Mandar/ })).toHaveCount(0)
   await shot(k, 'folder-delete-kept-light')
   await dialog.getByRole('button', { name: 'Cancelar' }).click()
   expect(read(INSIDE)).not.toBeNull()
   // For the cleanup through the API.
-  rmSync(`${NOTES}/${FULL}/.obsidian`, { recursive: true })
+  rmSync(`${NOTES}/${FULL}/${link}`)
 })

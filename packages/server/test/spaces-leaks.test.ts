@@ -248,6 +248,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/trash/:id/restore', method: 'POST', path: `/api/trash/${adminTrash}/restore`, body: {} },
         { route: 'POST /api/folder', method: 'POST', path: '/api/folder', body: { path: `${folder}/${m.aFolder()}` } },
         { route: 'DELETE /api/folder', method: 'DELETE', path: q('/api/folder', { path: folder }) },
+        { route: 'DELETE /api/folder', method: 'DELETE', path: q('/api/folder', { path: folder, dryRun: 'true' }) },
         { route: 'POST /api/folder/move', method: 'POST', path: '/api/folder/move', body: { from: folder, to: `${DIR.shared}/${m.aFolder()}`, dryRun: true } },
         { route: 'POST /api/folder/move', method: 'POST', path: '/api/folder/move', body: { from: DIR.shared, to: m.aFolder(), dryRun: true } },
         // Templates: marking what they can't see is as marking what doesn't exist; counts only ever of what they write.

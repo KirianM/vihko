@@ -202,13 +202,16 @@ export interface TagCount { tag: string; count: number; total: number }
 export interface TrashEntry { id: string; path: string; deletedAt: string; kind?: 'files'; files?: { path: string }[]; space?: string | null }
 /**
  * What a folder holds, as `not_empty` says when it can't just be deleted
- * (paths relative to it, each list capped: `total` says how many). `kept`:
- * what vihko never touches (hidden folders, links), which keeps the folder
- * from going. Whoever deletes a folder sees all of it.
+ * (paths relative to it, each list capped: `total` says how many). `hidden`:
+ * its hidden folders (`.obsidian/`…), which vihko doesn't show and which go
+ * to the trash with it (`files`: how many files they hold). `kept`: links
+ * vihko never follows, which keep the folder from going. Whoever deletes a
+ * folder sees all of it.
  */
 export interface FolderContents {
   notes: { total: number; paths: string[] }
   files: { total: number; paths: string[] }
+  hidden: { total: number; paths: string[]; files: number }
   kept: { total: number; paths: string[] }
 }
 /** Installation settings the UI needs. */
@@ -461,6 +464,9 @@ export const api = {
    */
   deleteFolder: (path: string, trash = false) =>
     request<{ path: string; trashed: TrashEntry[] }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}${trash ? '&trash=true' : ''}`),
+  /** What deleting a folder (or a space's root) would take, deleting nothing: for its dialog to name it first. */
+  folderContents: (path: string) =>
+    request<{ path: string; contents: FolderContents }>('DELETE', `/api/folder?path=${encodeURIComponent(path)}&dryRun=true`).then((r) => r.contents),
   moveFolder: (from: string, to: string, dryRun = false) => request<FolderMoveReport>('POST', '/api/folder/move', { from, to, dryRun }),
   /** Moves a folder; if rewriting the links takes long, they go on in the background (a job). */
   startMoveFolder: (from: string, to: string) => request<FolderMoveReport | { job: MoveJob }>('POST', '/api/folder/move', { from, to, background: true }).then(started<FolderMoveReport>),

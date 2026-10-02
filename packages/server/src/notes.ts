@@ -327,15 +327,20 @@ export interface TrashRestoreReport {
 /**
  * What a folder holds, by what deleting it means for each (paths relative to
  * it). `notes` and `files` can go to the trash with it (`files` includes
- * hidden files, such as `.keep`). `kept`: what vihko never touches, hidden
- * folders (`.git/`, `.obsidian/`, listed with a trailing `/`) and symbolic
- * links: while there is one, the folder stays. `junk`: the operating
+ * hidden files, such as `.keep`). `hidden`: hidden folders (`.git/`,
+ * `.obsidian/`, `.vihko/`, listed with a trailing `/`), which vihko doesn't
+ * show; they go to the trash with it too, every file in them
+ * (`hiddenFiles`), so whoever deletes the folder is told first. `kept`:
+ * symbolic links (or stranger), anywhere in it, which vihko never follows or
+ * removes: while there is one, the folder stays. `junk`: the operating
  * system's clutter (`.DS_Store`, `Thumbs.db`…), removed with the folder
  * without asking.
  */
 export interface FolderContents {
   notes: string[]
   files: string[]
+  hidden: string[]
+  hiddenFiles: string[]
   kept: string[]
   junk: string[]
 }
@@ -1204,20 +1209,22 @@ export class NoteService {
   folderContents(path: string): FolderContents {
     const dir = this.dir(path)
     if (!isDirectory(dir)) throw new NoteError('not_found', `no such folder: ${path}`)
-    const out: FolderContents = { notes: [], files: [], kept: [], junk: [] }
-    const visit = (rel: string) => {
+    const out: FolderContents = { notes: [], files: [], hidden: [], hiddenFiles: [], kept: [], junk: [] }
+    // `inHidden`: inside a hidden folder, where every file is the hidden folder's, whatever its name.
+    const visit = (rel: string, inHidden: boolean) => {
       for (const e of readdirSync(rel ? join(dir, rel) : dir, { withFileTypes: true })) {
         const r = rel ? `${rel}/${e.name}` : e.name
         if (e.isDirectory()) {
-          if (isIgnoredDir(e.name)) out.kept.push(`${r}/`)
-          else visit(r)
+          if (!inHidden && isIgnoredDir(e.name)) out.hidden.push(`${r}/`)
+          visit(r, inHidden || isIgnoredDir(e.name))
         } else if (!e.isFile()) out.kept.push(r) // a symbolic link (or stranger): never followed, never removed
+        else if (inHidden) out.hiddenFiles.push(r)
         else if (isJunk(e.name)) out.junk.push(r)
         else if (classifyPath(`${path}/${r}`) === 'note') out.notes.push(r)
         else out.files.push(r)
       }
     }
-    visit('')
+    visit('', false)
     for (const list of Object.values(out)) list.sort()
     return out
   }
@@ -1229,22 +1236,24 @@ export class NoteService {
    */
   deleteFolder(path: string, _actor: Actor): { path: string } {
     const c = this.folderContents(path)
-    if (c.notes.length || c.files.length || c.kept.length) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
+    if (c.notes.length || c.files.length || c.hidden.length || c.kept.length) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
     this.removeFolder(path, c.junk)
     return { path }
   }
 
   /**
-   * Deletes a folder with everything in it that vihko handles: each note goes
-   * to the trash as if deleted on its own (with its images, one entry each),
-   * then the other files left, hidden ones included, as one entry of files
-   * alone; then the folder, with its clutter. What vihko never touches
+   * Deletes a folder with everything in it: each note goes to the trash as if
+   * deleted on its own (with its images, one entry each), then the other
+   * files left, hidden ones and those of its hidden folders included, as one
+   * entry of files alone (restoring it brings them back where they were);
+   * then the folder, with its clutter. A symbolic link anywhere in it
    * (FolderContents `kept`) stops it before anything moves. `canWrite` is
-   * passed on to each note's deletion. One version in the history.
+   * passed on to each note's deletion. One version in the history (hidden
+   * files have none).
    */
   async trashFolder(path: string, actor: Actor, opts: { canWrite?: (path: string) => boolean; managers?: string[] } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
     const c = this.folderContents(path)
-    if (c.kept.length) throw new NoteError('not_empty', `the folder holds what vihko never touches: ${path}`)
+    if (c.kept.length) throw new NoteError('not_empty', `the folder holds links vihko never follows: ${path}`)
     return this.history.operation(actor, null, async () => {
       const trashed: TrashEntry[] = []
       for (const rel of c.notes) {
@@ -1257,8 +1266,9 @@ export class NoteService {
       // What is left once the notes took their images: anything that came meanwhile is seen here.
       const rest = this.folderContents(path)
       if (rest.notes.length || rest.kept.length) throw new NoteError('not_empty', `the folder is not empty: ${path}`)
-      if (rest.files.length) {
-        const entry = this.trashFiles(path, rest.files.map((r) => `${path}/${r}`), actor, opts.managers)
+      const files = [...rest.files, ...rest.hiddenFiles]
+      if (files.length) {
+        const entry = this.trashFiles(path, files.map((r) => `${path}/${r}`), actor, opts.managers)
         if (entry) trashed.push(entry)
       }
       this.removeFolder(path, rest.junk)

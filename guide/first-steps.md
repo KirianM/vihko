@@ -81,8 +81,9 @@ selected (Ctrl+Alt+K anywhere). Pressed again, a format comes off.
 - A folder's menu also has **Rename or move…** and **Delete folder**. An
   empty folder goes at once; otherwise the dialog lists what it holds and
   **Send to trash and delete** sends it all to the trash in one step, which
-  **Restore** brings back. Hidden folders such as `.git/` must be removed with
-  another tool first: vihko never touches them.
+  **Restore** brings back. Hidden folders that vihko doesn't show (`.git/`,
+  `.obsidian/`…) go too, and the dialog names them first; only a symbolic
+  link must be removed with another tool.
 
 To delete a note: **More actions** (`⋯`) → **Move to trash**. It goes there
 with the images only it uses; **Restore**, in the notice that follows (or its

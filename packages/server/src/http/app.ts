@@ -603,7 +603,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return c.json(await scoped(c).createFolder(path), 201)
   })
 
-  app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true' })))
+  app.delete('/api/folder', async (c) => c.json(await scoped(c).deleteFolder(c.req.query('path') ?? '', { trash: c.req.query('trash') === 'true', dryRun: c.req.query('dryRun') === 'true' })))
 
   // Templates are notes marked `template: true` in their frontmatter. A
   // person marks every note of a folder (its subfolders too) at once, each

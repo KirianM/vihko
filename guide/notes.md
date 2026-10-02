@@ -394,17 +394,27 @@ can also delete those by hand if you need the space.
 and so does the clutter operating systems leave (`.DS_Store`, `._*` files,
 `Thumbs.db`, `desktop.ini`), which vihko removes without asking.
 
-If the folder holds notes or other files, the dialog lists them first
-(hidden files such as `.keep` included) and offers to send them to the trash
-along with the folder, in one step: each note goes as if deleted on its own,
-with its images, and the other files as one more entry. «Restore» on the
-notice that follows brings all of it back.
+If the folder holds notes or other files, the dialog lists them as soon as it
+opens, before anything goes (hidden files such as `.keep` included), and
+offers to send them to the trash along with the folder, in one step: each
+note goes as if deleted on its own, with its images, and the other files as
+one more entry. «Restore» on the notice that follows brings all of it back.
+
+**What vihko doesn't show goes too, and is named first.** Hidden folders
+inside it (another program's, such as Obsidian's settings, its `.trash/`, a
+Git repository, or a space's own `.vihko/` settings) go to the trash with
+everything in them, in that same entry, and come back with it. The dialog
+lists them before you confirm: the ones vihko knows by what they are
+(«Obsidian settings (.obsidian)», «A Git repository (.git)»), any other by its
+name, with how many files they hold. Deleting a shared space names them the
+same way, with the files in it that aren't notes. Whoever deletes a folder
+manages it and reads all of it, so nothing listed is something they can't
+read.
 
 Two things keep a folder from being deleted, and the dialog says which:
 
-- **What vihko never touches**: a hidden folder inside it (`.git/`,
-  `.obsidian/`, another program's) or a symbolic link. vihko doesn't read,
-  move or delete those; remove them with another tool first.
+- **A symbolic link** anywhere inside it: vihko never follows or removes
+  one; remove it with another tool first.
 - **Notes held** after a move made outside vihko (see
   [Folders moved outside vihko](users-and-permissions.md#folders-moved-outside-vihko)):
   release them first.

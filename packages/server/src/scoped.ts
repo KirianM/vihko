@@ -70,13 +70,17 @@ export interface ScopedDeps {
 /**
  * What a folder holds, as `not_empty` tells whoever tried to delete it
  * (scoped `contentsView`): paths relative to the folder, each list capped at
- * FOLDER_LIST_CAP; `kept` blocks it (vihko never touches those). Whoever
- * deletes a folder manages it and sees everything in it (grants only add): nothing
- * in it is hidden from them.
+ * FOLDER_LIST_CAP. `hidden`: its hidden folders (`.obsidian/`…), which vihko
+ * doesn't show and which go to the trash with it, so the dialog names them
+ * before anything goes; `hiddenFiles`, how many files they hold. `kept`
+ * blocks it (links vihko never follows). Whoever deletes a folder manages it
+ * and sees everything in it (grants only add): nothing in it is hidden from
+ * them.
  */
 export interface FolderContentsView {
   notes: { total: number; paths: string[] }
   files: { total: number; paths: string[] }
+  hidden: { total: number; paths: string[]; files: number }
   kept: { total: number; paths: string[] }
 }
 
@@ -1209,8 +1213,10 @@ export class ScopedNotes {
    * stops it, and so do notes held in it (`held_inside`).
    * A shared space's root deletes the space: `manage` there, and its
    * managers are kept with each trash entry, so they can still restore it.
+   * `dryRun`: nothing is deleted; `contents` says what deleting it would take
+   * (what a dialog names before anyone confirms), with the same checks.
    */
-  async deleteFolder(path: string, opts: { trash?: boolean } = {}): Promise<{ path: string; trashed: TrashEntry[] }> {
+  async deleteFolder(path: string, opts: { trash?: boolean; dryRun?: boolean } = {}): Promise<{ path: string; trashed: TrashEntry[]; contents?: FolderContentsView }> {
     const p = NoteService.checkFolder(path)
     const space = parseSpacePath(p)
     const sharedRoot = space !== null && space.inner === '' && space.space.kind === 'shared'
@@ -1226,7 +1232,8 @@ export class ScopedNotes {
     if (this.deps.holds?.heldInside(p)) throw new RequestError(409, 'held_inside', `notes held after a move made outside vihko are in ${p}: release them first`)
     const view = () => this.contentsView(this.deps.notes.folderContents(p))
     const now = view()
-    if (now.kept.total > 0 || (!opts.trash && (now.notes.total > 0 || now.files.total > 0))) throw new FolderNotEmpty(p, now)
+    if (opts.dryRun) return { path: p, trashed: [], contents: now }
+    if (now.kept.total > 0 || (!opts.trash && (now.notes.total > 0 || now.files.total > 0 || now.hidden.total > 0))) throw new FolderNotEmpty(p, now)
     const canWrite = (f: string) => this.access.canWrite(f)
     let r: { path: string; trashed: TrashEntry[] }
     try {
@@ -1253,7 +1260,7 @@ export class ScopedNotes {
    */
   private contentsView(c: FolderContents): FolderContentsView {
     const list = (paths: string[]) => ({ total: paths.length, paths: paths.slice(0, FOLDER_LIST_CAP) })
-    return { notes: list(c.notes), files: list(c.files), kept: list(c.kept) }
+    return { notes: list(c.notes), files: list(c.files), hidden: { ...list(c.hidden), files: c.hiddenFiles.length }, kept: list(c.kept) }
   }
 
   /**

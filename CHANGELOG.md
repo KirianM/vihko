@@ -31,6 +31,15 @@ its entries are kept at the end of this file.
   writes the same notes as one of `vihko.yaml`'s, yours is the one offered,
   with its name and template; before, the installation's hid it. A choice or
   a `series` naming the installation's id still works, as yours.
+- **Deleting a folder or a space takes its hidden folders too, and names
+  them first.** Another program's folders (`.obsidian/`, `.trash/`, `.git/`…)
+  and a space's own `.vihko/` no longer keep a folder from being deleted:
+  they go to the trash with it and come back with it. The delete dialogs
+  list them, and the files that aren't notes, as soon as they open, the
+  known ones by what they are («Obsidian settings (.obsidian)»). Only a
+  symbolic link still stops a deletion. `not_empty`'s `contents` has
+  `hidden`, and `DELETE /api/folder?dryRun=true` says what deleting would
+  take without deleting anything.
 
 ### Upgrade notes
 

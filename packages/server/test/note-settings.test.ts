@@ -4,7 +4,7 @@
 // never served, and nothing of someone else's ever applied.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setup, type Name, type Spaces } from './_spacesApp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -303,6 +303,24 @@ test('a shared space\'s guide: a member who edits can\'t change what everyone\'s
     } finally {
       await c.close()
     }
+  } finally {
+    h.close()
+  }
+})
+
+test('a shared space with settings of its own is deleted with them: its .vihko/ is named first, then goes to the trash with the rest', async () => {
+  const h = await setup()
+  try {
+    const space = (await h.member('POST', '/api/spaces', { name: m.aSpaceName() })).body.space.path as string
+    assert.equal((await put(h, 'member', (s) => { s.guide = m.aSentence() }, space)).status, 200)
+    h.write(`${space}/${m.aTitle()}.md`, `# ${m.aHeading()}\n`)
+    const plain = await h.member('DELETE', `/api/spaces?path=${encodeURIComponent(space)}`)
+    assert.deepEqual([plain.status, plain.body.contents?.hidden], [409, { total: 1, paths: ['.vihko/'], files: 1 }], plain.text)
+    const gone = await h.member('DELETE', `/api/spaces?path=${encodeURIComponent(space)}&trash=true`)
+    assert.equal(gone.status, 200, gone.text)
+    assert.ok(!existsSync(join(h.notesDir, space)))
+    const files = (await h.member('GET', '/api/trash')).body.entries.flatMap((e: any) => (e.files ?? []).map((f: any) => f.path))
+    assert.ok(files.includes(`${space}/.vihko/settings.yaml`), JSON.stringify(files))
   } finally {
     h.close()
   }
