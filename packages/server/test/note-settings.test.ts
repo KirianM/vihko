@@ -28,7 +28,7 @@ test('one\'s own settings: a series and a guide of one\'s own, written into thei
   try {
     const [id, folder, guide] = [m.anId(), m.aFolder(), m.aTitle()]
     const empty = (await h.member('GET', '/api/settings')).body
-    assert.deepEqual([empty.space, empty.settings, empty.errors, empty.canEdit], [h.home('member'), { version: 1, daily: [], attachments: null, agents: null }, [], true])
+    assert.deepEqual([empty.space, empty.settings, empty.errors, empty.canEdit], [h.home('member'), { version: 1, daily: [], attachments: null, agents: null, guide: null }, [], true])
     const r = await put(h, 'member', (s) => { s.daily.push({ id, label: null, folder, name: '{YYYY}-{MM}-{DD}', template: null }); s.agents = guide })
     assert.equal(r.status, 200, r.text)
     // On the disk: plain YAML in their space's `.vihko/`, with its version.
@@ -112,15 +112,18 @@ test('a shared space\'s settings: its managers change them, its members read the
     await h.enable()
     const name = m.aSpaceName()
     const space = (await h.member('POST', '/api/spaces', { name, members: { [h.names.other]: 'edit' } })).body.space.path as string
-    const [id, log, images, guide] = [m.anId(), m.aFolder(), m.aFolder(), m.aTitle()]
-    const guideText = m.aSentence()
-    h.write(`${space}/${guide}.md`, `# ${guide}\n\n${guideText}\n`)
+    const [id, log, images] = [m.anId(), m.aFolder(), m.aFolder()]
+    const guideText = `${m.aSentence()}\n\n${m.aSentence()}`
     const r = await put(h, 'member', (s) => {
       s.daily.push({ id, label: null, folder: log, name: '{YYYY}-{MM}-{DD}', template: null })
       s.attachments = { mode: 'folder', folder: images }
-      s.agents = guide
+      s.guide = guideText
     }, space)
     assert.equal(r.status, 200, r.text)
+    // The guide is text in the space's settings file, which only its managers change.
+    assert.equal(r.body.settings.guide, guideText)
+    assert.ok(readFileSync(join(h.notesDir, space, '.vihko', 'settings.yaml'), 'utf8').includes(guideText.split('\n')[0]!))
+    assert.equal((await put(h, 'other', (s) => { s.guide = m.aSentence() }, space)).status, 403)
     // A member reads them, and can't change them; someone outside the space doesn't learn they exist.
     const read = await h.other('GET', `/api/settings?space=${encodeURIComponent(space)}`)
     assert.deepEqual([read.status, read.body.canEdit, read.body.settings.attachments], [200, false, { mode: 'folder', folder: images }])
@@ -170,15 +173,10 @@ test('a guide for agents that names no note: said when saved and read, and an al
     h.write(`${h.home('member')}/${mine}.md`, `# ${mine}\n\n${m.aSentence()}\n`)
     assert.equal((await h.member('GET', '/api/settings')).body.guideMissing, false)
     assert.deepEqual(await guides('member'), [])
-    // A shared space's: its managers are told, not its other members.
-    const name = m.aSpaceName()
-    const space = (await h.member('POST', '/api/spaces', { name, members: { [h.names.other]: 'edit' } })).body.space.path as string
-    const theirs = m.aTitle()
-    assert.equal((await put(h, 'member', (s) => { s.agents = theirs }, space)).body.guideMissing, true)
-    assert.deepEqual(await guides('member'), [{ code: 'settings_guide_missing', space: { path: space, name }, note: `${space}/${theirs}.md`, actions: [] }])
-    assert.deepEqual(await guides('other'), [])
-    // No guide: nothing to say.
-    assert.equal((await put(h, 'member', (s) => { s.agents = null }, space)).body.guideMissing, false)
+    // A shared space's guide is never a note: naming one is refused, with why.
+    const space = (await h.member('POST', '/api/spaces', { name: m.aSpaceName(), members: { [h.names.other]: 'edit' } })).body.space.path as string
+    const refused = await put(h, 'member', (s) => { s.agents = m.aTitle() }, space)
+    assert.deepEqual([refused.status, refused.body.errors?.map((e: any) => [e.code, e.at])], [400, [['space_guide_note', 'agents']]], refused.text)
     assert.deepEqual(await guides('member'), [])
   } finally {
     h.close()
@@ -210,6 +208,43 @@ test('settings files are never served, and a hand edit with something wrong tell
     assert.deepEqual(mine.map((a) => [a.space, a.errors.map((e: any) => [e.code, e.at, e.line])]), [[null, [['invalid_path', 'attachments.folder', 3]]]])
     for (const who of ['admin', 'other'] as Name[]) {
       assert.deepEqual(((await h.as(who)('GET', '/api/alerts')).body.alerts as any[]).filter((a) => a.code === 'settings_invalid'), [], who)
+    }
+  } finally {
+    h.close()
+  }
+})
+
+test('a shared space\'s guide: a member who edits can\'t change what everyone\'s agents read; a note named by hand, from before, no longer counts and its managers are told', async () => {
+  const h = await setup()
+  try {
+    await h.enable()
+    const space = (await h.member('POST', '/api/spaces', { name: m.aSpaceName(), members: { [h.names.other]: 'edit' } })).body.space.path as string
+    // The settings as an older vihko wrote them: the guide was a note any editor of the space could change.
+    const note = m.aTitle()
+    const [managers, editors] = [m.aSentence(), m.aSentence()]
+    h.write(`${space}/.vihko/settings.yaml`, `version: 1\nagents: ${JSON.stringify(note)}\n`)
+    h.write(`${space}/${note}.md`, `# ${note}\n\n${editors}\n`)
+    const key = await h.newKey('other', { name: m.aKeyName(), canWrite: false })
+    let c = await h.mcp(key.token)
+    try {
+      assert.ok(!c.instructions().includes(editors), 'a note never is a space\'s guide')
+    } finally {
+      await c.close()
+    }
+    // Its managers are told, with the note; its other members aren't.
+    const invalid = (who: Name) => h.as(who)('GET', '/api/alerts').then((r) => (r.body.alerts as any[]).filter((a) => a.code === 'settings_invalid' && a.space?.path === space))
+    const told = await invalid('member')
+    assert.deepEqual(told.map((a) => a.errors.map((e: any) => [e.code, e.at, e.detail])), [[['space_guide_note', 'agents', note]]])
+    assert.deepEqual(await invalid('other'), [])
+    // A manager writes the guide in the settings: that's what every member's agents read.
+    assert.equal((await put(h, 'member', (s) => { s.guide = managers }, space)).status, 200)
+    assert.deepEqual(await invalid('member'), [])
+    c = await h.mcp(key.token)
+    try {
+      assert.ok(c.instructions().includes(managers), c.instructions())
+      assert.ok(!c.instructions().includes(editors))
+    } finally {
+      await c.close()
     }
   } finally {
     h.close()

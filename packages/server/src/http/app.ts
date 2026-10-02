@@ -26,7 +26,7 @@ import { ProfileError, isNotePath, type Profile, type Profiles } from '../profil
 import { historyFor } from '../agentHistory.ts'
 import { homeView } from '../home.ts'
 import { LiveTree } from '../liveTree.ts'
-import { NoteSettingsStore } from '../noteSettings.ts'
+import { NoteSettingsStore, settingsKind } from '../noteSettings.ts'
 import { settingsFromBody } from './settingsBody.ts'
 import { streamSSE } from 'hono/streaming'
 import type { Workspace } from '../workspace.ts'
@@ -703,9 +703,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const root = settingsRoot(c, body.space, true)
     if (root instanceof Response) return root
     const next = settingsFromBody(body.settings)
-    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, attachments and agents, as GET gives them')
+    if (next === null) return fail(c, 400, 'invalid', 'settings: version, daily, attachments, agents and guide, as GET gives them')
     // What's wrong in them is said, with where; nothing is written.
-    const problems = parseNoteSettings(writeNoteSettings(null, next)).errors
+    const kind = settingsKind(root)
+    const problems = parseNoteSettings(writeNoteSettings(null, next, kind), kind).errors
     if (problems.length) return fail(c, 400, 'invalid', 'the settings have problems', { errors: problems })
     if (typeof body.ifMatch !== 'string') return fail(c, 428, 'precondition_required', 'ifMatch: the ETag of the settings the change was planned on')
     try {
@@ -1032,9 +1033,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       for (const s of permissions.spacesFor(me).spaces) {
         if (!access.canManage(s.path)) continue
         const r = noteSettings.read(s.path)
+        // (A space's guide is text in its settings, never a note: nothing to be missing.)
         if (r.errors.length) alerts.push({ code: 'settings_invalid', space: { path: s.path, name: s.name }, errors: r.errors, actions: [] })
-        const guide = guideMissing(r)
-        if (guide !== null) alerts.push({ code: 'settings_guide_missing', space: { path: s.path, name: s.name }, note: guide, actions: [] })
       }
     }
     return c.json({ alerts })

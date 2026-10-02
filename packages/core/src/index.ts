@@ -38,8 +38,8 @@ export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.
 export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
 export { WORKSPACE_MIGRATIONS, formatVersion, migrateWorkspaceText, type MigrationOutcome, type WorkspaceMigration } from './workspaceMigrations.ts'
 export {
-  EMPTY_NOTE_SETTINGS, NOTE_SETTINGS_FILE, NOTE_SETTINGS_VERSION, NoteSettingsFileError, noteSettingsPath, parseNoteSettings, resolveNoteSettings, spacePathProblem, writeNoteSettings,
-  type NoteSettings, type ResolvedNoteSettings, type SettingsAttachments, type SettingsSeries,
+  EMPTY_NOTE_SETTINGS, MAX_SPACE_GUIDE, NOTE_SETTINGS_FILE, NOTE_SETTINGS_VERSION, NoteSettingsFileError, noteSettingsPath, parseNoteSettings, resolveNoteSettings, spacePathProblem, writeNoteSettings,
+  type NoteSettings, type NoteSettingsKind, type ResolvedNoteSettings, type SettingsAttachments, type SettingsSeries,
 } from './noteSettings.ts'
 export { globProblem, pathMatcher, type GlobProblem } from './glob.ts'
 export {

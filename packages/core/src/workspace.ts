@@ -149,6 +149,7 @@ export type ConfigErrorCode =
   | 'invalid_value' | 'invalid_pattern'
   | 'unknown_key' | 'newer_version' | 'not_supported' | 'section_rejected'
   | 'ignored_value' | 'unknown_subject' | 'missing_folder' | 'outside_spaces'
+  | 'space_guide_note'
 
 export interface ConfigError {
   code: ConfigErrorCode

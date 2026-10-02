@@ -371,7 +371,7 @@ codes 0.1.0 added for spaces:
 | `space_changed` | The people concerned, and the other admins | `change` (`manager_assigned`, `admin_joined`, `personal_transferred`, `personal_converted`, `personal_deleted`), `by`, `user`, `to`, `space` |
 | `links_not_updated` | Whoever made the move | Links in other notes a move of theirs couldn't update, even retried. No path, name or count |
 | `settings_invalid` | The person, for their own settings; a shared space's managers, for the space's. Never the admin as such | `space` (null for one's own; otherwise `path` and `name`), `errors` (`code`, `at`, `line`, `detail`): what is wrong in a settings file (0.1.0-rc.3) |
-| `settings_guide_missing` | As `settings_invalid` | `space` (as there), `note`: the settings name a guide for agents (`agents`) that isn't a note, so agents get nothing from it (0.1.0-rc.4) |
+| `settings_guide_missing` | As `settings_invalid` | `space` (always null since 0.1.0-rc.6: a shared space's guide is text), `note`: a person's settings name a guide for agents (`agents`) that isn't a note, so agents get nothing from it (0.1.0-rc.4) |
 | `retention_ran` | Every admin | `trashEntries`, `versions`, `failed`: what a retention run (weekly, or «Run now») removed (or that it failed part way). Counts only |
 
 `history_purged` names the path only to an admin who can read where it was,
@@ -562,7 +562,8 @@ explains it.
 | `version` | whole number from 1 | The file's format (1 when left out). A newer one is read as far as vihko can, with `newer_version` |
 | `daily.<id>` | as in `vihko.yaml`: `label`, `folder`, `name`, `template` | The space's daily-note series. Patterns take `{YYYY}`, `{MM}`, `{DD}`, `{GGGG}` and `{WW}`, not `{user}` (`pattern_token`) |
 | `attachments` | as in `vihko.yaml`: `mode`, `folder`, `suffix` | Where new images of the space's notes go |
-| `agents` | note | The space's guide for agents |
+| `agents` | note | A person's space only: their guide for agents. In a shared space's file it doesn't apply, and is reported as `space_guide_note` (with the note it names) |
+| `guide` | text, up to 20,000 characters | A shared space only: its guide for agents, the text itself. Only its managers change it. In a person's file it's an `unknown_key` |
 
 - **Paths are relative to the space's root**, never from the notes root: no
   leading `/`, `..`, `.` or hidden segment (`invalid_path`). Renaming a space

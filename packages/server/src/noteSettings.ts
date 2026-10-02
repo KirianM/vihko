@@ -11,7 +11,8 @@
 // - where new images go: a space's setting for the notes of that space,
 //   otherwise vihko.yaml's.
 // - the guide for agents: vihko.yaml's, then that of each shared space the
-//   key reaches, then the person's own (each a note the key must read).
+//   key reaches (its text, in the file: only its managers write it), then the
+//   person's own (a note of theirs the key must read).
 //
 // Nothing of someone else's settings ever applies to a person, and the files
 // are never served: `.vihko/` is hidden and reserved (core spaces.ts). Each
@@ -24,7 +25,7 @@ import { mkdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   NoteSettingsFileError, contentHash, noteSettingsPath, parseNoteSettings, personalRoot, resolveNoteSettings, seriesPattern, spaceRootOf, writeNoteSettings,
-  type AttachmentsConfig, type ConfigError, type NoteSettings, type ResolvedNoteSettings, type Series,
+  type AttachmentsConfig, type ConfigError, type NoteSettings, type NoteSettingsKind, type ResolvedNoteSettings, type Series,
 } from '@vihko/core'
 import { commitText, readText } from './fsutil.ts'
 import { NoteError } from './notes.ts'
@@ -50,6 +51,11 @@ export interface SettingsRead {
 /** The prefix of a space's series ids, so they never take vihko.yaml's (or each other's). */
 export function seriesPrefix(root: string): string {
   return root.startsWith('people/') ? 'me-' : `sp-${createHash('sha1').update(root.normalize('NFC')).digest('hex').slice(0, 8)}-`
+}
+
+/** Whose settings a space's root holds: a person's own, or a shared space's. */
+export function settingsKind(root: string): NoteSettingsKind {
+  return root.startsWith('people/') ? 'personal' : 'shared'
 }
 
 export class NoteSettingsStore {
@@ -81,7 +87,7 @@ export class NoteSettingsStore {
     if (!c || c.stamp !== stamp) {
       let text: string | null = null
       try { text = stamp === '' ? null : readText(this.file(r)) } catch { text = null }
-      const { settings, errors } = parseNoteSettings(text)
+      const { settings, errors } = parseNoteSettings(text, settingsKind(r))
       c = { stamp, text, settings, errors, resolved: resolveNoteSettings(settings, r, seriesPrefix(r)) }
       this.cache.set(r, c)
       if (this.cache.size > 2000) this.cache.clear()
@@ -100,7 +106,7 @@ export class NoteSettingsStore {
     const now = this.read(r)
     if (opts.ifMatch !== undefined && opts.ifMatch !== now.etag) throw new NoteError('precondition_failed', 'the settings have changed', now.etag)
     const before = now.etag === contentHash('') && this.stamp(r) === '' ? null : readText(this.file(r))
-    const text = writeNoteSettings(before, next)
+    const text = writeNoteSettings(before, next, settingsKind(r))
     mkdirSync(dirname(this.file(r)), { recursive: true })
     const w = await commitText(this.file(r), text, before === null ? null : contentHash(before))
     if (!w.ok) throw new NoteError('precondition_failed', 'the settings have changed', this.read(r).etag)
@@ -134,18 +140,6 @@ export class NoteSettingsStore {
     const fromSpaces = keep(spaces.flatMap((root) => this.read(root).resolved.daily))
     const fromOwn = keep(this.read(own).resolved.daily)
     return [...fromOwn, ...fromSpaces, ...fromInstallation]
-  }
-
-  /** The guides for agents of `spaces` and of the person's own space, as notes: [where it's from, the note]. */
-  guides(spaces: readonly string[], own: string): { root: string; note: string }[] {
-    const out: { root: string; note: string }[] = []
-    for (const root of spaces) {
-      const g = this.read(root).resolved.agents
-      if (g) out.push({ root, note: g })
-    }
-    const mine = this.read(own).resolved.agents
-    if (mine) out.push({ root: own, note: mine })
-    return out
   }
 
   /** A person's own space's root. */

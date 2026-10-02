@@ -10,6 +10,25 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.6] - unreleased
+
+### Changed
+
+- **A shared space's guide for agents is written by its managers only.** It's
+  now text in the space's «Settings…» («Guide for agents»), kept in the
+  space's settings file (`guide` in `.vihko/settings.yaml`), never a note:
+  before, any member who could edit the note changed what every member's
+  agents were told. `PUT /api/settings` takes `guide` for a shared space and
+  refuses `agents` there (`space_guide_note`). A person's own guide is still
+  a note of theirs, and `mcp.instructions` in `vihko.yaml` is unchanged.
+
+### Upgrade notes
+
+- **Shared spaces with a guide for agents**: the note their settings named
+  no longer reaches agents. Its managers get a `settings_invalid` alert
+  (`space_guide_note`, with the note's name); copy the note's text into the
+  space's «Settings…» → «Guide for agents» and save.
+
 ## [0.1.0-rc.5] - 2026-10-02
 
 Templates marked in the notes themselves, and searching by any frontmatter

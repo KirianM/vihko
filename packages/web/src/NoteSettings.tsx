@@ -72,7 +72,8 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
     const next: NoteSettingsForm = {
       ...form,
       attachments: attachments === 'install' ? null : attachments === 'folder' ? { mode: 'folder', folder: attachFolder.trim() } : attachments === 'per-note' ? { mode: 'per-note', suffix: attachSuffix.trim() } : { mode: 'next-to-note' },
-      agents: form.agents?.trim() || null,
+      agents: space ? null : form.agents?.trim() || null,
+      guide: space && form.guide?.trim() ? form.guide : null,
       daily: form.daily.map((s) => ({ ...s, label: s.label?.trim() || null, folder: s.folder.trim(), name: s.name.trim() || '{YYYY}-{MM}-{DD}', template: s.template?.trim() || null })),
     }
     try {
@@ -140,16 +141,25 @@ export function NoteSettingsDialog({ space, name, onClose, onSaved }: {
             {attachments === 'per-note' && (
               <label className="field"><span>{t('settings.attachmentsSuffix')}</span><input value={attachSuffix} onChange={(e) => setAttachSuffix(e.target.value)} /></label>
             )}
+            {space !== null && (
+              <label className="field">
+                <span>{t('settings.guide')}</span>
+                <textarea className="settings-textarea" rows={6} value={form.guide ?? ''} disabled={view?.canEdit === false} onChange={(e) => setForm({ ...form, guide: e.target.value })} />
+                <span className="hint">{t('settings.guideSpaceHint')}</span>
+              </label>
+            )}
+            {space === null && (<>
             <label className="field">
               <span>{t('settings.agents')}</span>
               <input value={form.agents ?? ''} onChange={(e) => { setSavedMissing(null); setForm({ ...form, agents: e.target.value }) }} />
-              <span className="hint">{t(name ? 'settings.agentsSpaceHint' : 'settings.agentsHint')}</span>
+              <span className="hint">{t('settings.agentsHint')}</span>
             </label>
             {/* The note named as the guide isn't there: agents would get nothing from it. */}
             {!savedMissing && view?.guideMissing && view.settings.agents !== null && bare((form.agents ?? '').trim()) === bare(view.settings.agents) && (
               <p className="key-once" role="note">{Icon.alert}<span>{t('settings.guideMissing', { note: bare(view.settings.agents) })}</span></p>
             )}
             {savedMissing && <p className="key-once" role="status">{Icon.alert}<span>{t('settings.savedGuideMissing', { note: savedMissing })}</span></p>}
+            </>)}
           </>)}
         </div>
         {problems.length > 0 && (

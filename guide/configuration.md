@@ -489,8 +489,11 @@ attachments:                    # where new images of this space's notes go
   mode: folder
   folder: images
 
-agents: For agents              # a note of this space: its guide for agents
+guide: |                        # a shared space's guide for agents, the text itself
+  Recipes go in Recipes, one note each.
 ```
+
+A person's file names a note of theirs instead: `agents: For agents`.
 
 - **Every path is relative to the space**: `journal/{YYYY}` in Noa's file is
   `people/noa/journal/{YYYY}`. Nothing in the file names `people/` or
@@ -499,7 +502,13 @@ agents: For agents              # a note of this space: its guide for agents
   isn't allowed in a series (the space already says whose it is).
 - The keys mean what they mean in `vihko.yaml`: [`daily`](#daily-daily-notes),
   [`attachments`](#attachments-where-new-images-go),
-  and `agents`, which is the space's [`mcp.instructions`](#mcpinstructions).
+  and the guide for agents, the space's [`mcp.instructions`](#mcpinstructions):
+  in a **shared space**, `guide`, the text itself, which only its managers
+  change (a note there could be changed by any member who edits); in a
+  **person's** file, `agents`, a note of theirs. A shared space's file
+  that still names a note under `agents` (as before 0.1.0-rc.6) applies
+  none of it, and its managers get `space_guide_note` until they write the
+  text under «Guide for agents» and save.
   `version` is the format's number, `1` now; a file without it is version 1.
 - **Who reads and changes it.** A person's file is theirs alone. A shared
   space's file is changed by its managers, and read by its members only to
@@ -517,7 +526,7 @@ agents: For agents              # a note of this space: its guide for agents
 | Daily-note series | `vihko.yaml`'s, those of the shared spaces they belong to, and their own: those where they can write today's note. Two series that give the same note are one (the first in that order is kept), so a personal series that repeats one of the installation's isn't offered twice. They're listed the other way round, their own first: until a person chooses, the first is the default |
 | Templates | Not a setting: every note marked `template: true` they can read, wherever it is ([Templates](notes.md#templates)) |
 | Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
-| Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. Each is a note the agent must be able to read |
+| Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. `vihko.yaml`'s and the person's are notes the agent must be able to read; a space's is text in its settings |
 
 An example with all three, in plain words: [How the installation's, the
 space's and yours add up](users-and-permissions.md#how-the-installations-the-spaces-and-yours-add-up).

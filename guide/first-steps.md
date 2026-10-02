@@ -400,7 +400,8 @@ would.
 
 An agent acting for you gets the note's text when it connects, after
 vihko's own instructions, the installation's guide and the guides of the
-shared spaces its key reaches. Editing the note is enough: the next time it
+shared spaces its key reaches (a shared space's guide isn't a note: its
+managers write it in the space's «Settings…»). Editing the note is enough: the next time it
 connects, it gets the new text. It only gets it if it can read the note: if
 the key is limited to some folders, or the note is closed to agents
 (`ai: false`), it gets the rest without it. If the note doesn't exist (a

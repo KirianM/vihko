@@ -233,9 +233,7 @@ templates of its own, its photos in one folder, and a guide that tells
 assistants where things go.
 
 1. Make what the settings will point to: in «Family», a folder `Templates`
-   with a note `Shopping` in it (`# {{title}}` and the usual headings), and a
-   note `About this space` with what an assistant should know («Recipes go
-   in Recipes, one note each»).
+   with a note `Shopping` in it (`# {{title}}` and the usual headings).
 2. Open the menu of the folder `Templates` → **Mark notes as templates…** →
    **Mark as templates**: its notes, «Shopping» and any you add later by the
    same means, are now templates (see [Templates](notes.md#templates)).
@@ -245,7 +243,9 @@ assistants where things go.
    `Shopping`, Note name `{GGGG}-W{WW}` (one per week), Template
    `Templates/Shopping`.
 5. **New images** → **All in one folder**, **Folder of images**: `Photos`.
-6. **Guide for agents (a note)**: `About this space`.
+6. **Guide for agents**: what an assistant should know, for example
+   «Recipes go in Recipes, one note each». It's kept in the space's
+   settings, not in a note, so only the space's managers change it.
 7. Press **Save**.
 
 What the members get:
@@ -260,9 +260,9 @@ What the members get:
   template» when they make a note, anywhere.
 - **Images** pasted into any note of Family go to «Family / Photos». Images
   of their own notes don't change.
-- **Their agents** get «About this space» when they connect, for what they
-  do in Family. If that note doesn't exist (say it was renamed), saving the
-  settings says so, and the space's managers get an alert until it's back.
+- **Their agents** get that guide when they connect, for what they do in
+  Family. A member who edits Family's notes can't change it: only its
+  managers, in «Settings…».
 
 The settings are saved in a hidden file of the space
 (`spaces/Family/.vihko/settings.yaml` on the server); members never see it,

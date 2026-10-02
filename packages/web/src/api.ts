@@ -238,7 +238,10 @@ export interface NoteSettingsForm {
   version: number
   daily: { id: string; label: string | null; folder: string; name: string; template: string | null }[]
   attachments: { mode: 'next-to-note' } | { mode: 'folder'; folder: string } | { mode: 'per-note'; suffix: string } | null
+  /** A person's own: the note with their guide for agents. */
   agents: string | null
+  /** A shared space's: its guide for agents, the text. */
+  guide: string | null
 }
 export interface SettingsProblem { code: string; at: string | null; line: number | null; detail: string | null }
 export interface SettingsView { space: string; etag: string; settings: NoteSettingsForm; errors: SettingsProblem[]; guideMissing: boolean; canEdit: boolean }

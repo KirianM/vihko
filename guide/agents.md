@@ -410,14 +410,25 @@ can read the note. A key that can't read it (a folder outside its reach, or
 note. See [Configuration](configuration.md).
 
 A shared space and a person can each add a guide of their own without
-`vihko.yaml`: a note of the space, named under «Guide for agents» in the
-space's «Settings…» (its managers) or in Preferences › «Your note settings»
-(see [Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space);
+`vihko.yaml` (see [Settings of a person or a space](configuration.md#settings-of-a-person-or-a-space);
 step by step, with an example of what to write:
-[A guide for agents](first-steps.md#a-guide-for-agents)).
+[A guide for agents](first-steps.md#a-guide-for-agents)):
+
+- **A shared space's guide** is written in the space's «Settings…», under
+  «Guide for agents», by its managers only. It's kept in the space's
+  settings, never in a note, so a member who can edit the space's notes
+  can't change what every member's agents are told. It reaches every key
+  that reaches the space.
+- **A person's own guide** is a note of theirs, named in Preferences › «Your
+  note settings». Their key gets it only if it can read that note.
+
 An agent gets, in this order: the server's instructions, the guide in
 `vihko.yaml`, the guide of each shared space its key reaches, and its
-person's own guide. Each is there only if the key can read that note.
+person's own guide.
+
+`mcp.instructions` in `vihko.yaml` is a note, too: whoever can edit that note
+changes what every agent of the installation is told. Name a note only its
+admins edit, or one in each person's own space with `{user}`.
 
 ### The icon
 
