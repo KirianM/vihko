@@ -139,6 +139,8 @@ export interface TwoFactorHttpDeps {
   now?: () => number
   /** How long a confirmation lasts (CONFIRM_WINDOW_MS by default; 0: none, every action asks). */
   confirmWindowMs?: number
+  /** The server's log: the admin taking someone's second factor away stays on record there. */
+  log?: (msg: string) => void
 }
 
 const fail = (c: Context, status: 400 | 401 | 403 | 404 | 409, error: string, message: string) => c.json({ error, message }, status)
@@ -410,7 +412,11 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
         if (twoFactor.enabled(id)) {
           const refused = await confirmIdentity(c, (await body(c)).confirm)
           if (refused) return refused
-          if (twoFactor.disable(id)) deps.notices?.accountChanged(id, me(c).id, 'two_factor_reset')
+          if (twoFactor.disable(id)) {
+            // The person and every other admin are told at once (their open pages hear of it), and it's on record.
+            deps.notices?.accountChanged(id, me(c).id, 'two_factor_reset')
+            deps.log?.(`${me(c).username} took the second factor of ${deps.users.get(id)?.username ?? id} away`)
+          }
           endWindows(id)
         }
         return c.json({ user: deps.users.get(id) })

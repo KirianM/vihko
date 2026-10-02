@@ -341,6 +341,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
   const twoFactor = deps.twoFactor ?? new TwoFactor(auth.state, { now })
   const notices = deps.notices ?? new Notices(auth.state, { now })
+  // A notice for someone reaches their open pages at once (GET /api/events `notices`).
+  notices.onAdded = (userId) => live.noticeFor(userId)
   const retention = deps.retention ?? new Retention({ stateDir: notes.stateDir, settings: adminSettings, trash: () => notes.trash(), history: deps.history, notices, now: () => now().getTime() })
   const oauth = new OAuthServer({ state: auth.state, keys, integrations, publicUrl: deps.publicUrl ?? null, now, clientMetadata: deps.clientMetadata })
   // Keys' folders, pins and the trash follow a folder moved from vihko (folderRefs.ts).
@@ -535,7 +537,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // The second factor (http/twoFactor.ts): after the password, the session or the second step.
   const tf = twoFactorHttp({
     auth, users, twoFactor, settings: adminSettings, limiter, deviceCookie: DEVICE_COOKIE, ipOf, tooMany, signedIn, notices,
-    publicUrl: deps.publicUrl ?? null, now: () => now().getTime(), confirmWindowMs: deps.confirmWindowMs,
+    publicUrl: deps.publicUrl ?? null, now: () => now().getTime(), confirmWindowMs: deps.confirmWindowMs, log,
   })
 
   // The password: the session, or (with a second factor) a pending sign-in
@@ -790,7 +792,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return streamSSE(c, async (stream) => {
       let wake: (() => void) | null = null
       let ended = false
-      const stop = live.subscribe(c.get('user'), () => { void stream.writeSSE({ event: 'tree', data: '{}' }).catch(() => {}) })
+      const stop = live.subscribe(c.get('user'),
+        () => { void stream.writeSSE({ event: 'tree', data: '{}' }).catch(() => {}) },
+        // A notice arrived for them: «read your notices again», nothing of it.
+        () => { void stream.writeSSE({ event: 'notices', data: '{}' }).catch(() => {}) })
       // Its session ending (signed out, disabled, a new password) ends it at once; one that expires, at the next keep-alive.
       const open = { userId: c.get('user').id, token, end: () => { ended = true; wake?.() } }
       streams.add(open)

@@ -248,8 +248,11 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
       if (refused) return refused
     }
     const l = link(users.newLink(id))
-    if (kind === 'reset') notices.accountChanged(id, c.get('user').id, 'reset_link')
-    else if (invitedAdmin) notices.toOtherAdmins(id, c.get('user').id, 'invite_link', 'admin')
+    if (kind === 'reset') {
+      // The person and every other admin are told at once (their open pages hear of it), and it's on record.
+      notices.accountChanged(id, c.get('user').id, 'reset_link')
+      log(`${c.get('user').username} made a password reset link for ${users.get(id)?.username ?? id}`)
+    } else if (invitedAdmin) notices.toOtherAdmins(id, c.get('user').id, 'invite_link', 'admin')
     return c.json({ link: l, user: users.get(id) })
   })
 

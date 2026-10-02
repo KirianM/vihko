@@ -84,6 +84,12 @@ small team meets after months of use.
   revoke keys and authorised apps». `POST /api/auth/password` takes
   `revokeOthers` (true by default) and answers `sessionsEnded` and
   `keysRevoked`; with `false`, the other sessions and the keys stay.
+- **What an admin does to someone's account reaches the other admins at
+  once.** A notice now arrives on its person's open pages as it's made (the
+  live stream, `GET /api/events`, has a new `notices` event), so the other
+  admins see an admin taking someone's second factor away, or making them a
+  reset link, while it happens, not the next time they look; the server's
+  log keeps both on record.
 - **Turning off «Members can create keys» suspends the keys and apps
   members already have**: they stop working, answering `403 key_suspended`
   by the API and MCP alike, without being deleted, and work again when it's

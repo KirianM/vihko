@@ -162,6 +162,8 @@ const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed',
 export class Notices {
   private db: Db
   private now: () => Date
+  /** After a notice was kept for someone: their open pages hear of it at once (liveTree.ts `noticeFor`). */
+  onAdded: ((userId: string) => void) | null = null
 
   constructor(state: Db, opts: { now?: () => Date } = {}) {
     this.db = state
@@ -179,6 +181,7 @@ export class Notices {
       this.db.prepare(`delete from notices where user_id = ? and id not in
         (select id from notices where user_id = ? order by created_at desc, rowid desc limit ?)`).run(userId, userId, MAX_PER_USER)
     })()
+    try { this.onAdded?.(userId) } catch { /* hearing of it later is never why it fails */ }
     return notice
   }
 
