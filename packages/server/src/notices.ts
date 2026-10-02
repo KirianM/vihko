@@ -32,7 +32,7 @@
 // so a rename shows the new one and a deleted user their tombstone's. Never
 // anything of a note's content. Each person keeps their latest notices only.
 import { randomUUID } from 'node:crypto'
-import { WORKSPACE_FILE, atLeast, parseSpacePath, type AccountChange, type Alert, type SpaceChange } from '@vihko/core'
+import { WORKSPACE_FILE, atLeast, folderOf, parseSpacePath, type AccountChange, type Alert, type SpaceChange } from '@vihko/core'
 import type { Access } from './access.ts'
 import type { Db } from './db.ts'
 import type { Role } from './auth.ts'
@@ -73,6 +73,16 @@ export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => s
         : null
       return { code: d.code, ...base, change: d.change, user: d.user === null ? null : nameOf(d.user), to: d.to === null ? null : nameOf(d.to), space: shown }
     }
+    case 'moved_out': {
+      // Where it went, only while they read it; a shared space's name (no secret) or a person's.
+      const s = parseSpacePath(d.to)
+      const reads = access.level(d.kind === 'folder' ? d.to : folderOf(d.to)) !== null
+      return {
+        code: d.code, ...base, kind: d.kind, from: d.from, to: reads ? d.to : null,
+        space: s?.space.kind === 'shared' ? { path: s.space.root, name: spaceName(s.space.root) } : null,
+        owner: s?.space.kind === 'personal' ? s.space.owner : null,
+      }
+    }
     case 'shared_with_you': {
       const s = parseSpacePath(d.path)
       const none = { code: d.code, ...base, kind: d.kind, path: null, name: null, owner: null, space: null }
@@ -101,6 +111,8 @@ export type NoticeData =
   | { code: 'shared_with_you'; kind: 'space' | 'folder'; by: string; path: string }
   /** To every admin: the retention removed that many trash entries and history versions (or failed). Counts only. */
   | { code: 'retention_ran'; trashEntries: number; versions: number; failed: boolean }
+  /** To a personal space's owner: `by` moved a note or folder of theirs (`from`) out of it, to `to`. */
+  | { code: 'moved_out'; kind: 'note' | 'folder'; by: string; from: string; to: string }
 
 export type NoticeCode = NoticeData['code']
 
@@ -114,7 +126,7 @@ export interface Notice {
 /** The most notices a person keeps: older ones go first. */
 const MAX_PER_USER = 100
 
-const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran']
+const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran', 'moved_out']
 
 export class Notices {
   private db: Db

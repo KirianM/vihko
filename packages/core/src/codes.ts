@@ -307,6 +307,15 @@ export type Alert =
    */
   | { code: 'shared_with_you'; id: string; kind: 'space' | 'folder'; by: string; path: string | null; name: string | null; owner: string | null; space: string | null; at: string; actions: 'dismiss'[] }
 
+  /**
+   * Addressed to a personal space's owner: `by` (a name), who manages or
+   * edits something they shared, moved a note or a folder of theirs (`kind`,
+   * `from`: where it was) out of their space at `at`. `to`: where it is now,
+   * only while they read it; `space` (a shared space's root and name) or
+   * `owner` (another person's space) say whose space it went to.
+   */
+  | { code: 'moved_out'; id: string; kind: 'note' | 'folder'; by: string; from: string; to: string | null; space: { path: string; name: string | null } | null; owner: string | null; at: string; actions: 'dismiss'[] }
+
 /** What was done to a space that someone is told about (`space_changed`). */
 export type SpaceChange = 'manager_assigned' | 'admin_joined' | 'personal_transferred' | 'personal_converted' | 'personal_deleted'
 

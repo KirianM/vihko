@@ -51,6 +51,11 @@ small team meets after months of use.
   «Restore as a new note» instead (`POST /api/history/restore` with `to`).
 - What was deleted in a folder before it moved to another space stays in the
   trash where it was, with who could see it there, as its history does.
+- **Taking something out of a person's own space is never done behind their
+  back.** Whoever manages a folder shared from someone's space (or edits a
+  note there) may still move it to another space, and the owner gets the new
+  `moved_out` notice: what moved, who moved it, and where it went (the space,
+  and the path while they read there).
 - **Moving a folder into another space no longer brings its grants along
   unless you manage where it goes.** With only `edit` in a shared space (or in
   a folder someone shares from their own space), moving a folder of yours

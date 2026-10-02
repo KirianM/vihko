@@ -342,6 +342,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     permissions, permissionsFile, keys: () => keys.listAll(), orphans: deps.orphans, externalMoves: deps.externalMoves, holds: deps.holds,
     onFolderMoved: (from, to) => { refs.moved(from, to) },
     onFolderMoving: (from, to) => { grantStarts.moving(from, to) },
+    onMovedOut: (m) => {
+      const owner = auth.state.prepare('select id from users where username = ? and deleted_at is null').get(m.owner) as { id: string } | undefined
+      if (owner) notices.add(owner.id, { code: 'moved_out', kind: m.kind, by: m.by, from: m.from, to: m.to })
+    },
   }
   // A user deleted, a group renamed or deleted: their grants in vihko.yaml
   // follow, first (if vihko.yaml can't be written, nothing changes).

@@ -807,3 +807,39 @@ test('the notice of a space or a folder shared follows it when it\'s renamed or 
     h.close()
   }
 })
+
+test('whoever manages a folder shared from someone\'s own space may take it to another space, and its owner is told; their own moves tell nobody', async () => {
+  const h = await setup()
+  try {
+    const movedOut = async (who: Name) => (await h.as(who)('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'moved_out')
+    // The member shares a project to edit, and a part of it to manage, with the other.
+    const proj = `${h.home('member')}/${m.aFolder()}`
+    const sub = `${proj}/${m.aFolder()}`
+    h.write(`${sub}/${m.aTitle()}.md`, m.aParagraph())
+    const loose = `${proj}/${m.aTitle()}.md`
+    h.write(loose, m.aParagraph())
+    await h.rule(proj, { grants: { [h.names.other]: 'edit' } })
+    await h.rule(sub, { grants: { [h.names.other]: 'manage' } })
+    // The other takes the folder they manage to their own space.
+    const to = `${h.home('other')}/${m.aFolder()}`
+    const r = await h.other('POST', '/api/folder/move', { from: sub, to })
+    assert.equal(r.status, 200, r.text)
+    const [folder] = await movedOut('member')
+    assert.deepEqual({ kind: folder.kind, by: folder.by, from: folder.from, to: folder.to, owner: folder.owner, space: folder.space },
+      { kind: 'folder', by: h.names.other, from: sub, to: null, owner: h.names.other, space: null }, 'where it went is theirs to read, not the owner\'s')
+    // A note they edit, to a shared space of theirs: its name is no secret, and where it is too once the owner reads there.
+    const s = await newSpace(h, 'other', { [h.names.member]: 'read' })
+    const note = `${s.path}/${m.aTitle()}.md`
+    assert.equal((await h.other('POST', '/api/note/move', { from: loose, to: note })).status, 200)
+    const told = (await movedOut('member')).find((a: any) => a.kind === 'note')
+    assert.deepEqual([told.from, told.to, told.space], [loose, note, { path: s.path, name: s.name }])
+    // The owner's own moves, and moves within their space, tell nobody.
+    const mine = `${h.home('member')}/${m.aTitle()}.md`
+    h.write(mine, m.aParagraph())
+    assert.equal((await h.member('POST', '/api/note/move', { from: mine, to: `${h.home('member')}/${m.aTitle()}.md` })).status, 200)
+    assert.equal((await movedOut('member')).length, 2)
+    assert.deepEqual(await movedOut('other'), [])
+  } finally {
+    h.close()
+  }
+})
