@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { TwoFactor, base32Decode, base32Encode, hotp, openState, qrCode, qrModules, totp, type SetupData } from '@vihko/server'
+import { MAX_CODE_TRIES, TwoFactor, base32Decode, base32Encode, hotp, openState, qrCode, qrModules, totp, type SetupData } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 import { join } from 'node:path'
@@ -329,6 +329,25 @@ test('limits: wrong codes count, a right password does not clear them, and a suc
     // Cleared by the success: five free failures again.
     pending = (await signIn(h, 'admin')).body.pending
     for (let i = 0; i < 5; i++) assert.equal((await wrongCode(pending)).status, 401)
+  } finally { await h.close() }
+})
+
+test('a pending sign-in ends after a few wrong codes: the password again', async () => {
+  const h = await setup()
+  try {
+    const { secret } = await enable(h, 'member')
+    nextStep(h)
+    const pending = (await signIn(h, 'member')).body.pending
+    for (let i = 0; i < MAX_CODE_TRIES; i++) {
+      const r = await send(h.app, 'POST', '/api/auth/login/code', { pending, code: '000000' })
+      assert.deepEqual([r.status, r.body.error], [401, 'invalid_code'], `wrong code ${i + 1}`)
+    }
+    const right = await send(h.app, 'POST', '/api/auth/login/code', { pending, code: totp(secret, h.clock.now.getTime()) })
+    assert.deepEqual([right.status, right.body.error], [401, 'login_expired'], 'not even with the right code')
+    // The password again gives another: the right code then works.
+    const again = (await signIn(h, 'member')).body.pending
+    const ok = await send(h.app, 'POST', '/api/auth/login/code', { pending: again, code: totp(secret, h.clock.now.getTime()) })
+    assert.equal(ok.status, 200)
   } finally { await h.close() }
 })
 

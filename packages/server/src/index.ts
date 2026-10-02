@@ -31,7 +31,7 @@ export { legacyTarget, renameLegacySpaces, type LegacySpacesDeps, type LegacySpa
 export { NoteSettingsStore, seriesPrefix, type SettingsRead } from './noteSettings.ts'
 export { PersonalFolderExists, PersonalFolders } from './personalFolders.ts'
 export { POLICIES, RECOVERY_CODES, TOTP_DIGITS, TOTP_PERIOD, TOTP_WINDOW, TwoFactor, asRecovery, asTotp, base32Decode, base32Encode, hotp, totp, totpStep, type CodeResult, type SetupData, type TwoFactorPolicy, type TwoFactorStatus } from './twoFactor.ts'
-export { PendingSignIns, secondFactorAccount, twoFactorHttp, type PendingStep, type TwoFactorHttpDeps } from './http/twoFactor.ts'
+export { MAX_CODE_TRIES, PendingSignIns, secondFactorAccount, twoFactorHttp, type PendingStep, type TwoFactorHttpDeps } from './http/twoFactor.ts'
 export { qrCode, qrModules, type QrCode } from './qr.ts'
 export { MIN_SECRET_KEY, SecretBox, SecretKeyError, isSealed, secretBoxFrom } from './secretKey.ts'
 export { Notices, noticeAlert, readablePath, type AccountChange, type SpaceChange, type Notice, type NoticeCode, type NoticeData } from './notices.ts'

@@ -23,6 +23,11 @@ small team meets after months of use.
   each takes time in proportion to the text.
 - A search takes at most 1,000 characters, 20 filters and 32 words: more is
   `400 query_too_complex`, by HTTP and MCP alike.
+- Second-factor codes have a limit of their own for each account: after 10
+  wrong ones, from any address, the waits double up to an hour (a password's
+  stop at a minute), and they're forgotten only after a day without
+  failures. A sign-in waiting for its code ends after 5 wrong ones: the
+  password again. Guessing a code over days no longer pays.
 - A note vihko can't read on the disk (no permission, an I/O error) no
   longer stops vihko from starting, nor every later rescan: it's left as the
   index had it, the server's log names it, and the admins get the new

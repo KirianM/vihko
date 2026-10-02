@@ -9,7 +9,8 @@
 //                                now (POST /api/auth/2fa/setup, then /api/auth/2fa/enable)
 //
 // A pending sign-in lives 5 minutes (15 while setting up: scanning takes a
-// while), in memory, and works once. Wrong codes count in the login limits
+// while), in memory, and works once; after MAX_CODE_TRIES wrong codes it's
+// gone, and the password is asked again. Wrong codes count in the login limits
 // (loginLimit.ts) under an account of their own for each user, which a
 // right password doesn't clear: knowing the password gives no fresh free
 // guesses at the code.
@@ -53,6 +54,8 @@ export type PendingStep = 'code' | 'setup'
 
 const PENDING_MS: Record<PendingStep, number> = { code: 5 * 60_000, setup: 15 * 60_000 }
 const MAX_PENDING = 10_000
+/** Wrong codes a pending sign-in takes before it ends. */
+export const MAX_CODE_TRIES = 5
 
 /** The account a user's second-factor attempts are counted under in the login limits (no username has a NUL). */
 export function secondFactorAccount(username: string): string {
@@ -64,7 +67,7 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
 /** Sign-ins whose password was right, waiting for their second step (in memory: a restart asks for the password again). */
 export class PendingSignIns {
   private readonly now: () => number
-  private readonly entries = new Map<string, { userId: string; step: PendingStep; until: number }>()
+  private readonly entries = new Map<string, { userId: string; step: PendingStep; until: number; wrong: number }>()
 
   constructor(opts: { now?: () => number } = {}) {
     this.now = opts.now ?? Date.now
@@ -77,7 +80,7 @@ export class PendingSignIns {
     while (this.entries.size >= MAX_PENDING) this.entries.delete(this.entries.keys().next().value!)
     const token = randomBytes(32).toString('base64url')
     const until = now + PENDING_MS[step]
-    this.entries.set(sha256(token), { userId, step, until })
+    this.entries.set(sha256(token), { userId, step, until, wrong: 0 })
     return { token, expiresAt: new Date(until).toISOString() }
   }
 
@@ -95,6 +98,12 @@ export class PendingSignIns {
 
   end(token: string) {
     this.entries.delete(sha256(token))
+  }
+
+  /** A wrong code with this pending sign-in: after MAX_CODE_TRIES of them, it ends. */
+  wrongCode(token: string) {
+    const e = this.entries.get(sha256(token))
+    if (e && ++e.wrong >= MAX_CODE_TRIES) this.entries.delete(sha256(token))
   }
 }
 
@@ -143,7 +152,7 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
    * limits under `account`: null if it was right, the response otherwise.
    */
   const attempt = async (c: Context, account: string, username: string, check: () => Promise<string | null> | string | null, status: 400 | 401 | 403, message?: string): Promise<Response | null> => {
-    const a = limiter.begin({ ip: deps.ipOf(c), account, device: deviceOf(c, username) })
+    const a = limiter.begin({ ip: deps.ipOf(c), account, device: deviceOf(c, username), secondFactor: account === secondFactorAccount(username) })
     if (!a.ok) return deps.tooMany(c, a.retryAfter)
     const error = await check()
     if (error) {
@@ -224,7 +233,10 @@ export function twoFactorHttp(deps: TwoFactorHttpDeps) {
           if (r.ok && r.recovery) recovery.left = r.recoveryCodesLeft
           return r.ok ? null : r.reason === 'used' ? 'code_used' : 'invalid_code'
         }, 401)
-        if (refused) return refused
+        if (refused) {
+          if (refused.status !== 429) pending.wrongCode(b.pending as string)
+          return refused
+        }
         pending.end(b.pending as string)
         startSession(c, user)
         return c.json({ user, ...(recovery.left === undefined ? {} : { recoveryCodesLeft: recovery.left }) })

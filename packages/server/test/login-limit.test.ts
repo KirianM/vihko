@@ -86,6 +86,40 @@ test('limits: from another address, the right password only waits the account pa
   assert.deepEqual(pass('192.168.1.10', account), { refused: false, wait: 0 })
 })
 
+test('limits: a second-factor code spread over many addresses waits up to an hour, and is remembered for a day', () => {
+  const account = m.aUsername()
+  const { l, advance } = limiter()
+  const code = (ip: string) => {
+    const a = l.begin({ ip, account, secondFactor: true })
+    return a.ok ? { refused: false, wait: a.failed() } : { refused: true, wait: a.retryAfter }
+  }
+  for (let i = 0; i < 10; i++) assert.equal(code(`10.0.0.${i}`).wait, 0, `failure ${i + 1} is free`)
+  assert.equal(code('10.0.0.99').wait, 1, 'the 11th, from anywhere, waits')
+  // Each new address waits out the account's wait first, which doubles up to an hour (a password's stops at a minute).
+  let wait = 1
+  for (let i = 0; wait < 3600; i++) {
+    advance(wait)
+    wait = code(`10.0.1.${i}`).wait
+  }
+  assert.equal(wait, 3600)
+  advance(3600)
+  assert.equal(code('10.0.2.1').wait, 3600, 'it never passes an hour')
+  // An hour and a half of quiet doesn't forget it (a password's would be); a day does.
+  advance(3600 + 90 * 60)
+  assert.equal(code('10.0.3.1').wait, 3600)
+  advance(3600 + 25 * 3600)
+  assert.equal(code('10.0.4.1').wait, 0, 'forgotten after a day without failures')
+  // Guessing at most about one code an hour, from one day to the next.
+  const b = limiter()
+  let tries = 0
+  const end = b.clock.t + 30 * 86_400_000
+  while (b.clock.t < end) {
+    const a = b.l.begin({ ip: `10.1.${tries % 250}.${tries % 7}`, account, secondFactor: true })
+    if (a.ok) { tries++; b.advance(a.failed() || 1) } else b.advance(a.retryAfter)
+  }
+  assert.ok(tries < 30 * 26, `${tries} codes tried in 30 days`)
+})
+
 test('limits: a device cookie from an earlier sign-in is held back by its own failures only', () => {
   const account = m.aUsername()
   const { l, fail, pass } = limiter()
