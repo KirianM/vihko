@@ -566,6 +566,28 @@ person who receives it, and the other admins, are told.
 
 The last active admin can't be disabled, deleted or lose the admin role.
 
+### Someone leaving with their notes
+
+vihko has no export yet. It doesn't need one to let someone take their
+notes: they are plain Markdown files, in folders, on the server's disk.
+
+- **Their own space** is the folder `notes/people/<username>/`. Whoever
+  administers the server copies it (with `cp -a`, `rsync`, or a zip of it)
+  and hands it over: the notes, their images and other files, and their
+  settings (`.vihko/settings.yaml`). Any Markdown editor opens it; in
+  Obsidian, open the folder as a vault, and the links by name work as they
+  did in vihko.
+- **What they wrote in a shared space** is the space's, its members'. Copy
+  only what the space's members agree to, from `notes/spaces/<name>/`.
+- **The history** of their notes isn't in those files. A note's earlier
+  versions can be copied one by one from its History; for all of it, the
+  admin can read the history's git repository
+  ([History](history.md)).
+
+Then disable or delete the account as above. Deleting doesn't remove the
+files from the disk unless the admin chooses **Delete…** for the closed
+space.
+
 ## Changing roles
 
 «Make admin» and «Remove the admin role», in the user's «Actions». A new admin
@@ -598,6 +620,13 @@ decides. Whoever could have made that move from vihko (`edit` where they were
 and where they are) gets an alert with «Release them»; the notes go back to
 normal by themselves if they're moved back. A folder with held notes inside
 can't be deleted until they're released.
+
+**Only whoever moved them can release them**, in practice: the alert, and
+«Release them», go only to someone with `edit` both where the notes were and
+where they are now. A manager of the folder they landed in who couldn't edit
+where they came from doesn't get it, and can't delete that folder meanwhile:
+ask whoever moved them to release them, or move them back with the same
+program.
 
 Grants in `vihko.yaml` for a folder that no longer exists are kept, and apply
 again if the folder comes back; whoever manages its space gets an alert. Moves

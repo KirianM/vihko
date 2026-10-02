@@ -208,6 +208,39 @@ Step by step:
 [pin what's shared with you](users-and-permissions.md#step-by-step-what-others-share-with-you)
 and [turn a folder into a space of its own](users-and-permissions.md#step-by-step-move-a-folder-to-a-new-space).
 
+### From one person to a family
+
+You started on your own, with everything in «My notes», and now others join.
+«My notes» stays yours: it can't be shared whole, and nobody else ever sees
+what you don't move or share. What the household shares goes into a shared
+space:
+
+1. **Add the people.** The admin (you, if you installed vihko) adds each one
+   in Preferences → Users and groups → **New user**, and sends them their
+   link ([Adding people](users-and-permissions.md#adding-people)).
+2. **Make the space.** **New space** in the sidebar, say «Family», with each
+   of them as a member and the level they get
+   ([step by step](users-and-permissions.md#step-by-step-make-a-space-and-invite-people)).
+3. **Move what's for everyone, a folder at a time.** A folder's menu →
+   **Rename or move…**, and choose «Family» as its space (or drag it onto the
+   space in the tree). The dialog says it stops being yours and lists the
+   links that will break: those between what moves and what stays in «My
+   notes», since links never cross spaces. Moving whole folders, rather than
+   notes one by one, keeps most links inside one space.
+4. **Or share instead of moving.** A folder's menu → **Share…** keeps it
+   yours and lets them in, to read, comment or edit
+   ([share a folder](users-and-permissions.md#step-by-step-share-a-folder-of-yours)).
+
+**Many notes at once.** The tree moves one note or folder at a time. To move
+dozens of notes scattered across folders, do it on the server's disk: with a
+file manager or a shell, as the user vihko runs as, move them from
+`notes/people/<you>/…` into `notes/spaces/Family/…`. vihko recognises them
+(by their `uid`, or their content) and, since more people would read them
+there, holds them hidden until you decide: you get an alert, «Release them»,
+and then the family sees them
+([Folders moved outside vihko](users-and-permissions.md#folders-moved-outside-vihko)).
+Links into them by name from what stayed in «My notes» break, as in the UI.
+
 ## Preferences
 
 Your name, at the bottom of the sidebar, opens **Preferences**:

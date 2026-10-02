@@ -75,6 +75,17 @@ its entries are kept at the end of this file.
   browser (`Content-Disposition: inline`); an SVG, a web page or anything
   else is downloaded.
 
+### Documentation
+
+- Guides for going from one person to a family (moving many notes at once on
+  the disk, until the tree selects several), for someone leaving with their
+  notes (there's no export yet: they are plain files), and for what to check
+  after restoring an older `state.db`. The import guide no longer promises
+  what didn't work (images by name now do; attachments open from links).
+- Notes held after a move outside vihko are released only by whoever could
+  have made that move from vihko; the guide and the error when deleting a
+  folder with them say so.
+
 ### Fixed
 
 - A note made a template still showed among the ⌘K box's recent notes, and

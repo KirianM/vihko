@@ -136,6 +136,35 @@ there for an instant and you can leave them out.
 - **Only the state volume**: people, keys and settings go back to the time of
   the copy; the notes don't.
 
+### After restoring an older `state.db`
+
+An older `state.db` brings back what was true when the copy was taken, also
+what you undid since for safety: keys and apps revoked since work again,
+sessions signed out since are valid again, passwords changed since (after a
+leak, say) are the old ones again, a second factor reset since is the old
+one, and people deleted or disabled since are back. An older `notes` folder
+brings back its `vihko.yaml`, with the permissions of then: someone you took
+out of a space is in it again. vihko can't tell on its own (that is the
+copy's content), so, before letting people back in:
+
+1. **Permissions.** Compare `vihko.yaml`'s `permissions` with what you
+   expect (the members of each space, the folders shared). If you restored
+   the notes from an older copy, take it from the newest copy you trust, or
+   fix it by hand.
+2. **People.** In Preferences → Users and groups: disable or delete again
+   whoever had left; check the roles.
+3. **Keys and apps.** In Agents and API (the admin sees everyone's, under «Everyone else's keys»):
+   revoke again any key or OAuth app that had been revoked, and any you
+   don't recognise.
+4. **Passwords and second factors.** Whoever changed their password, or had
+   their second factor reset, since the copy: make them a reset link, or
+   reset it again.
+5. **Sessions.** Have everyone sign out their other sessions (Preferences →
+   Account), or, for all of them at once, disable and enable each person:
+   that ends their sessions.
+6. **Read the alerts**: a migration of `state.db`, folders whose grants no
+   longer have a folder, and anything else vihko noticed.
+
 ### Retention and backups
 
 With [retention](operations.md#retention) on, what leaves the trash or the
