@@ -31,7 +31,8 @@ function NotePicker({ value, onChange }: { value: string | null; onChange: (path
   const [query, setQuery] = useState('')
   useEffect(() => { api.tree().then((r) => setNotes(r.notes)).catch(() => setNotes([])) }, [])
   const q = fold(query.trim())
-  const matches = q === '' || !notes ? [] : notes.filter((n) => fold(n.title).includes(q) || fold(n.path.slice(n.path.lastIndexOf('/') + 1)).includes(q)).slice(0, 6)
+  // Templates are no note to land on (as for search and Home).
+  const matches = q === '' || !notes ? [] : notes.filter((n) => !n.template && (fold(n.title).includes(q) || fold(n.path.slice(n.path.lastIndexOf('/') + 1)).includes(q))).slice(0, 6)
   return (
     <div className="prefs-note">
       {value && <p className="prefs-note-chosen" role="status">{labels.label(value)}</p>}

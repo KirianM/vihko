@@ -75,6 +75,12 @@ its entries are kept at the end of this file.
   browser (`Content-Disposition: inline`); an SVG, a web page or anything
   else is downloaded.
 
+### Fixed
+
+- A note made a template still showed among the ⌘K box's recent notes, and
+  in «On opening» › «A note» while choosing one; templates stay out of both,
+  as they stay out of search, tags and Home.
+
 ### Upgrade notes
 
 - **Shared spaces with a guide for agents**: the note their settings named
