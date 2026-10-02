@@ -15,7 +15,7 @@ export type { AccountChange, SpaceChange, Alert, AlertAction, AlertCode, ConfigM
 export { newUid } from './uid.ts'
 export { IMAGE_EXTENSIONS, imageMarkdown, isExternalUrl, isImageRef, markdownDest, resolveImageRef } from './images.ts'
 export { addDays, canonicalTimeZone, civilNow, compareDates, formatDate, isValidDate, isoWeek, isoWeekStart, type CivilDate, type CivilDateTime } from './dates.ts'
-export { DEFAULT_DATE_FORMAT, TEMPLATE_KEY, isTemplate, renderTemplate, templateMarked, withoutTemplateMark, type TemplateVars } from './template.ts'
+export { DEFAULT_DATE_FORMAT, TEMPLATE_KEY, isTemplate, renderTemplate, templateCopy, templateMarked, type TemplateVars } from './template.ts'
 export { SERIES_TOKENS, matchSeries, patternPeriod, patternTokens, seriesNeighbors, seriesPath, seriesPattern, type Period, type Series, type SeriesToken } from './series.ts'
 export { RESERVED_FILTERS, foldField, hasSearchFilter, parseSearchQuery, type ParsedQuery, type ReservedFilter, type SearchFilter } from './query.ts'
 export {

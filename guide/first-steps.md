@@ -353,8 +353,8 @@ grouped by space; a small mark next to its name in the tree tells a template
 apart.
 
 The new note starts with the template's text, its variables filled in, and
-its frontmatter (`type: decision`, its tags…) without `template: true`, so it
-isn't a template itself. Templates stay out of search, the tags and Home,
+its frontmatter (`type: decision`, its tags…) without `template: true` and
+without its `aliases`, so it isn't a template itself. Templates stay out of search, the tags and Home,
 since they're skeletons, not notes anyone wrote; you still open and edit
 them from the tree, and `template:true` in the search box lists them.
 

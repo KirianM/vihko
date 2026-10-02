@@ -110,8 +110,10 @@ note's space). Through the API and MCP any note you can read can be used as a
 template; the marked ones are those offered.
 
 The new note gets the template's text, frontmatter included, **without** its
-`template: true` (so `type: decision` or the tags come along, and the new note
-isn't a template itself), and a `uid` of its own. These variables are filled
+`template: true` and its `aliases` (so `type: decision`, the tags or
+`ai: false` come along, the new note isn't a template itself, and the
+template's other names don't become every new note's), and a `uid` of its
+own. These variables are filled
 in, in the timezone of the person creating it. Nothing else runs: a template
 can't execute code, loop or read other notes.
 

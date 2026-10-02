@@ -5,7 +5,8 @@
 // A note is a template when its frontmatter says `template: true`, wherever
 // it is: no folder makes one. The new note gets the template's frontmatter
 // (`type: decision`, its tags…) without that mark, so it isn't a template
-// in turn.
+// in turn, and without its aliases: the template's other names would be
+// every new note's too, and links by them would lead nowhere certain.
 import { formatDate, type CivilDateTime } from './dates.ts'
 import { FrontmatterError, readFrontmatter, removeFrontmatterKey, setFrontmatterKey } from './frontmatter.ts'
 
@@ -33,18 +34,25 @@ export function templateMarked(text: string, on: boolean): string | null {
   }
 }
 
+/** The keys a note made from a template doesn't take from it: its mark, and its aliases. */
+export const TEMPLATE_DROPPED_KEYS = [TEMPLATE_KEY, 'aliases'] as const
+
 /**
- * A template's text without its mark (TEMPLATE_KEY), every other byte as it
- * is: its other keys in their order, comments, quoting. A frontmatter that
+ * A template's text as a new note starts from it: without its mark
+ * (TEMPLATE_KEY) and its `aliases`, every other byte as it is (its other
+ * keys in their order, `ai` included, comments, quoting). A frontmatter that
  * can't be read is left as it is (such a note isn't a template anyway).
  */
-export function withoutTemplateMark(text: string): string {
-  try {
-    return removeFrontmatterKey(text, TEMPLATE_KEY)
-  } catch (err) {
-    if (err instanceof FrontmatterError) return text
-    throw err
+export function templateCopy(text: string): string {
+  let out = text
+  for (const key of TEMPLATE_DROPPED_KEYS) {
+    try {
+      out = removeFrontmatterKey(out, key)
+    } catch (err) {
+      if (!(err instanceof FrontmatterError)) throw err
+    }
   }
+  return out
 }
 
 export interface TemplateVars {

@@ -335,7 +335,7 @@ with that tag, `total` those with it or a tag nested under it.
 
 `POST /api/note` with `{ "path", "text" }`, or `{ "path", "template" }` to
 create it from a template note (its `{{title}}`, `{{date}}` and the like filled
-in, and its frontmatter copied without `template: true`; see
+in, and its frontmatter copied without `template: true` and `aliases`; see
 [Templates](notes.md#templates)). Any note the key can read works as a
 template; `GET /api/search?q=template:true` lists the marked ones. It never
 overwrites: `409 exists` if the note is there.

@@ -712,7 +712,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
 
   server.registerTool('create_note', {
     title: 'Create a note',
-    description: 'A new note with the given text, or from a template note: its text with {{date}}, {{title}}… filled in, and its frontmatter without the `template: true` that marks it as a template. '
+    description: 'A new note with the given text, or from a template note: its text with {{date}}, {{title}}… filled in, and its frontmatter without the `template: true` that marks it as a template and without its `aliases`. '
       + 'The templates are the notes with `template: true` in their frontmatter: search `template:true` to list them. '
       + 'Never overwrites: if the note exists, it fails with `exists`; if a note that is not available to you is there, with `agent_denied`: ' + LEAVE_IT
       + ' Returns its ETag. ' + HIDING,

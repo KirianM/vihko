@@ -35,7 +35,8 @@ field.
   will mark before it does. The tree shows a small mark on each template, and
   `GET /api/tree` gives `template: true` for them.
 - A note made from a template gets the template's frontmatter (`type`, tags,
-  any key) without its `template: true`, every other byte as it was.
+  any key, `ai` included) without its `template: true` and its `aliases`,
+  every other byte as it was.
 - `POST /api/folder/templates` and `POST /api/note/template`, for the UI.
 - The search box's filter hints list the new filters.
 

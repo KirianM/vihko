@@ -154,7 +154,7 @@ write (write).
 | `GET /api/tags` | read | — | `tags` (`tag`, `count`, `total`) |
 | `GET /api/daily` | read | `series`? | `series`, `path`, `exists` |
 | `GET /api/file` | read | `path` | The file's bytes, with its `Content-Type` and an opaque `ETag` |
-| `POST /api/note` | write | `path`, and `text` or `template` (any note the key reads; its frontmatter is copied without `template: true`) | `201`: `path`, `uid`, `etag` |
+| `POST /api/note` | write | `path`, and `text` or `template` (any note the key reads; its frontmatter is copied without `template: true` and `aliases`) | `201`: `path`, `uid`, `etag` |
 | `PUT /api/note` | write | `path` (query), `text`, `If-Match` or `If-None-Match: *` | `200` or `201`: `etag` |
 | `POST /api/note/edit` | write | `path`, `ops`, `ifMatch`?, `dryRun`? | `etag`; with `dryRun`: `dryRun`, `etag`, `changes` (`at`, `removed`, `inserted`) |
 | `POST /api/note/move` | write | `from`, `to`, `dryRun`?, `confirmAudience`?, `If-Match`? | `from`, `to`, `dryRun`, `etag`, `relinked`, `shifted`, `kept`, `failed`, `aliasAdded`, `images` (`moved`, `copied`, `stayed`, `folder`, `failed`), `hidden`, `brokenLinks` (`path`, `to`) when it changes space, and `audience` in a dry run; each `relinked` change has `before`, `after`, `kind` (`link` or `image`) and `to` |
@@ -450,7 +450,7 @@ HTTP: a note the person can't read is `missing`. An author in `history` has
 | Tool | Parameters | Result |
 |---|---|---|
 | `daily_note` | `series`, `create` (true) | `series`, `path`, `created`, `etag`, and the text as a block |
-| `create_note` | `path` (required), `text` or `template` (its frontmatter copied without `template: true`) | `path`, `etag`, `uid`, `created` |
+| `create_note` | `path` (required), `text` or `template` (its frontmatter copied without `template: true` and `aliases`) | `path`, `etag`, `uid`, `created` |
 | `edit_note` | `path`, `operations` (1 to 50; required), `if_match`, `dry_run` (false) | `path`, `etag`; with `dry_run`: `dry_run`, `etag`, `changes` |
 | `move` | `from`, `to` (required), `if_match`, `dry_run` (false), `confirm_audience` (false) | `from`, `to`, `dry_run`, `etag`, `relinked`, `shifted`, `kept`, `failed`, `alias_added`, `hidden`, `images`, and `audience` when it applies |
 | `delete` | `path` (required), `if_match` | `path`, `trashed`, `at`, and `images` when some went with it |
@@ -668,7 +668,7 @@ else into a note unless someone asks it to (an edit, a comment, a
 | The note's identity | `uid: <id>` in the frontmatter, added only when vihko writes the note anyway: created, edited or moved from vihko. vihko writes a ULID today and reads any text or number as a `uid` |
 | An alias after a rename | The old name added to `aliases`, only when a link to the note from its own space couldn't be rewritten and `links.aliases` is on |
 | Frontmatter changes | Only that key's value, in place; a new key at the end of the block; a note without frontmatter gets a block at the top. The rest stays byte for byte |
-| Templates | `template: true` in the frontmatter when someone makes a note a template, or marks a folder's notes as templates; the key removed when they stop it being one. A note created from a template gets the template's text and frontmatter without that key, its variables filled in |
+| Templates | `template: true` in the frontmatter when someone makes a note a template, or marks a folder's notes as templates; the key removed when they stop it being one. A note created from a template gets the template's text and frontmatter without that key and without `aliases` (the rest, `ai` included, byte for byte), its variables filled in |
 | Comments | `<!-- @author YYYY-MM-DDTHH:MMZ · text -->`; a reply starts its text with `↳ `; comments one after another are a thread; resolving a thread deletes it |
 | Links kept when a name is taken | When someone creates, restores or renames a note (or gives it an alias) that would make a link in a note they can't read lead elsewhere, vihko rewrites that link as after a move, so it keeps leading to its note |
 | Links rewritten after a move | Only inside a space: the link keeps its destination. A wikilink gets a name or path that reaches the note without ambiguity, keeping its `#heading` and `\|text` (with the note's name as text when only the path from the notes root reaches it, for someone who sees only part of the space). A Markdown link gets a path relative to the note, percent-encoded as image links are. vihko never writes a link to another space: when a note or a folder changes space, nothing is rewritten across spaces |

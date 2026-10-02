@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isTemplate, renderTemplate, templateMarked, withoutTemplateMark } from '@vihko/core'
+import { isTemplate, renderTemplate, templateMarked, templateCopy } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -44,17 +44,25 @@ test('templates: a new note gets the template\'s frontmatter without the mark, e
   for (const eol of ['\n', '\r\n']) {
     const lines = (...l: string[]) => l.join(eol) + eol
     const text = lines('---', `type: "${type}"   # ${comment}`, `# ${comment}`, 'template: true', `tags: [${TAG}, '${other}']`, `x-${other}: {a: 1}`, '---', '# {{title}}', '')
-    assert.equal(withoutTemplateMark(text), lines('---', `type: "${type}"   # ${comment}`, `# ${comment}`, `tags: [${TAG}, '${other}']`, `x-${other}: {a: 1}`, '---', '# {{title}}', ''), JSON.stringify(eol))
+    assert.equal(templateCopy(text), lines('---', `type: "${type}"   # ${comment}`, `# ${comment}`, `tags: [${TAG}, '${other}']`, `x-${other}: {a: 1}`, '---', '# {{title}}', ''), JSON.stringify(eol))
   }
   // The mark with a comment on its line, first or last.
-  assert.equal(withoutTemplateMark(`---\ntemplate: true # ${comment}\ntype: ${type}\n---\nbody\n`), `---\ntype: ${type}\n---\nbody\n`)
-  assert.equal(withoutTemplateMark(`---\ntype: ${type}\ntemplate: true\n---\nbody\n`), `---\ntype: ${type}\n---\nbody\n`)
+  assert.equal(templateCopy(`---\ntemplate: true # ${comment}\ntype: ${type}\n---\nbody\n`), `---\ntype: ${type}\n---\nbody\n`)
+  assert.equal(templateCopy(`---\ntype: ${type}\ntemplate: true\n---\nbody\n`), `---\ntype: ${type}\n---\nbody\n`)
   // Nothing left: no block at all, unless the body would then read as one.
-  assert.equal(withoutTemplateMark('---\ntemplate: true\n---\n# {{title}}\n'), '# {{title}}\n')
-  assert.equal(withoutTemplateMark('﻿---\ntemplate: true\n---\nbody\n'), '﻿body\n')
-  assert.equal(withoutTemplateMark(`---\ntemplate: true\n---\n---\n${other}: x\n---\n`), `---\n---\n---\n${other}: x\n---\n`)
+  assert.equal(templateCopy('---\ntemplate: true\n---\n# {{title}}\n'), '# {{title}}\n')
+  assert.equal(templateCopy('﻿---\ntemplate: true\n---\nbody\n'), '﻿body\n')
+  assert.equal(templateCopy(`---\ntemplate: true\n---\n---\n${other}: x\n---\n`), `---\n---\n---\n${other}: x\n---\n`)
   // Not marked, no frontmatter, or one that can't be read: as it is.
-  for (const text of [`---\ntype: ${type}\n---\nbody\n`, '# {{title}}\n', '---\ntemplate: true\na: [\n---\n']) assert.equal(withoutTemplateMark(text), text)
+  for (const text of [`---\ntype: ${type}\n---\nbody\n`, '# {{title}}\n', '---\ntemplate: true\na: [\n---\n']) assert.equal(templateCopy(text), text)
+})
+
+test('templates: a new note doesn\'t take the template\'s aliases either; `ai` and the rest stay, byte for byte', () => {
+  const [alias, other, comment] = [m.aWord(), m.aWord(), m.aSentence()]
+  // A flow list, a block list, one alias alone, and `ai: false` (which must stay: the note stays hidden from agents).
+  assert.equal(templateCopy(`---\naliases: [${alias}, ${other}]\nai: false   # ${comment}\ntemplate: true\n---\n# {{title}}\n`), `---\nai: false   # ${comment}\n---\n# {{title}}\n`)
+  assert.equal(templateCopy(`---\ntemplate: true\naliases:\n  - ${alias}\n  - ${other}\n# ${comment}\ntags: [${TAG}]\n---\nbody\n`), `---\n# ${comment}\ntags: [${TAG}]\n---\nbody\n`)
+  assert.equal(templateCopy(`---\naliases: ${alias}\n---\nbody\n`), 'body\n')
 })
 
 test('templates: marking and unmarking a note touches only the mark', () => {
