@@ -6,7 +6,7 @@
 import type { Author } from '../actor.ts'
 import { GitError, LOG_FORMAT, Serial, parseLog, readObjects, readTree, resolveRef, type Git, type LogCommit, type RawFile } from './git.ts'
 import { HISTORY_REF, isTextPath } from './recorder.ts'
-import { movedFrom, parseMessage, type ParsedMessage } from './trailers.ts'
+import { keepsLineage, movedFrom, moveInto, parseMessage, type ParsedMessage } from './trailers.ts'
 import { wordStats } from './diff.ts'
 import { HistoryError, decodeCursor, encodeCursor, matchesAuthor, type AuthorRef, type ChangeKind, type HistoryReader, type RawChange, type RawVersion, type VersionText } from './reader.ts'
 
@@ -18,15 +18,47 @@ interface Step {
   /** Where it was before, when this commit moved it here. */
   src: string | null
   meta: ParsedMessage
+  /** Where who may see it is judged (RawVersion `judgedPath`): the note's path now, or its own. */
+  judge: string
+  /** The same for `src`. */
+  srcJudge: string | null
 }
 
-/** Where a note's versions go on: a commit and the note's path there, for the listing of `origin` (the path asked for). */
-interface Resume { rev: string; path: string; origin?: string }
+/**
+ * Where a note's versions go on: a commit and the note's path there, for the
+ * listing of `origin` (the path asked for); `judge`, where the versions from
+ * there back are judged (null: each at its own path; missing: at `path`).
+ */
+interface Resume { rev: string; path: string; origin?: string; judge?: string | null }
 
 // A cursor comes from the client: its `rev` goes to git, so it must be a commit id and never an option (`--output=…`).
 const isCommitId = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v)
 const isResume = (v: unknown): v is Resume => typeof v === 'object' && v !== null && isCommitId((v as Resume).rev) && typeof (v as Resume).path === 'string'
-const isRev = (v: unknown): v is { rev: string } => typeof v === 'object' && v !== null && isCommitId((v as { rev: unknown }).rev)
+  && ((v as Resume).judge === undefined || (v as Resume).judge === null || typeof (v as Resume).judge === 'string')
+/** Where a page of «Recent changes» goes on: a commit, and the folder moves of the commits after it (newest first). */
+interface ChangesResume { rev: string; moves?: { from: string; to: string }[] }
+const isMove = (m: unknown): m is { from: string; to: string } => typeof m === 'object' && m !== null && typeof (m as { from: unknown }).from === 'string' && typeof (m as { to: unknown }).to === 'string'
+const isRev = (v: unknown): v is ChangesResume => typeof v === 'object' && v !== null && isCommitId((v as { rev: unknown }).rev)
+  && ((v as ChangesResume).moves === undefined || (Array.isArray((v as ChangesResume).moves) && (v as ChangesResume).moves!.every(isMove)))
+/** Folder moves a cursor of «Recent changes» carries at most. */
+const MAX_CURSOR_MOVES = 500
+
+/**
+ * Where a path of an older commit is judged now (RawVersion `judgedPath`):
+ * carried forward through the folder moves after it (`later`, newest
+ * first) that keep it judged where it went (`keepsLineage`); at its own
+ * path once one doesn't.
+ */
+function judgedThrough(path: string, later: readonly { from: string; to: string }[]): string {
+  let p = path
+  for (let i = later.length - 1; i >= 0; i--) {
+    const m = later[i]!
+    if (p !== m.from && !p.startsWith(m.from + '/')) continue
+    if (!keepsLineage(m)) return path
+    p = m.to + p.slice(m.from.length)
+  }
+  return p
+}
 
 /** Commits looked at for one page of «Recent changes» before answering with what was found. */
 const MAX_SCAN = 2000
@@ -110,6 +142,9 @@ export class ManagedReader implements HistoryReader {
   private async *walk(from: Resume, batch: number): AsyncGenerator<{ step: Step; resume: Resume }> {
     let rev = from.rev
     let cur = from.path
+    // Each version is judged at the note's path now while the moves back to it only renamed its folder
+    // within its space, or its space (`keepsLineage`); from a move that didn't, at its own path.
+    let judge: string | null = from.judge === undefined ? from.path : from.judge
     for (;;) {
       const commits = await this.log(['-n', String(batch), rev, '--', cur])
       if (commits.length === 0) return
@@ -119,8 +154,11 @@ export class ManagedReader implements HistoryReader {
         if (!file) continue
         const meta = parseMessage(c.message)
         const src = file.status === 'A' ? movedFrom(cur, meta.moves) : null
-        yield { step: { commit: c, file, path: cur, src, meta }, resume: { rev: c.id, path: cur } }
+        const into = src ? moveInto(cur, meta.moves) : null
+        const kept = judge !== null && into !== null && into.folder && keepsLineage(into)
+        yield { step: { commit: c, file, path: cur, src, meta, judge: judge ?? cur, srcJudge: src === null ? null : kept ? judge : src }, resume: { rev: c.id, path: cur, judge } }
         if (src && c.parent) {
+          if (!kept) judge = null
           rev = c.parent
           cur = src
           switched = true
@@ -169,6 +207,8 @@ export class ManagedReader implements HistoryReader {
         change: changeOf(s),
         ...(s.src ? { from: s.src } : {}),
         ...counts[i]!,
+        ...(s.judge !== s.path ? { judgedPath: s.judge } : {}),
+        ...(s.src && s.srcJudge !== s.src ? { fromJudgedPath: s.srcJudge! } : {}),
       }))
       return { versions, next }
     })
@@ -193,7 +233,7 @@ export class ManagedReader implements HistoryReader {
       const specs = [before, found.file.newOid].filter((s): s is string => s !== null)
       const got = await readObjects(this.git, specs)
       const blob = (spec: string | null) => (spec === null ? null : got[specs.indexOf(spec)]?.toString('utf8') ?? null)
-      return { path: found.path, id: found.commit.id, at: iso(found.commit.authorTime), text: blob(found.file.newOid), before: blob(before) }
+      return { path: found.path, id: found.commit.id, at: iso(found.commit.authorTime), text: blob(found.file.newOid), before: blob(before), ...(found.judge !== found.path ? { judgedPath: found.judge } : {}) }
     })
   }
 
@@ -211,16 +251,21 @@ export class ManagedReader implements HistoryReader {
       const found: { commit: LogCommit; meta: ParsedMessage; files: PairedFile[] }[] = []
       let next: string | null = null
       let scanned = 0
+      // The folder moves of the commits after the one looked at, newest first: each file is judged where they took it.
+      const later = [...(start?.moves ?? [])]
       /** Looks at one commit; true once the page is full (`next` then says where it goes on). */
       const take = (c: LogCommit): boolean => {
-        if (found.length === page.limit || scanned >= MAX_SCAN) { next = encodeCursor({ rev: c.id }); return true }
+        if (found.length === page.limit || scanned >= MAX_SCAN) { next = encodeCursor({ rev: c.id, moves: later.slice(0, MAX_CURSOR_MOVES) }); return true }
         scanned++
         const meta = parseMessage(c.message)
-        if (!matchesAuthor(authorsOf(meta), page.author)) return false
-        // Where a readable file came from is only said if that path is readable too.
-        const files = pairFiles(c.files, meta).filter((f) => page.canRead(f.path))
-          .map((f) => (f.from !== undefined && !page.canRead(f.from) ? { ...f, from: undefined } : f))
-        if (files.length) found.push({ commit: c, meta, files })
+        const folders = meta.moves.filter((m) => !c.files.some((f) => f.path === m.to))
+        if (matchesAuthor(authorsOf(meta), page.author)) {
+          // Where a readable file came from is only said if that path is readable too (a folder this commit moved, where it went).
+          const files = pairFiles(c.files, meta).filter((f) => page.canRead(judgedThrough(f.path, later)))
+            .map((f) => (f.from !== undefined && !page.canRead(judgedThrough(f.from, [...later, ...folders])) ? { ...f, from: undefined } : f))
+          if (files.length) found.push({ commit: c, meta, files })
+        }
+        later.push(...folders)
         return false
       }
       if (!start) {

@@ -10,6 +10,7 @@
 //
 // A note's history follows its moves through `Vihko-Move`, never through
 // git's similarity heuristics.
+import { isSpaceRoot, spaceRootOf } from '@vihko/core'
 import { VIAS, authorKey, parseAuthorKey, type Author, type Via } from '../actor.ts'
 
 export interface CommitMeta {
@@ -82,6 +83,26 @@ export function parseMessage(message: string): ParsedMessage {
     } else if (key === 'Vihko-Restored-From') out.restoredFrom = value.trim() || null
   }
   return out
+}
+
+/**
+ * Whether what a folder move took along is still judged where it is now:
+ * a folder renamed or moved within its space (its rules went with it), or a
+ * shared space renamed (its root to another root). A folder that went to
+ * another space isn't: who may see its past there is another question.
+ */
+export function keepsLineage(m: { from: string; to: string }): boolean {
+  const from = spaceRootOf(m.from)
+  return from !== null && (from === spaceRootOf(m.to) || (isSpaceRoot(m.from) && isSpaceRoot(m.to)))
+}
+
+/** The move of `moves` that brought `path` here, and whether it moved a folder holding it rather than `path` itself. */
+export function moveInto(path: string, moves: readonly { from: string; to: string }[]): { from: string; to: string; folder: boolean } | null {
+  for (const m of moves) {
+    if (m.to === path) return { ...m, folder: false }
+    if (path.startsWith(m.to + '/')) return { ...m, folder: true }
+  }
+  return null
 }
 
 /** Where `path` was before `moves` (a file renamed, or a folder that holds it); null if none of them brought it here. */
