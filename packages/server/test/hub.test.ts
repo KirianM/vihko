@@ -814,3 +814,24 @@ test("an agent's edit next to someone typing doesn't interleave the two texts", 
     }
   } finally { closeAll(); await srv.stop() }
 })
+
+// Each splice was an operation of the open document, whose cost grows with
+// those before it: a word replaced everywhere in a long note took minutes.
+test('an open note takes a word replaced in tens of thousands of places at once', async () => {
+  const { env } = makeDirs()
+  const srv = await startServer(env)
+  try {
+    const cookie = await login(srv)
+    const n = 50_000
+    const word = MARK.after
+    assert.equal((await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'append', text: `${`${word} `.repeat(n)}\n` }] })).status, 200)
+    const a = await connect(srv, cookie, NOTE)
+    await waitFor(() => a.text().includes(word), 'the editor has the text')
+    const start = performance.now()
+    const r = await api(srv, cookie, 'POST', '/api/note/edit', { path: NOTE, ops: [{ op: 'find_replace', find: word, replace: `${word}Z`, expectedCount: n }] })
+    const ms = performance.now() - start
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.ok(ms < 5000, `${Math.round(ms)} ms`)
+    await waitFor(() => a.text().split(`${word}Z `).length === n + 1, 'every occurrence reaches the editor')
+  } finally { closeAll(); await srv.stop() }
+})

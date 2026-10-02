@@ -10,6 +10,30 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.6] - unreleased
+
+Fixes from two reviews before 0.1.0: security, and flows that a family or a
+small team meets after months of use.
+
+### Security
+
+- Replacing every occurrence of a word in a long note (`find_replace`), a
+  search over a note with thousands of matches, and saving a note with very
+  long paragraphs no longer keep the server busy for seconds or minutes:
+  each takes time in proportion to the text.
+- A search takes at most 1,000 characters, 20 filters and 32 words: more is
+  `400 query_too_complex`, by HTTP and MCP alike.
+- A note vihko can't read on the disk (no permission, an I/O error) no
+  longer stops vihko from starting, nor every later rescan: it's left as the
+  index had it, the server's log names it, and the admins get the new
+  `unreadable_notes` alert until it can be read.
+
+### Upgrade notes
+
+- A script or an agent that searches with more than 20 filters or 32 words,
+  or a query over 1,000 characters, now gets `400 query_too_complex`: split
+  the search.
+
 ## [0.1.0-rc.5] - unreleased
 
 Templates marked in the notes themselves, and searching by any frontmatter

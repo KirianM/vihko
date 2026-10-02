@@ -9,7 +9,7 @@
 // `agent_denied` (access.ts). A write that leaves the note hidden from the
 // agent that made it succeeds and says so (`nowHidden`); nothing of the note
 // reaches it after that.
-import { PEOPLE, SPACES, TEMPLATE_KEY, anchorChanged, templateMarked, trimSlashes, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
+import { PEOPLE, SPACES, TEMPLATE_KEY, anchorChanged, templateMarked, trimSlashes, classifyPath, contentHash, extract, folderOf, isSpaceRoot, parentFolder, parseSearchQuery, searchQueryProblem, SEARCH_LIMITS, parseSpacePath, parseThreads, placement, rulesOf, sameSpace, spaceOf, spaceRootOf, subjectKey, withoutRanges, type AttachmentsConfig, type ErrorCode, type Level, type LinkIndex, type LinkRef, type PermissionRule, type Range } from '@vihko/core'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
@@ -715,6 +715,8 @@ export class ScopedNotes {
    * (`template:true`, `prop:template`).
    */
   search(q: string): SearchResult[] {
+    const over = searchQueryProblem(q)
+    if (over) throw new RequestError(400, 'query_too_complex', `a search takes at most ${SEARCH_LIMITS[over]} ${over}`)
     const w = this.access.notesWhere('n')
     const asked = parseSearchQuery(q).filters.some((f) => (f.kind === 'field' || f.kind === 'exists') && !f.negate && f.key === TEMPLATE_KEY)
     return search(this.deps.index, q, asked ? w : { sql: `${w.sql} and not ${templateSql('n')}`, params: w.params })

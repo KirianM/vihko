@@ -93,3 +93,66 @@ export const vihkoSyntax: MarkdownConfig = {
 
 /** vihko's Markdown parser: CommonMark + GFM + wikilinks, embeds and tags. */
 export const markdownParser = baseParser.configure([GFM, vihkoSyntax])
+
+/**
+ * The longest inline text (a paragraph, a heading, a table cell) parsed in
+ * one piece. lezer matches each closing delimiter (`*`, `~~`, `]`) against
+ * every opening one before it, so a paragraph of tens of kilobytes of them
+ * (`*a*a…`, `[a] [a] …`) took seconds, and each save of the note took them
+ * again on the server's only thread. A longer text is parsed in pieces of
+ * about this size, cut at a line break where there is one, else at a space,
+ * and never inside an HTML comment (where vihko keeps comments between
+ * people, which aren't text to index): emphasis or a Markdown link across a cut
+ * is lost, which the index (links, tags, headings, comments) barely notices
+ * in a paragraph that long. Wikilinks and tags never span a line, and a cut
+ * at a line break keeps them whole.
+ */
+export const INLINE_PIECE = 2048
+
+const wholeInline = markdownParser.parseInline.bind(markdownParser)
+markdownParser.parseInline = (text: string, offset: number) => {
+  if (text.length <= INLINE_PIECE) return wholeInline(text, offset)
+  const out: ReturnType<typeof wholeInline> = []
+  for (let start = 0; start < text.length;) {
+    const end = inlineCut(text, start)
+    out.push(...wholeInline(text.slice(start, end), offset + start))
+    start = end
+  }
+  return out
+}
+
+/** Where the piece of `text` that starts at `start` ends (see INLINE_PIECE). */
+function inlineCut(text: string, start: number): number {
+  const max = start + INLINE_PIECE
+  if (max >= text.length) return text.length
+  const half = start + INLINE_PIECE / 2
+  let cut = lastAfter(text, '\n', half, max)
+  if (cut === -1) cut = lastAfter(text, ' ', half, max)
+  if (cut === -1) {
+    // No space: after the last character a tag can't hold (never inside a tag), or after the run of them.
+    cut = max
+    while (cut > half && TAG_CHAR.test(text[cut - 1]!)) cut--
+    if (cut === half) for (cut = max; cut < text.length && TAG_CHAR.test(text[cut - 1]!);) cut++
+  }
+  // Never between the two halves of a surrogate pair.
+  if (/[\uDC00-\uDFFF]/.test(text[cut] ?? '')) cut--
+  // Never inside a comment: the piece goes on to its end (one that never closes is no comment, and is cut).
+  const open = lastStart(text, '<!--', start, cut)
+  if (open !== -1 && lastStart(text, '-->', open + 4, cut) === -1) {
+    const close = text.indexOf('-->', Math.max(cut - 2, open + 4))
+    if (close !== -1) return close + 3
+  }
+  return cut
+}
+
+/** The position right after the last `ch` in `text[from, to)`, or -1 (looking no further back than `from`). */
+function lastAfter(text: string, ch: string, from: number, to: number): number {
+  for (let i = to - 1; i >= from; i--) if (text[i] === ch) return i + 1
+  return -1
+}
+
+/** Where the last `s` that lies wholly in `text[from, to)` starts, or -1 (looking no further back than `from`). */
+function lastStart(text: string, s: string, from: number, to: number): number {
+  for (let i = to - s.length; i >= from; i--) if (text.startsWith(s, i)) return i
+  return -1
+}

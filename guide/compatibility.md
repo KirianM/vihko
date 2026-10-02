@@ -242,6 +242,7 @@ These are the codes a key can meet, with their status:
 | `control_characters` | 400 | A path with a control character |
 | `outside_space` | 400 | Creating or moving something where no space is: the notes root, `people/`, `spaces/`, or anything in no space |
 | `space_root` | 400 | A space's root named as a folder to create, rename, move or delete |
+| `query_too_complex` | 400 | A search over the [limits](#limits) of a query (since 0.1.0-rc.6) |
 | `exists` | 409 | The name is taken, or isn't available there (see [Known limits](#known-limits)) |
 | `edit_mismatch` | 409 | An edit operation doesn't fit the text |
 | `not_configured` | 409 | The daily note, with no series in `vihko.yaml` |
@@ -268,6 +269,7 @@ Creating the first admin adds `invalid_token`, `invalid_username` and
 | Image upload | `VIHKO_MAX_IMAGE_MB`, 20 MB by default |
 | Images received at once | 2 per person, 8 in all |
 | Search results | 50 with words, 500 with filters alone |
+| A search query | 1,000 characters, 20 filters and 32 words (since 0.1.0-rc.6; `400 query_too_complex` over any of them, by HTTP and MCP alike) |
 | History pages for a key | 50 |
 
 ### Routes for the web UI
@@ -359,6 +361,7 @@ codes 0.1.0 added for spaces:
 | Code | Who sees it | What it says |
 |---|---|---|
 | `outside_spaces` | Admins | `paths`: top-level names, and folders in `spaces/` that aren't a space, that nobody sees; `into`: the admin's own space (`people/<admin>`), where they can move them on the disk. Also a `config_warnings` entry for a `vihko.yaml` path outside the spaces |
+| `unreadable_notes` | Admins | Since 0.1.0-rc.6. `paths`: notes on the disk vihko can't read (no permission, an I/O error), among those the admin reads; `elsewhere`: the roots of the spaces that hold the others. Each stays as the index had it, and the server's log names it, until it can be read. A scan or a start never stops for one |
 | `closed_spaces` | Admins | `people`: usernames of deleted people whose space nobody has decided about yet (transferred, made a shared space or deleted) |
 | `person_folder_without_user` | Admins | `names`: folders in `people/` named after no user |
 | `space_without_members` | Admins | `path`, `name`: a shared space nobody has access to |

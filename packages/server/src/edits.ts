@@ -53,10 +53,67 @@ export function spliceOf(text: string, from: number, to: number, insert: string)
   return { at: from + p, remove: old.length - p - q, insert: insert.slice(p, insert.length - q) }
 }
 
-/** Applies splices in order: each one to the text left by the previous ones. */
+/**
+ * Applies splices in order: each one to the text left by the previous ones.
+ * A run of splices each of which ends before the previous one starts (what a
+ * replacement of every occurrence gives, from the last one) is applied in a
+ * single pass over the text: one copy of the text per splice made a note's
+ * thousands of occurrences take the server's only thread for seconds.
+ */
 export function applySplices(text: string, splices: readonly Splice[]): string {
   let out = text
-  for (const s of splices) out = out.slice(0, s.at) + s.insert + out.slice(s.at + s.remove)
+  let i = 0
+  while (i < splices.length) {
+    // The run: splices[i..j), each one wholly before the previous one, so all of them are positions of `out`.
+    let j = i + 1
+    while (j < splices.length && splices[j]!.at + splices[j]!.remove <= splices[j - 1]!.at) j++
+    const parts: string[] = []
+    let end = out.length
+    for (let k = i; k < j; k++) {
+      const s = splices[k]!
+      parts.push(out.slice(s.at + s.remove, end), s.insert)
+      end = s.at
+    }
+    parts.push(out.slice(0, end))
+    out = parts.reverse().join('')
+    i = j
+  }
+  return out
+}
+
+/** The most splices an open note takes one by one (see `coalesceSplices`). */
+export const MAX_LIVE_SPLICES = 200
+
+/**
+ * The same change as `splices` over `text`, in at most about `max` splices
+ * per run (see `applySplices`): consecutive ones joined into one that also
+ * rewrites the text between them. An open note takes each splice as an
+ * operation of its document, whose cost grows with the operations before it,
+ * so tens of thousands of them (a word replaced everywhere in a long note)
+ * took minutes; joined, the characters between them lose their identity for
+ * whoever edits there, which a change that large can afford.
+ */
+export function coalesceSplices(text: string, splices: readonly Splice[], max = MAX_LIVE_SPLICES): Splice[] {
+  if (splices.length <= max) return [...splices]
+  const out: Splice[] = []
+  let cur = text
+  let i = 0
+  while (i < splices.length) {
+    let j = i + 1
+    while (j < splices.length && splices[j]!.at + splices[j]!.remove <= splices[j - 1]!.at) j++
+    const run = splices.slice(i, j)
+    const size = Math.ceil(run.length / max)
+    for (let k = 0; k < run.length; k += size) {
+      // Descending: the chunk spans from its last splice's start to its first one's end, in `cur`.
+      const chunk = run.slice(k, k + size)
+      const from = chunk[chunk.length - 1]!.at
+      const to = chunk[0]!.at + chunk[0]!.remove
+      const region = applySplices(cur.slice(from, to), chunk.map((s) => ({ ...s, at: s.at - from })))
+      out.push({ at: from, remove: to - from, insert: region })
+    }
+    cur = applySplices(cur, run)
+    i = j
+  }
   return out
 }
 
@@ -64,9 +121,10 @@ export function applySplices(text: string, splices: readonly Splice[]): string {
 export function planEdits(text: string, ops: EditOp[]): Splice[] {
   let out = text
   const splices: Splice[] = []
-  const push = (s: Splice) => {
-    splices.push(s)
-    out = applySplices(out, [s])
+  const push = (...ss: Splice[]) => pushAll(ss)
+  const pushAll = (ss: Splice[]) => {
+    for (const s of ss) splices.push(s)
+    out = applySplices(out, ss)
   }
   for (const [i, e] of ops.entries()) {
     if (e.op === 'find_replace') {
@@ -77,8 +135,8 @@ export function planEdits(text: string, ops: EditOp[]): Splice[] {
       if (at.length !== expected) {
         throw new NoteError('edit_mismatch', `operation ${i}: expected ${expected} occurrences, found ${at.length}`)
       }
-      // From the last one: the earlier positions stay valid.
-      for (const k of at.reverse()) push(spliceOf(out, k, k + e.find.length, e.replace))
+      // From the last one: the earlier positions stay valid, and the text is rewritten once for all of them.
+      pushAll(at.reverse().map((k) => spliceOf(out, k, k + e.find.length, e.replace)))
     } else if (e.op === 'append') {
       push({ at: out.length, remove: 0, insert: (out === '' || out.endsWith('\n') ? '' : '\n') + e.text })
     } else if ((e.op === 'append_under_heading' || e.op === 'replace_section') && typeof e.text !== 'string') {

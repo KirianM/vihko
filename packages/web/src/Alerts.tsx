@@ -550,6 +550,22 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           extra: <ul className="alert-paths">{a.paths.map((p) => <li key={p}><span className="mono">{t('alerts.onDisk', { path: p })}</span></li>)}</ul>,
           actions: null,
         })
+      case 'unreadable_notes':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.unreadableNotesTitle'),
+          body: t('alerts.unreadableNotesBody'),
+          // Where each one is on the server's disk; a note the admin doesn't read, only by the space that holds it.
+          extra: (
+            <ul className="alert-paths">
+              {a.paths.slice(0, 10).map((p) => <li key={p}><span className="mono">{t('alerts.onDisk', { path: p })}</span></li>)}
+              {a.paths.length > 10 && <li>{t('alerts.movedMore', { n: a.paths.length - 10 })}</li>}
+              {a.elsewhere.map((p) => <li key={`in:${p}`}>{rich(t('alerts.unreadableNotesIn'), { path: <span className="mono">{p}</span> })}</li>)}
+            </ul>
+          ),
+          actions: null,
+        })
       case 'closed_spaces':
         return frame({
           icon: icons.warn,

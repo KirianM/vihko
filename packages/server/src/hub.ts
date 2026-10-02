@@ -33,6 +33,7 @@ import { followable, readStable, readText, replaceText } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
 import { NoteError, NoteService, type Actor, type Change, type HotDocuments } from './notes.ts'
 import type { Via } from './actor.ts'
+import { coalesceSplices } from './edits.ts'
 import type { Access, AccessPolicy } from './access.ts'
 import { sameHost } from './http/origin.ts'
 
@@ -779,9 +780,11 @@ export class CollabHub implements HotDocuments {
           return
         }
         const change = fn(cur)
+        // Thousands of splices are joined into a few: each is an operation of the document (edits.ts).
+        const splices = typeof change === 'string' ? [] : coalesceSplices(cur, change)
         const apply = (t: Y.Text) => {
           if (typeof change === 'string') applyTextDiff(t, cur, change)
-          else for (const s of change) {
+          else for (const s of splices) {
             if (s.remove) t.delete(s.at, s.remove)
             if (s.insert) t.insert(s.at, s.insert)
           }

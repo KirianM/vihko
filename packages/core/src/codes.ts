@@ -69,6 +69,8 @@ export type ErrorCode =
   | 'leave_via_group' // leaving a space or a folder one reaches through a group (`group`): the admin takes them out of the group
   | 'space_has_managers' // the admin assigns a manager only to a shared space that has none
   | 'space_needs_manager' // a deleted person's space made a shared space needs at least one member who manages it
+  | 'permissions_invalid' // what is moved has sharing rules of its own in vihko.yaml, which can't be changed as it is (a mistake the admin fixes by hand first)
+  | 'query_too_complex' // a search with more characters, filters or words than it takes (SEARCH_LIMITS)
   | 'space_name_taken' // a new shared space's name (or a new name for one) that a space in the installation already has, in any case (`name`: as that one writes it)
 
 /**
@@ -81,6 +83,13 @@ export type Alert =
   | { code: 'scan_aborted_mass_delete'; removing: number; total: number; actions: ('rescan' | 'confirm_removal')[] }
   /** The notes folder doesn't exist or can't be read. */
   | { code: 'scan_aborted_root_unavailable'; actions: 'rescan'[] }
+  /**
+   * Notes on the disk that vihko can't read (no permission, an I/O error):
+   * left as the index had them until they can be read again, and named in
+   * the server's log. `paths`: those the admin reads; `elsewhere`: the
+   * roots of the spaces that hold the others. Only admins see it.
+   */
+  | { code: 'unreadable_notes'; paths: string[]; elsewhere: string[]; actions: never[] }
   /** A note deleted from outside, with a copy pending a decision. */
   | { code: 'orphaned_note'; path: string; actions: ('keep_copy' | 'discard_copy')[] }
   /** Several notes share the same `uid`. Fixed by editing the frontmatter, never automatically. */

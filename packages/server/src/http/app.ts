@@ -957,6 +957,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     } else if (scan?.aborted === 'root_unavailable') {
       alerts.push({ code: 'scan_aborted_root_unavailable', actions: admin ? ['rescan'] : [] })
     }
+    // Notes vihko can't read on the disk: the admin fixes them there. A path they don't read, only by its space.
+    const unreadableNotes = admin ? deps.indexer.unreadableNotes() : []
+    if (unreadableNotes.length) {
+      const paths = unreadableNotes.filter((p) => access.canRead(p))
+      const elsewhere = [...new Set(unreadableNotes.filter((p) => !access.canRead(p)).map((p) => spaceRootOf(p) ?? p.split('/')[0]!))].sort()
+      alerts.push({ code: 'unreadable_notes', paths, elsewhere, actions: [] })
+    }
     for (const path of deps.orphans?.orphans() ?? []) {
       if (access.canRead(path)) alerts.push({ code: 'orphaned_note', path, actions: access.canWrite(path) ? ['keep_copy', 'discard_copy'] : [] })
     }

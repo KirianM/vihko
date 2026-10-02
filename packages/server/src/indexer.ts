@@ -216,6 +216,7 @@ export class Indexer {
 
     // Anything under a directory that couldn't be read is not treated as deleted.
     const underUnreadable = (p: string) => unreadable.some((d) => p.startsWith(d + '/'))
+    for (const p of this.unreadable.keys()) if (!seen.has(p) && !underUnreadable(p)) this.unreadable.delete(p)
     const gone = [...known.keys()].filter((p) => !seen.has(p) && !underUnreadable(p))
     // A note that moved (a folder renamed with another tool) is not gone: it doesn't count towards the guard.
     const moves = this.pairMoves(gone.map((p) => known.get(p)!), upserts, report)
@@ -301,6 +302,7 @@ export class Indexer {
       if (kind !== 'note') continue
       const row = getRow.get(rel) as Row | undefined
       if (!there(rel)) {
+        this.unreadable.delete(rel)
         if (row) { report.removed.push(rel); gone.push(row) }
         continue
       }
@@ -396,7 +398,17 @@ export class Indexer {
       report.unchanged++
       return
     }
-    const text = readFileSync(join(this.opts.notesDir, rel), 'utf8')
+    let text: string
+    try {
+      text = readFileSync(join(this.opts.notesDir, rel), 'utf8')
+    } catch (err) {
+      // No permission, an I/O error, too large for a string: the note is left as the index has it
+      // (neither added nor removed), and the admin is told; one such file never stops a scan.
+      this.cantRead(rel, err)
+      report.unchanged++
+      return
+    }
+    this.unreadable.delete(rel)
     const hash = contentHash(text)
     if (row && row.hash === hash) {
       touch.push({ path: rel, stat })
@@ -405,6 +417,20 @@ export class Indexer {
     }
     upserts.push({ path: rel, text, hash, stat })
     ;(row ? report.changed : report.added).push(rel)
+  }
+
+  /** Notes on the disk that couldn't be read when last looked at (permissions, I/O errors), by path. */
+  private unreadable = new Map<string, string>()
+
+  private cantRead(rel: string, err: unknown) {
+    const code = (err as NodeJS.ErrnoException | null)?.code ?? String(err)
+    if (this.unreadable.get(rel) !== code) console.warn(`index: can't read ${rel} (${code}): it is left out until it can be read`)
+    this.unreadable.set(rel, code)
+  }
+
+  /** The notes the last scans couldn't read (paths from the notes root, sorted). */
+  unreadableNotes(): string[] {
+    return [...this.unreadable.keys()].sort()
   }
 
   private apply(
