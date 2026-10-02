@@ -454,6 +454,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
           link: l.raw, target: l.target, anchor: l.anchor, status: l.status, path: l.dstPath, candidates: l.candidates,
           ...(l.othersNoAccess ? { others_no_access: true } : {}),
           ...(l.reason ? { reason: l.reason } : {}),
+          ...(l.file ? { file: true } : {}),
         })),
         incoming: incoming.slice(0, 200).map((b) => ({ path: b.path, title: b.title, count: b.count })),
         more: outgoing.length > 200 || incoming.length > 200,
@@ -536,6 +537,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       candidates: o.candidates?.map((c) => ({ path: c, title: l.titles[c] ?? c })) ?? null,
       ...(o.othersNoAccess ? { others_no_access: true } : {}),
       ...(o.reason ? { reason: o.reason } : {}),
+      ...(o.file ? { file: true } : {}),
     }))
     const back = incoming.slice(offset, offset + limit)
     const more = offset + limit < Math.max(outgoing.length, incoming.length)

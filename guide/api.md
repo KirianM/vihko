@@ -502,7 +502,11 @@ it would break the link, and the image would count as unused.
 note. A key gets it only if it's in the key's folders, a note the key can read
 uses it (links to it), and no note hidden from agents does: an image you just
 uploaded is `404` to the key until a note links it. Notes themselves are read
-with `GET /api/note`.
+with `GET /api/note`. `GET /api/file?note=<note>&name=<name>` gets the file as
+that note names it (`![[photo.png]]`, `[[invoice.pdf]]`): relative to the
+note, or by name in its space; `404` alike for a note you can't read and a
+name that leads nowhere. Images and PDFs come with `Content-Disposition:
+inline`; anything else (an SVG or a web page included) as an attachment.
 
 ### History
 

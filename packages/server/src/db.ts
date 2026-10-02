@@ -12,7 +12,7 @@ export type Db = Database.Database
  * Bumping it forces a full rebuild; an extension's own changes bump only its
  * version.
  */
-export const SCHEMA_VERSION = 7 // 7: tables split into versioned extensions
+export const SCHEMA_VERSION = 8 // 7: tables split into versioned extensions; 8: files
 
 const SCHEMA = `
 -- schema_version, and one ext:<name> per installed extension (its version and tables).
@@ -41,6 +41,15 @@ create index notes_uid on notes(uid) where uid is not null;
 create table folders (
   path text primary key
 );
+
+-- Every file under the notes root that isn't a note (images, PDFs…; hidden
+-- folders aside), by its name (normKey of the last segment): an Obsidian-style
+-- ![[photo.png]] or [[invoice.pdf]] finds it by name within its space.
+create table files (
+  path text primary key,
+  name text not null
+);
+create index files_name on files(name);
 
 -- Alerts derived from disk: sync-tool conflict copies, etc.
 create table alerts (
@@ -82,7 +91,7 @@ function readVersion(db: Db): number | null {
 
 /** Deterministic dump of the whole index (rebuild tests). */
 export function dumpIndex(db: Db): string {
-  const tables = ['notes', 'link_keys', 'links', 'images', 'tags', 'headings', 'fields', 'folders', 'alerts']
+  const tables = ['notes', 'link_keys', 'links', 'images', 'tags', 'headings', 'fields', 'folders', 'files', 'alerts']
   const out: string[] = []
   for (const t of tables) {
     const columns = Math.min(3, (db.prepare(`pragma table_info(${t})`).all()).length)

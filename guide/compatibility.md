@@ -147,13 +147,13 @@ write (write).
 | `GET /api/spaces` | read | — | `personal` (`path`, or null when the key doesn't reach it), `spaces` (`path`, `name`, `level`, `managers`, `aiClosed`), `shared` (`path`, `level`, `pinned`, and `owner` in a personal space or `space` with `path`, `name`), `canCreate` (always false for a key). A shared space's `name` is its folder's |
 | `GET /api/spaces/members` | read | `path` (a folder) | `path`, `space` (`path`, `name`, or null in a personal space), `owner` (or null in a shared space), `members` (`username`, `level`, `via`: `subject`, `level`, `from` (null where the asker doesn't read that folder), and `owner: true` for a person's own space) |
 | `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fmError`, or null), `hiddenFromAgents` |
-| `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dstPath`, `anchorOk`, `candidates`, `posFrom`, and `othersNoAccess`, `reason`, `self` when they apply), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
+| `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dstPath`, `anchorOk`, `candidates`, `posFrom`, and `othersNoAccess`, `reason`, `self` when they apply; `file`, since 0.1.0-rc.6, when a wikilink with no note of its name leads to a file of the space, `[[invoice.pdf]]`: `dstPath` is the file), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
 | `GET /api/note/headings` | read | `path` | `headings` (`level`, `text`) |
 | `GET /api/note/comments` | read | `path` | `threads` (`id`, `original`, `changed`) |
 | `GET /api/search` | read | `q` | `results` (`path`, `title`, `snippet`), `highlight` (`start`, `end`). The query's filters are under [Search filters](#search-filters) |
 | `GET /api/tags` | read | — | `tags` (`tag`, `count`, `total`) |
 | `GET /api/daily` | read | `series`? | `series`, `path`, `exists` |
-| `GET /api/file` | read | `path` | The file's bytes, with its `Content-Type` and an opaque `ETag` |
+| `GET /api/file` | read | `path`, or `note` and `name` (0.1.0-rc.6) | The file's bytes, with its `Content-Type` and an opaque `ETag`. With `note` and `name`, the file as that note names it (`![[photo.png]]`): relative to the note, or by name among the files of its space, the nearest winning, a tie or another space `404`. `Content-Disposition: inline` for images (not SVG) and PDFs, `attachment` for anything else |
 | `POST /api/note` | write | `path`, and `text` or `template` (any note the key reads; its frontmatter is copied without `template: true` and `aliases`) | `201`: `path`, `uid`, `etag` |
 | `PUT /api/note` | write | `path` (query), `text`, `If-Match` or `If-None-Match: *` | `200` or `201`: `etag` |
 | `POST /api/note/edit` | write | `path`, `ops`, `ifMatch`?, `dryRun`? | `etag`; with `dryRun`: `dryRun`, `etag`, `changes` (`at`, `removed`, `inserted`) |
@@ -424,7 +424,7 @@ The [Agents guide](agents.md) explains how to connect.
 | Tool | Parameters | Result |
 |---|---|---|
 | `search` | `query` (required; the filters of [Search filters](#search-filters)), `limit` (1 to 50, 20), `offset` (0) | `results` (`path`, `title`, `snippet`), `next_offset` |
-| `get_note` | `path` or `uid`, `offset` (0), `max_chars` (1,000 to 200,000; 100,000) | `path`, `etag`, `title`, `uid`, `frontmatter`, `links` (`outgoing`: `link`, `target`, `anchor`, `status`, `path`, `candidates`, and `others_no_access`, `reason` when they apply; `incoming`: `path`, `title`, `count`; `more`), `text` (`offset`, `length`, `total`, `next_offset`); the text as a block |
+| `get_note` | `path` or `uid`, `offset` (0), `max_chars` (1,000 to 200,000; 100,000) | `path`, `etag`, `title`, `uid`, `frontmatter`, `links` (`outgoing`: `link`, `target`, `anchor`, `status`, `path`, `candidates`, and `others_no_access`, `reason` when they apply, `file` (0.1.0-rc.6) for a link that leads to a file that isn't a note; `incoming`: `path`, `title`, `count`; `more`), `text` (`offset`, `length`, `total`, `next_offset`); the text as a block |
 | `list_folder` | `folder` (`""`, the default, or a folder), `recursive` (false), `limit` (1 to 500, 100), `offset` (0) | `folder`, `entries` (`kind` `folder` with `path`, or `note` with `path` and `title`), `next_offset`. With `""`, the roots the person reaches (below) |
 | `related` | `path` (required), `limit` (1 to 200, 50), `offset` (0) | `path`, `links_to`, `linked_from`, `next_offset` |
 | `resolve_link` | `from`, `link` (required) | `from`, `link`, `target`, `anchor`, `status`, `path`, `title`, `anchor_found`, `candidates`, and `others_no_access`, `reason` when they apply |

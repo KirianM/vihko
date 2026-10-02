@@ -1728,8 +1728,10 @@ export class NoteService {
       w.abort()
       throw err
     }
-    if (created) w.done()
-    else w.abort()
+    if (created) {
+      w.done()
+      this.opts.indexer.indexPaths([path]) // findable by name at once (index.db `files`)
+    } else w.abort()
     return created
   }
 

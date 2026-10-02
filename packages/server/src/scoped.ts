@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { AccessError, AgentDenied, type Access, type DenyReason } from './access.ts'
 import { attachmentPath, noteAttachmentsDir } from './attachments.ts'
 import { diskSpelling, isPlainFile } from './fsutil.ts'
+import { fileByName, isFileTarget } from './fileNames.ts'
 import { diskSpaceFolders } from './spaceFolders.ts'
 import type { Db } from './db.ts'
 import type { DailyNotes } from './daily.ts'
@@ -138,6 +139,8 @@ export interface OutgoingLink {
    * between notes leave it out (see `links`).
    */
   self?: true
+  /** It leads to a file that isn't a note (`[[invoice.pdf]]`, found by name in the note's space): `dstPath` is the file. */
+  file?: true
 }
 
 /**
@@ -597,6 +600,13 @@ export class ScopedNotes {
     const out = outgoing.map((l): OutgoingLink => {
       const candidates = l.candidates ? JSON.parse(l.candidates) as string[] : null
       const row: OutgoingLink = { ...l, candidates, ...(l.status === 'resolved' && l.dstPath === p ? { self: true as const } : {}) }
+      // No note by that name, but a file (`[[invoice.pdf]]`): it leads there, for whoever reads the file.
+      if (row.status === 'missing' && l.kind !== 'markdown' && isFileTarget(l.target)) {
+        const file = fileByName(this.deps.index, p, l.target)
+        if (file !== null && this.access.userCanRead(file)) {
+          return this.access.canReadNamed(file) ? { ...row, status: 'resolved', dstPath: file, anchorOk: null, candidates: null, file: true } : noAccess(row, this.access.reasonFor(file))
+        }
+      }
       const link = this.maskedLink(row)
       for (const c of link.candidates ?? []) titles[c] ??= (titleOf.get(c) as { title: string } | undefined)?.title ?? c
       return link
@@ -1450,6 +1460,20 @@ export class ScopedNotes {
     const dest = to === undefined || to === entry.path ? this.writable(entry.path) : this.creatable(to)
     await this.clearForgotten(folderOf(dest))
     return shown(await this.guardAsync(dest, () => this.spelled(dest, () => this.deps.notes.restore(id, this.access.actor, dest, { canWrite, mayName: this.mayName }))))
+  }
+
+  /**
+   * The file an Obsidian-style reference in the note at `note` names
+   * (`![[photo.png]]`, `[[invoice.pdf]]`): relative to the note, or by name
+   * in its space (fileNames.ts). `not_found` alike for a note the principal
+   * can't read, a name that leads nowhere or to several files, and a file
+   * they can't read: nothing tells what exists where they don't read.
+   */
+  resolveFile(note: string, ref: string): string {
+    const { path: n } = this.visible(note)
+    const file = fileByName(this.deps.index, n, ref)
+    if (file === null || !this.access.canReadNamed(file)) throw new NoteError('not_found', `no file ${ref} for ${n}`)
+    return file
   }
 
   /** A sync tool's conflict copy the indexer found, in a folder the person can read. */

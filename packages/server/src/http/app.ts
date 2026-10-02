@@ -240,6 +240,11 @@ function uiHeaders(external: ExternalImages) {
 // Files from the notes folder are served inert: nothing in them runs, even
 // an SVG opened on its own (sandboxed, no scripts).
 const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
+// A PDF from the notes folder: the browser's own viewer shows it, which a
+// sandbox (or a policy on what it may load) can stop, so the policy only
+// keeps it from being framed. It is never read as a page: its type is
+// `application/pdf`, with `nosniff`.
+const PDF_CSP = "frame-ancestors 'none'"
 
 // Everything else (the API's JSON, errors, /mcp): nothing in it is a page.
 const API_CSP = "default-src 'none'; frame-ancestors 'none'"
@@ -897,15 +902,18 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // Same path rules as notes: relative, inside the root, no hidden or ignored
   // segments, and only a path vihko follows (fsutil.ts followable).
   app.get('/api/file', (c) => {
-    const path = c.req.query('path') ?? ''
+    // Or as a note names it (`note` and `name`: `![[photo.png]]`, `[[invoice.pdf]]`), by name in its space.
+    const note = c.req.query('note')
+    const named = note !== undefined
+    const path = named ? scoped(c).resolveFile(note, c.req.query('name') ?? '') : c.req.query('path') ?? ''
     const norm = posix.normalize(path)
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
     // vihko.yaml isn't content: once it holds permissions (M4), it's not for every reader.
     if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
     // Through a symbolic link, or spelled otherwise than on the disk (a case-insensitive filesystem): not there.
     if (!followable(deps.notesDir, norm)) return fail(c, 404, 'not_found', `does not exist: ${path}`)
-    // An agent: only in its folders, and only a file a note it can read uses.
-    scoped(c).assertFile(norm)
+    // An agent: only in its folders, and only a file a note it can read uses (one named by a note it reads: resolveFile checked).
+    if (!named) scoped(c).assertFile(norm)
     const file = join(deps.notesDir, norm)
     let st: ReturnType<typeof statSync>
     try {
@@ -922,7 +930,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     c.header('Cache-Control', 'private, no-cache')
     c.header('X-Content-Type-Options', 'nosniff')
     c.header('Content-Security-Policy', FILE_CSP)
-    if (!type.startsWith('image/')) c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
+    // Shown in the browser: images (in a page; opened alone, an SVG, which can hold scripts, is downloaded) and PDFs; the rest is downloaded.
+    const inline = (type.startsWith('image/') && type !== 'image/svg+xml') || type === 'application/pdf'
+    c.header('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(posix.basename(norm))}`)
+    // A PDF can't be shown in a sandboxed document (Chromium's viewer refuses it): no sandbox for it, and nothing else allowed.
+    if (type === 'application/pdf') c.header('Content-Security-Policy', PDF_CSP)
     if (c.req.header('if-none-match')?.split(',').map((t) => t.trim()).includes(etag)) return c.body(null, 304)
     c.header('Content-Type', type)
     return c.body(readFileSync(file))

@@ -93,6 +93,8 @@ export interface OutgoingLink {
   posFrom: number
   /** It leads to the note it is in (`[[#Heading]]`, its own name): the editor shows its state, the links panel leaves it out. */
   self?: true
+  /** It leads to a file that isn't a note (`[[invoice.pdf]]`): `dstPath` is the file. */
+  file?: true
 }
 /** A note's links: outgoing, backlinks and the titles of ambiguous links' candidates. */
 export interface NoteLinks { outgoing: OutgoingLink[]; backlinks: Backlink[]; titles: Record<string, string> }

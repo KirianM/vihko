@@ -15,7 +15,7 @@ what it never touches.
 | `people/<username>/` | That person's own space, «My notes» for them |
 | `spaces/<name>/` | A shared space, such as `spaces/Home/` |
 | A file ending in `.md` (any case), inside a space | A note: indexed, searchable, editable |
-| Any other file (images, PDFs…), inside a space | A file: shown and linked, to whoever can read its folder |
+| Any other file (images, PDFs…), inside a space | A file: images are shown in notes, and a link to one (`[[invoice.pdf]]`) opens it in a new tab, to whoever can read its folder. The tree doesn't list files yet |
 | Anything at the root other than `people/`, `spaces/` and `vihko.yaml` | Seen by nobody in vihko; the admins get an alert |
 | A name starting with `.` (`.git/`, `.obsidian/`, `.trash/`) or ending in `~` | Ignored, with everything under it |
 | A symbolic link, to a file or a folder | Ignored: vihko never reads, serves, indexes or writes through one |
@@ -184,6 +184,7 @@ vihko reads both kinds of Markdown links. The editor writes wikilinks.
 | `[[launch/Plan]]` | A note of the same space whose path ends in `launch/Plan` |
 | `[text](../launch/Plan.md)` | A standard Markdown link, relative to the note |
 | `![[Plan]]` | Also a link to `Plan` (vihko doesn't show one note inside another) |
+| `[[invoice.pdf]]` | The file `invoice.pdf`: by name, as for a note (see below). It opens in a new tab: the browser shows it (a PDF, an image) or downloads it |
 
 **Links stay inside their space.** A link only ever leads to a note of the
 same space as the note it's in («My notes», or a shared space): never to
@@ -330,6 +331,16 @@ vihko shows local images referenced any of these ways, relative to the note:
 ![[plan-2026-09-28-1012.png]]
 [The diagram](plan-2026-09-28-1012.png)
 ```
+
+**By name, as Obsidian writes them.** An `![[…]]` with no folder (or with
+only part of the path) that isn't next to the note is looked up by name among
+the files of the note's space, as a link's name is among its notes: the
+nearest one wins (the deepest folder it shares with the note, then the
+shallowest below that), two equally near are no answer (the image shows as
+missing), and it never reaches another space. So a vault whose images are in
+an attachments folder (`![[Pasted image 20240101.png]]`) shows them as
+Obsidian did. The same goes for a link to any other file, `[[invoice.pdf]]`.
+A Markdown link (`![](…)`, `[…](…)`) is always relative to the note.
 
 Uploading, pasting or dropping an image stores it in the notes folder (where,
 depends on [`attachments`](configuration.md#attachments-where-new-images-go))

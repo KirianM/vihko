@@ -7,7 +7,7 @@
 // (extension.ts), run in the order of their dependencies.
 import { lstatSync, readFileSync, readdirSync, statSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
-import { classifyPath, contentHash, extract, isIgnoredDir, readFrontmatter, type Extracted, type LinkIndex } from '@vihko/core'
+import { classifyPath, contentHash, extract, isIgnoredDir, normKey, readFrontmatter, type Extracted, type LinkIndex } from '@vihko/core'
 import type { Db } from './db.ts'
 import { followable, isPlainFile } from './fsutil.ts'
 import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
@@ -206,9 +206,11 @@ export class Indexer {
 
     const unreadable: string[] = []
     const dirs: string[] = []
+    const files: string[] = []
     for (const rel of walk(this.opts.notesDir, '', unreadable, dirs)) {
       const kind = classifyPath(rel)
       if (kind === 'conflict') conflicts.push(rel)
+      if (kind === 'other') files.push(rel)
       if (kind !== 'note') continue
       seen.add(rel)
       this.detect(rel, known.get(rel), upserts, touch, report)
@@ -244,6 +246,11 @@ export class Indexer {
         this.db.prepare('delete from folders').run()
         const ins = this.db.prepare('insert into folders (path) values (?)')
         for (const d of dirs) ins.run(d)
+        // Files under a folder that couldn't be read stay as they were.
+        const keep = unreadable.length ? (this.db.prepare('select path from files').all() as { path: string }[]).map((r) => r.path).filter(underUnreadable) : []
+        this.db.prepare('delete from files').run()
+        const file = this.db.prepare('insert or ignore into files (path, name) values (?, ?)')
+        for (const f of [...files, ...keep]) file.run(f, fileName(f))
       })()
       const now = new Set(dirs)
       for (const d of had) if (!now.has(d)) tree.push(d)
@@ -263,15 +270,18 @@ export class Indexer {
     const paths = [...new Set(given)]
     const ins = this.db.prepare('insert or ignore into folders (path) values (?)')
     const del = this.db.prepare("delete from folders where path = ? or path like ? escape '\\'")
+    const delFiles = this.db.prepare("delete from files where path like ? escape '\\'")
+    const insFile = this.db.prepare('insert or ignore into files (path, name) values (?, ?)')
     this.db.transaction(() => {
       for (const p of paths) {
         if (!p || classifyPath(p) === 'ignored') continue
         let dir = false
         try { dir = lstatSync(join(this.opts.notesDir, p)).isDirectory() && followable(this.opts.notesDir, p) } catch { /* gone */ }
         del.run(p, likePrefix(p))
+        delFiles.run(likePrefix(p))
         if (!dir) continue
         const sub: string[] = []
-        for (const _ of walk(this.opts.notesDir, p, [], sub)) { /* only the folders are wanted */ }
+        for (const f of walk(this.opts.notesDir, p, [], sub)) if (classifyPath(f) === 'other') insFile.run(f, fileName(f))
         for (const a of [...ancestorsOf(p), p, ...sub]) ins.run(a)
       }
     })()
@@ -295,9 +305,15 @@ export class Indexer {
     const getRow = this.db.prepare('select path, uid, hash, mtime_ms, size from notes where path = ?')
     // A path vihko doesn't follow (fsutil.ts followable: a symbolic link, another spelling) isn't there, as for the walk.
     const there = (p: string) => isPlainFile(this.opts.notesDir, p)
+    const insFile = this.db.prepare('insert or ignore into files (path, name) values (?, ?)')
+    const delFile = this.db.prepare('delete from files where path = ?')
     for (const rel of new Set(paths)) {
       const kind = classifyPath(rel)
       if (kind === 'conflict') (there(rel) ? conflictsNow : conflictsGone).push(rel)
+      if (kind === 'other') {
+        if (there(rel)) insFile.run(rel, fileName(rel))
+        else delFile.run(rel)
+      }
       if (kind !== 'note') continue
       const row = getRow.get(rel) as Row | undefined
       if (!there(rel)) {
@@ -554,6 +570,9 @@ function* walk(root: string, rel: string, unreadable: string[], dirs: string[]):
     }
   }
 }
+
+/** A file's name as the `files` table keeps it: its last segment, as links compare names. */
+const fileName = (path: string) => normKey(path.slice(path.lastIndexOf('/') + 1))
 
 /** `a/b/c.md` → `a`, `a/b`. */
 function ancestorsOf(path: string): string[] {

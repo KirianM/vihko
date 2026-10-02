@@ -1,5 +1,6 @@
 // Images in the editor: `![alt](path)` and `![[image.png]]` are shown
-// as the image, resolved against the note's folder, and pasting or dropping an
+// as the image, resolved against the note's folder (an `![[…]]` also by name
+// in the note's space, as Obsidian writes them), and pasting or dropping an
 // image hands it to whoever uploads it. The text of the note never changes
 // here; this only decorates it.
 import { syntaxTree } from '@codemirror/language'
@@ -8,6 +9,9 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, typ
 import type { SyntaxNode } from '@lezer/common'
 import { isExternalUrl, isImageRef, resolveImageRef } from '@vihko/core/images'
 import { focusChanged, touches } from './livePreview.ts'
+import { fileUrl, namedFileUrl } from './files.ts'
+
+export { fileUrl }
 
 export interface ImageLabels {
   external: string
@@ -29,9 +33,6 @@ export interface ImageHost {
 
 export const imageHost = Facet.define<ImageHost, ImageHost | null>({ combine: (v) => v[0] ?? null })
 
-/** URL the browser loads a file of the notes folder from. */
-export const fileUrl = (path: string) => `/api/file?path=${encodeURIComponent(path)}`
-
 type Source =
   | { kind: 'local'; url: string; name: string }
   | { kind: 'external'; url: string; domain: string }
@@ -49,7 +50,9 @@ function sourceOf(host: ImageHost, ref: string, embed: boolean): Source {
   if (/^data:image\//i.test(dest)) return { kind: 'data', url: dest }
   const path = resolveImageRef(host.note, dest, { embed })
   const name = dest.split('/').pop() || dest
-  return path ? { kind: 'local', url: fileUrl(path), name } : { kind: 'invalid', name }
+  if (!path) return { kind: 'invalid', name }
+  // `![[photo.png]]`: next to the note, or wherever it is in the note's space, as Obsidian finds it.
+  return { kind: 'local', url: embed ? namedFileUrl(host.note, dest) : fileUrl(path), name }
 }
 
 class ImageWidget extends WidgetType {

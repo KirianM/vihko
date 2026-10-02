@@ -12,6 +12,19 @@ its entries are kept at the end of this file.
 
 ## [0.1.0-rc.6] - unreleased
 
+### Added
+
+- **Images and attachments by name, as Obsidian writes them.**
+  `![[photo.png]]` and `[[invoice.pdf]]` with no folder are found by name
+  among the files of the note's space, as note names are (the nearest wins,
+  a tie is no answer, never another space): an imported vault's images in
+  its attachments folder show again. A link to a file that isn't a note, or
+  a Markdown link to one next to the note, opens it in a new tab, where the
+  browser shows it (a PDF, an image) or downloads it; it's never offered as a
+  note to create. `GET /api/file?note=…&name=…` gets a file as a note names
+  it; links to files carry `file: true` (`GET /api/note/links`, and the MCP
+  `get_note` and `related`).
+
 ### Changed
 
 - **A shared space's guide for agents is written by its managers only.** It's
@@ -40,6 +53,9 @@ its entries are kept at the end of this file.
   symbolic link still stops a deletion. `not_empty`'s `contents` has
   `hidden`, and `DELETE /api/folder?dryRun=true` says what deleting would
   take without deleting anything.
+- Files opened on their own: images (not SVG) and PDFs are shown in the
+  browser (`Content-Disposition: inline`); an SVG, a web page or anything
+  else is downloaded.
 
 ### Upgrade notes
 
@@ -50,6 +66,9 @@ its entries are kept at the end of this file.
 - Scripts and agents calling `POST /api/daily` (or `daily_note`) without a
   series may now get `409 series_gone`: pass a `series`, or set
   `dailySeries` in the profile.
+- The index (`index.db`) is rebuilt on its own the first time this version
+  starts (it now lists the files that aren't notes, to find them by name);
+  nothing to do.
 
 ## [0.1.0-rc.5] - 2026-10-02
 

@@ -8,6 +8,8 @@ import type { SyntaxNode } from '@lezer/common'
 import { isImageRef } from '@vihko/core/images'
 import { addressOf } from '@vihko/core/spaces'
 import { markdownLinkNote, missingBadge, onCreateButton, wikiLinkNote } from './createLink.ts'
+import { fileUrl, isFileTarget, openFile } from './files.ts'
+import { resolveImageRef } from '@vihko/core/images'
 
 // --- Link state (resolved by the server's index) ----------
 
@@ -16,6 +18,8 @@ export interface LinkInfo {
   status: 'resolved' | 'ambiguous' | 'missing'
   path: string | null
   candidates: string[] | null
+  /** It leads to a file that isn't a note (`[[invoice.pdf]]`): opened in a tab of its own. */
+  file?: boolean
 }
 export interface LinkLabels { ambiguous: (n: number) => string; missing: string; frontmatter: (n: number) => string }
 
@@ -72,7 +76,13 @@ export function linkAction(view: EditorView, link: LinkRef, anchor: HTMLElement)
   const info = view.state.field(links, false)?.get(link.raw)
   if (info?.status === 'resolved' && info.path) {
     const path = info.path
+    if (info.file) return () => openFile(path)
     return () => view.state.facet(navigate)(path)
+  }
+  // A Markdown link to a file next to the note (`[invoice](invoice.pdf)`): the server says whether it's there and readable.
+  if (url !== null && isFileTarget(url)) {
+    const path = resolveImageRef(view.state.facet(notePath), url)
+    if (path) return () => openFile(path)
   }
   const pick = info?.status === 'ambiguous' ? view.state.facet(pickAmbiguous) : null
   if (pick) return () => pick({ raw: link.raw, at: link.at, candidates: [...info?.candidates ?? []] }, anchor)
@@ -135,7 +145,7 @@ class WikiWidget extends WidgetType {
     this.text = text
   }
   eq(o: WikiWidget) {
-    return o.raw === this.raw && o.label === this.label && o.info?.status === this.info?.status && o.info?.path === this.info?.path && o.text === this.text &&
+    return o.raw === this.raw && o.label === this.label && o.info?.status === this.info?.status && o.info?.path === this.info?.path && o.info?.file === this.info?.file && o.text === this.text &&
       (o.info?.candidates ?? []).join('\n') === (this.info?.candidates ?? []).join('\n')
   }
   toDOM(view: EditorView) {
@@ -144,7 +154,7 @@ class WikiWidget extends WidgetType {
     wrap.className = `cm-wikilink cm-wikilink-${status}`
     const a = document.createElement('a')
     a.textContent = this.label
-    a.href = this.info?.path ? `?note=${encodeURIComponent(addressOf(this.info.path) ?? this.info.path)}` : '#'
+    a.href = !this.info?.path ? '#' : this.info.file ? fileUrl(this.info.path) : `?note=${encodeURIComponent(addressOf(this.info.path) ?? this.info.path)}`
     if (this.info?.status === 'ambiguous') a.title = (this.info.candidates ?? []).join('\n')
     // Followed on mousedown (`linkAction`): otherwise the editor first moves the
     // cursor to the link, reveals its text for editing, and the click never
