@@ -287,6 +287,9 @@ small team meets after months of use.
 - Idle connections stay open 65 s instead of Node's 5: a reverse proxy (or
   any client) that reuses a connection as vihko closes it no longer gets a
   reset, which behind a proxy showed as an occasional 502.
+- A click on someone else's cursor in the editor, on its dot or on the name
+  over it, places your cursor in the text under it: the editor ignored it,
+  and your cursor stayed where it was.
 - The recently opened notes the search box offers (and «When I open vihko:
   Last note») are each person's, and are forgotten when they sign out: on a
   shared browser, whoever signs in next no longer sees, nor opens, the notes

@@ -114,7 +114,10 @@
 .editor .cm-comment-notice span { flex-grow: 1; text-align: left; }
 .editor .cm-comment-notice b { color: var(--accent); font-weight: 500; }
 
-/* Other users' cursors (y-codemirror) */
+/* Other users' cursors (y-codemirror). Their name is always shown, over the
+   text around it; a click on the cursor, its dot or its name goes to the text
+   under it (on them, the editor would ignore it). */
+.editor .cm-ySelectionCaret { pointer-events: none; }
 .editor .cm-ySelectionInfo { font-family: var(--font-sans); font-size: 11px; font-weight: 500; border-radius: 4px; padding: 1px 6px; color: var(--on-user); opacity: 1; }
 
 @media (max-width: 760px) {
