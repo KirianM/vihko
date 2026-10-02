@@ -328,6 +328,9 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'GET /api/spaces/members', method: 'GET', path: q('/api/spaces/members', { path: folder }), expect: 404 },
         { route: 'POST /api/spaces/rename', method: 'POST', path: '/api/spaces/rename', body: { path: folder, name: m.aSpaceName() } },
         { route: 'DELETE /api/spaces', method: 'DELETE', path: q('/api/spaces', { path: folder }) },
+        // Deleted spaces: only those one managed (the admin, any); one that isn't, as missing.
+        { route: 'GET /api/spaces/deleted', method: 'GET', path: '/api/spaces/deleted', expect: who === 'agent' ? 404 : 200 },
+        { route: 'POST /api/spaces/restore', method: 'POST', path: '/api/spaces/restore', body: { id: m.anId() }, expect: 404 },
         { route: 'POST /api/spaces/leave', method: 'POST', path: '/api/spaces/leave', body: { path: folder } },
         { route: 'POST /api/spaces/pin', method: 'POST', path: '/api/spaces/pin', body: { path: folder, pinned: true } },
         { route: 'GET /api/admin/spaces', method: 'GET', path: '/api/admin/spaces', expect: adminOnly(who) },

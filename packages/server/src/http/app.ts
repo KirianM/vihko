@@ -1079,7 +1079,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     const unreadable = admin ? twoFactor.unreadable() : []
     if (unreadable.length) alerts.push({ code: 'two_factor_unreadable', users: unreadable.map(nameOf).sort(), actions: [] })
     // Notices addressed to this person (notices.ts), last: what others did to their account or their writing.
-    if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf, (root) => permissions.spaceName(root)))
+    if (!access.isAgent) for (const n of notices.of(c.get('user').id)) alerts.push(noticeAlert(n, access, nameOf, (root) => permissions.spaceName(root), (id) => spaces.mayRestoreId(c.get('user'), id)))
     // Note settings written by hand with something wrong (noteSettings.ts): to whom they belong, the person or a space's managers.
     if (!access.isAgent) {
       const me = c.get('user')

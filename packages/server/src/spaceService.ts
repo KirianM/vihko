@@ -18,7 +18,7 @@
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  LEVELS, SPACES, SpaceRules, isReserved, isSpaceRoot, maxLevel, nameKey, parseSpacePath, personalRoot, removeRules, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
+  LEVELS, SPACES, SpaceRules, isReserved, isSpaceRoot, maxLevel, nameKey, newUid, parseSpacePath, personalRoot, removeRules, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
   type Level, type PermissionRule, type RuleValue,
 } from '@vihko/core'
 import type { Access } from './access.ts'
@@ -78,6 +78,36 @@ export interface MembersView {
   }[]
 }
 
+/** A shared space deleted, as whoever may restore it whole sees it. */
+export interface DeletedSpaceInfo {
+  id: string
+  /** Its root then, `spaces/<name>`. */
+  path: string
+  name: string
+  /** Who deleted it (their name). */
+  by: string
+  deletedAt: string
+  /** How many of its trash entries are still there. */
+  entries: number
+}
+
+/** What it takes to restore a deleted space (`deleted_spaces`). */
+interface DeletedSpaceRecord {
+  root: string
+  /** Its rules, each folder relative to its root (`''` for the root). */
+  rules: { folder: string; value: RuleValue }[]
+  /** Its folders, relative to its root (`/a`, `/a/b`), empty ones included. */
+  folders: string[]
+  /** The trash entries that hold what it had. */
+  entries: string[]
+  /** Who managed it (user ids). */
+  managers: string[]
+  /** When its grants began (grantStarts.ts). */
+  starts: { folder: string; subject: string; since: string | null }[]
+}
+
+interface DeletedSpaceRow { id: string; root: string; entries: string; managers: string; by_user: string; deleted_at: string }
+
 /** A deleted person's personal space still on the disk: closed, nobody sees it. */
 export interface ClosedSpace {
   userId: string
@@ -120,7 +150,7 @@ export interface SpaceServiceOptions {
   notes: NoteService
   indexer: Indexer
   /** Deletes a folder as a principal (scoped.ts `deleteFolder`): a shared space goes this way. */
-  deleteFolder: (access: Access, path: string, opts: { trash: boolean }) => Promise<unknown>
+  deleteFolder: (access: Access, path: string, opts: { trash: boolean }) => Promise<{ trashed: { id: string }[] }>
   /**
    * Moves a folder as a principal (scoped.ts `moveFolder`): into a new shared
    * space's root (`newSpace`), or a shared space's root to its new name
@@ -134,7 +164,7 @@ export interface SpaceServiceOptions {
    */
   pastPaths?: () => Promise<string[]>
   /** When grants began (grantStarts.ts): a deleted person's space moved keeps its grants' starts. */
-  starts?: Pick<GrantStarts, 'moving'>
+  starts?: Pick<GrantStarts, 'moving' | 'under' | 'restore'>
   log?: (msg: string) => void
   now?: () => Date
 }
@@ -245,28 +275,147 @@ export class SpaceService {
    * it too.
    */
   async rename(access: Access, path: unknown, name: unknown): Promise<SpaceEntry> {
-    this.person(access)
+    const user = this.person(access)
     const root = this.sharedRootFor(access, path, 'manage')
     const n = this.spaceName(name)
     const to = sharedRoot(n)
     if (to === root) return this.entry(access, root)
     await this.checkFree(n, root)
+    const from = this.engine.spaceName(root) ?? ''
     await this.opts.moveFolder(access, root, to, { dryRun: false, renameSpace: true })
     this.opts.indexer.indexFolders([root, to])
+    // Its members are told: «Casa is now called Hogar» (a change of case isn't news).
+    if (nameKey(from) !== nameKey(n)) {
+      for (const u of this.engine.spaceAudience(to)) if (u.id !== user.id) this.opts.notices.add(u.id, { code: 'space_renamed', by: user.id, from, path: to })
+    }
     return this.entry(access, to)
   }
 
   /**
    * Deletes a shared space (`manage` at its root): what it holds to the trash
    * (with `trash`; otherwise only an empty one), and its rules out of
-   * vihko.yaml (scoped.ts `deleteFolder`). Pins under it go.
+   * vihko.yaml (scoped.ts `deleteFolder`). Pins under it go. What it takes to
+   * restore it whole is kept (`deleted_spaces`: its rules, folders, the trash
+   * entries that hold what it had, who managed it), and its members are told
+   * (`space_deleted`): `deleted` is its id, for `restoreSpace`.
    */
-  async remove(access: Access, path: unknown, opts: { trash: boolean }): Promise<{ path: string }> {
-    this.person(access)
+  async remove(access: Access, path: unknown, opts: { trash: boolean }): Promise<{ path: string; deleted: string }> {
+    const user = this.person(access)
     const root = this.sharedRootFor(access, path, 'manage')
-    await this.opts.deleteFolder(access, root, { trash: opts.trash })
+    const name = this.engine.spaceName(root) ?? ''
+    // What it was, before it goes.
+    const text = this.opts.file.read().text ?? ''
+    let rules: { folder: string; value: RuleValue }[] = []
+    try {
+      rules = [...rulesInFile(text)].filter(([f]) => f === root || f.startsWith(root + '/')).map(([f, value]) => ({ folder: f.slice(root.length), value: { ...value, name: null } }))
+    } catch { /* not YAML: what is in force */ }
+    if (rules.length === 0) rules = this.engine.spaceRules().rules.filter((r) => r.folder === root || r.folder.startsWith(root + '/')).map((r) => ({ folder: r.folder.slice(root.length), value: { grants: r.grants, ai: r.ai } }))
+    const members = this.engine.spaceAudience(root)
+    const managers = members.filter((u) => u.level === 'manage' && !u.disabled).map((u) => u.id)
+    const folders = this.foldersUnder(root)
+    const starts = this.opts.starts?.under(root) ?? []
+    const r = await this.opts.deleteFolder(access, root, { trash: opts.trash })
     this.opts.state.prepare("delete from pins where path = ? or path like ? escape '\\'").run(root, likePrefix(root))
-    return { path: root }
+    const id = newUid()
+    const record: DeletedSpaceRecord = { root, rules, folders, entries: r.trashed.map((e) => e.id), managers, starts }
+    this.opts.state.prepare('insert into deleted_spaces (id, root, rules, folders, entries, managers, by_user, deleted_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, root, JSON.stringify({ rules: record.rules, starts: record.starts }), JSON.stringify(folders), JSON.stringify(record.entries), JSON.stringify(managers), user.id, this.now())
+    // Its members are told; whoever deleted it too if they managed it: the notice is where they restore it from later.
+    for (const u of members) if (u.id !== user.id || managers.includes(u.id)) this.opts.notices.add(u.id, { code: 'space_deleted', by: user.id, name, deleted: id })
+    return { path: root, deleted: id }
+  }
+
+  /**
+   * The shared spaces deleted that this person may restore whole: those they
+   * managed when they were deleted; for the admin, every one. Its name, who
+   * deleted it and when, how many of its trash entries are left (some may
+   * have been restored one by one, or removed by the retention).
+   */
+  deletedSpaces(access: Access): DeletedSpaceInfo[] {
+    const user = this.person(access)
+    const rows = this.opts.state.prepare('select id, root, entries, managers, by_user, deleted_at from deleted_spaces order by deleted_at desc, id').all() as DeletedSpaceRow[]
+    const inTrash = new Set(this.opts.notes.trash().map((e) => e.id))
+    return rows.filter((r) => this.mayRestore(user, r)).map((r) => ({
+      id: r.id, path: r.root, name: this.engine.spaceName(r.root) ?? '', by: this.opts.users.get(r.by_user)?.username ?? this.nameOf(r.by_user), deletedAt: r.deleted_at,
+      entries: (JSON.parse(r.entries) as string[]).filter((e) => inTrash.has(e)).length,
+    }))
+  }
+
+  /** Whether a person may restore a deleted space whole: they managed it then, or they're the admin. */
+  mayRestoreId(user: Access['user'], id: string): boolean {
+    const r = this.opts.state.prepare('select id, root, entries, managers, by_user, deleted_at from deleted_spaces where id = ?').get(id) as DeletedSpaceRow | undefined
+    return r !== undefined && this.mayRestore(user, r)
+  }
+
+  private mayRestore(user: Access['user'], r: DeletedSpaceRow): boolean {
+    return user.role === 'admin' || (JSON.parse(r.managers) as string[]).includes(user.id)
+  }
+
+  /**
+   * Restores a deleted shared space whole (who managed it, or the admin):
+   * its folder and empty folders, its rules (members, levels, `ai: false`,
+   * and when each grant began), and every one of its trash entries still
+   * there, back where it was. Under its own name only: another space with
+   * it now is `space_name_taken` (its own past doesn't take it). Its members
+   * are told. Whoever restores it gains nothing by it: the admin restores a
+   * space they weren't in without reading it.
+   */
+  async restoreSpace(access: Access, id: unknown): Promise<{ space: { path: string; name: string }; restored: number; missing: number }> {
+    const user = this.person(access)
+    const row = typeof id === 'string' ? this.opts.state.prepare('select * from deleted_spaces where id = ?').get(id) as (DeletedSpaceRow & { rules: string; folders: string }) | undefined : undefined
+    if (!row || !this.mayRestore(user, row)) throw new NoteError('not_found', 'no such deleted space')
+    const root = row.root
+    const name = this.engine.spaceName(root) ?? ''
+    // Only the disk takes its name now: its own trash and history are its own.
+    let entries: string[] = []
+    try { entries = readdirSync(join(this.opts.notesDir, SPACES)) } catch { /* none yet */ }
+    const clash = entries.map((e) => e.normalize('NFC')).find((e) => !e.startsWith('.') && nameKey(e) === nameKey(name))
+    if (clash !== undefined) throw taken(clash)
+    const saved = JSON.parse(row.rules) as { rules: { folder: string; value: RuleValue }[]; starts: { folder: string; subject: string; since: string | null }[] }
+    mkdirSync(join(this.opts.notesDir, root), { recursive: true })
+    for (const f of JSON.parse(row.folders) as string[]) mkdirSync(join(this.opts.notesDir, root + f), { recursive: true })
+    // When its grants began, first: its members keep their past.
+    this.opts.starts?.restore(saved.starts)
+    await this.opts.file.update((t) => {
+      let out = removeRules(t, root)
+      for (const r of saved.rules) out = setRule(out, root + r.folder, r.value)
+      return out
+    }, { actor: access.actor })
+    let restored = 0
+    let missing = 0
+    for (const e of JSON.parse(row.entries) as string[]) {
+      try {
+        await this.opts.notes.restore(e, access.actor)
+        restored++
+      } catch (err) {
+        if (err instanceof NoteError && (err.code === 'not_found' || err.code === 'exists')) { missing++; continue }
+        throw err
+      }
+    }
+    this.opts.state.prepare('delete from deleted_spaces where id = ?').run(row.id)
+    this.opts.indexer.indexFolders([root, ...(JSON.parse(row.folders) as string[]).map((f) => root + f)])
+    for (const u of this.engine.spaceAudience(root)) if (u.id !== user.id) this.opts.notices.add(u.id, { code: 'space_restored', by: user.id, path: root })
+    return { space: { path: root, name }, restored, missing }
+  }
+
+  /** Every folder under `folder` (relative to it, starting with `/`), empty ones included; none hidden, none through a symbolic link. */
+  private foldersUnder(folder: string): string[] {
+    const out: string[] = []
+    const visit = (rel: string) => {
+      let list: import('node:fs').Dirent[]
+      try { list = readdirSync(join(this.opts.notesDir, folder + rel), { withFileTypes: true }) } catch { return }
+      for (const e of list) {
+        if (!e.isDirectory() || e.name.startsWith('.')) continue
+        out.push(`${rel}/${e.name}`)
+        visit(`${rel}/${e.name}`)
+      }
+    }
+    visit('')
+    return out
+  }
+
+  private nameOf(id: string): string {
+    return (this.opts.state.prepare('select username from users where id = ?').get(id) as { username: string } | undefined)?.username ?? ''
   }
 
   /**

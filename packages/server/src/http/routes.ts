@@ -83,6 +83,8 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'DELETE /api/admin/config-migrations/:id': 'session',
   'DELETE /api/admin/state-migrations/:id': 'session',
   'POST /api/admin/permissions/restore': 'session',
+  'GET /api/spaces/deleted': 'session',
+  'POST /api/spaces/restore': 'session',
   'DELETE /api/admin/permissions/restore': 'session',
   'POST /api/auth/password': 'session',
   'GET /api/directory': 'session',
@@ -190,6 +192,9 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'POST /api/admin/rescan': 'admin',
   'DELETE /api/admin/config-migrations/:id': 'admin',
   'DELETE /api/admin/state-migrations/:id': 'admin',
+  // Deleted spaces: those one managed then (the admin, every one), and restoring one whole.
+  'GET /api/spaces/deleted': 'filtered',
+  'POST /api/spaces/restore': 'manage',
   // vihko.yaml's permissions gone: the last ones written back, or forgotten.
   'POST /api/admin/permissions/restore': 'admin',
   'DELETE /api/admin/permissions/restore': 'admin',

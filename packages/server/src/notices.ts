@@ -56,7 +56,7 @@ export function readablePath(access: Access, path: string): boolean {
  * and a personal space's path only while they can see it (a shared space's
  * name and path are no secret).
  */
-export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => string, spaceName: (root: string) => string | null = () => null): Alert {
+export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => string, spaceName: (root: string) => string | null = () => null, mayRestore: (deleted: string) => boolean = () => false): Alert {
   const d = n.data
   if (d.code === 'links_not_updated') return { code: d.code, id: n.id, at: n.at, actions: ['dismiss'] }
   if (d.code === 'retention_ran') return { code: d.code, id: n.id, at: n.at, trashEntries: d.trashEntries, versions: d.versions, failed: d.failed, actions: ['dismiss'] }
@@ -82,6 +82,29 @@ export function noticeAlert(n: Notice, access: Access, nameOf: (id: string) => s
         space: s?.space.kind === 'shared' ? { path: s.space.root, name: spaceName(s.space.root) } : null,
         owner: s?.space.kind === 'personal' ? s.space.owner : null,
       }
+    }
+    case 'removed_from': {
+      // What they no longer see: a shared space's name (no secret), a folder's own name (they saw it) and whose it was.
+      const s = parseSpacePath(d.path)
+      const name = d.kind === 'space' ? (s?.space.kind === 'shared' ? s.space.name : null) : d.path.slice(d.path.lastIndexOf('/') + 1)
+      return {
+        code: d.code, ...base, kind: d.kind, name,
+        owner: s?.space.kind === 'personal' ? s.space.owner : null,
+        space: s?.space.kind === 'shared' && d.kind === 'folder' ? s.space.name : null,
+      }
+    }
+    case 'space_deleted': {
+      // Restoring it whole, from here, for whoever may (its managers then), while it can be.
+      const restorable = mayRestore(d.deleted)
+      return { code: d.code, ...base, name: d.name, deleted: restorable ? d.deleted : null, actions: restorable ? ['restore_space', 'dismiss'] : ['dismiss'] }
+    }
+    case 'space_restored': {
+      const shown = access.level(d.path) !== null
+      return { code: d.code, ...base, path: shown ? d.path : null, name: parseSpacePath(d.path)?.space.kind === 'shared' ? spaceName(d.path) : null }
+    }
+    case 'space_renamed': {
+      const shown = access.level(d.path) !== null
+      return { code: d.code, ...base, from: d.from, path: shown ? d.path : null, name: spaceName(d.path) }
     }
     case 'shared_with_you': {
       const s = parseSpacePath(d.path)
@@ -113,6 +136,14 @@ export type NoticeData =
   | { code: 'retention_ran'; trashEntries: number; versions: number; failed: boolean }
   /** To a personal space's owner: `by` moved a note or folder of theirs (`from`) out of it, to `to`. */
   | { code: 'moved_out'; kind: 'note' | 'folder'; by: string; from: string; to: string }
+  /** `by` took them out of the shared space at `path` (`space`), or stopped sharing the folder at `path` with them (`folder`). */
+  | { code: 'removed_from'; kind: 'space' | 'folder'; by: string; path: string }
+  /** `by` deleted the shared space `name` they were in (`deleted`: its record, to restore it whole). */
+  | { code: 'space_deleted'; by: string; name: string; deleted: string }
+  /** `by` restored the shared space at `path` they were in. */
+  | { code: 'space_restored'; by: string; path: string }
+  /** `by` renamed the shared space they're in from `from` (its name then) to the one at `path`. */
+  | { code: 'space_renamed'; by: string; from: string; path: string }
 
 export type NoticeCode = NoticeData['code']
 
@@ -126,7 +157,7 @@ export interface Notice {
 /** The most notices a person keeps: older ones go first. */
 const MAX_PER_USER = 100
 
-const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran', 'moved_out']
+const CODES: readonly NoticeCode[] = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran', 'moved_out', 'removed_from', 'space_deleted', 'space_restored', 'space_renamed']
 
 export class Notices {
   private db: Db

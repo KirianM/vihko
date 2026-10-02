@@ -89,6 +89,20 @@ export class GrantStarts {
     })()
   }
 
+  /** The starts of the grants at `folder` and under it (a space about to be deleted: kept to restore it). */
+  under(folder: string): { folder: string; subject: string; since: string | null }[] {
+    const f = folder.normalize('NFC')
+    return this.db.prepare("select folder, subject, since from grant_starts where folder = ? or folder like ? escape '\\'").all(f, likePrefix(f)) as { folder: string; subject: string; since: string | null }[]
+  }
+
+  /** Puts starts back (a space restored, before its rules are written again): its grants keep when they began. */
+  restore(rows: readonly { folder: string; subject: string; since: string | null }[]): void {
+    this.db.transaction(() => {
+      const put = this.db.prepare('insert into grant_starts (folder, subject, since) values (?, ?, ?) on conflict(folder, subject) do update set since = excluded.since')
+      for (const r of rows) put.run(r.folder, r.subject, r.since)
+    })()
+  }
+
   /**
    * Since when `who` has been able to read `folder` through the grants that
    * reach it now (ms since the epoch): the earliest of those grants' starts,

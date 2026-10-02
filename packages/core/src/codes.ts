@@ -323,6 +323,24 @@ export type Alert =
    * `owner` (another person's space) say whose space it went to.
    */
   | { code: 'moved_out'; id: string; kind: 'note' | 'folder'; by: string; from: string; to: string | null; space: { path: string; name: string | null } | null; owner: string | null; at: string; actions: 'dismiss'[] }
+  /**
+   * Addressed to one person: `by` (a name) took them out of a shared space
+   * (`kind: 'space'`, `name` its name) or stopped sharing a folder with them
+   * (`kind: 'folder'`, `name` the folder's; `owner` the personal space's
+   * owner, or `space` the shared space's name) at `at`. Nothing else of it.
+   */
+  | { code: 'removed_from'; id: string; kind: 'space' | 'folder'; by: string; name: string | null; owner: string | null; space: string | null; at: string; actions: 'dismiss'[] }
+  /**
+   * Addressed to the members of a shared space: `by` deleted it (`name`, its
+   * name then) at `at`. `deleted`: what `restore_space` restores it by,
+   * only for whoever may (who managed it, while it can be restored); null
+   * otherwise.
+   */
+  | { code: 'space_deleted'; id: string; by: string; name: string; deleted: string | null; at: string; actions: ('restore_space' | 'dismiss')[] }
+  /** Addressed to the members of a shared space: `by` restored it at `at`; `path` and `name` while they're in it. */
+  | { code: 'space_restored'; id: string; by: string; path: string | null; name: string | null; at: string; actions: 'dismiss'[] }
+  /** Addressed to the members of a shared space: `by` renamed it from `from` to `name` at `at` (`path`: its root, while they're in it). */
+  | { code: 'space_renamed'; id: string; by: string; from: string; path: string | null; name: string | null; at: string; actions: 'dismiss'[] }
 
 /** What was done to a space that someone is told about (`space_changed`). */
 export type SpaceChange = 'manager_assigned' | 'admin_joined' | 'personal_transferred' | 'personal_converted' | 'personal_deleted'

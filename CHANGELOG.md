@@ -95,6 +95,20 @@ small team meets after months of use.
 
 ### Added
 
+- **A deleted shared space comes back whole.** Right after deleting one,
+  «Undo»; later, «Restore space» in the notice its managers get, and in the
+  admin's «Spaces»: its folders (empty ones too), its notes and files from
+  the trash, its members with their levels (and when each was given access),
+  as it was. Only under its own name: while another space has it, `409
+  space_name_taken`. Who managed it when it was deleted may restore it, and
+  so may the admin, who gains no access by it. `DELETE /api/spaces` answers
+  `deleted`; `GET /api/spaces/deleted` and `POST /api/spaces/restore` are
+  new. Before, the dialog promised a restore there was no way to make but
+  note by note.
+- **Notices of what is taken away**, besides those of what is given: a
+  shared space you're in deleted (`space_deleted`) or restored
+  (`space_restored`), or renamed («Casa is now called Hogar»,
+  `space_renamed`).
 - **«Restore previous permissions».** When the `permissions` section goes
   from `vihko.yaml` (an example pasted over it, the file deleted), the file
   applies, so nothing is shared, as before; now the admins get the

@@ -808,6 +808,73 @@ test('the notice of a space or a folder shared follows it when it\'s renamed or 
   }
 })
 
+test('a deleted space is restored whole by whoever managed it, or the admin: folders, notes, members and when they joined; its members are told', async () => {
+  const h = await setup()
+  try {
+    const alertsOf = async (who: Name, code: string) => (await h.as(who)('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === code)
+    const s = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    const sub = `${s.path}/${m.aFolder()}`
+    const empty = `${s.path}/${m.aFolder()}`
+    const [top, inner] = [`${s.path}/${m.aTitle()}.md`, `${sub}/${m.aTitle()}.md`]
+    h.write(top, m.aParagraph())
+    h.write(inner, m.aParagraph())
+    mkdirSync(join(h.notesDir, empty))
+    await h.rule(sub, { grants: { [h.names.admin]: 'comment' } })
+    const rulesBefore = rulesInFile(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'))
+    const startsBefore = h.state.prepare("select folder, subject, since from grant_starts where folder like 'spaces/%' order by folder, subject").all()
+    const del = await h.member('DELETE', `/api/spaces?path=${encodeURIComponent(s.path)}&trash=true`)
+    assert.equal(del.status, 200, del.text)
+    const id = del.body.deleted as string
+    assert.equal(typeof id, 'string')
+    // Its members are told; who managed it may restore it from there, an editor may not.
+    const [toOther] = await alertsOf('other', 'space_deleted')
+    assert.deepEqual([toOther.by, toOther.name, toOther.deleted, toOther.actions], [h.names.member, s.name, null, ['dismiss']])
+    const [toMember] = await alertsOf('member', 'space_deleted')
+    assert.deepEqual([toMember.deleted, toMember.actions], [id, ['restore_space', 'dismiss']])
+    assert.deepEqual((await h.member('GET', '/api/spaces/deleted')).body.spaces.map((x: any) => [x.id, x.path, x.name, x.by, x.entries]), [[id, s.path, s.name, h.names.member, 2]])
+    assert.deepEqual((await h.other('GET', '/api/spaces/deleted')).body.spaces, [])
+    assert.deepEqual((await h.admin('GET', '/api/spaces/deleted')).body.spaces.map((x: any) => x.id), [id])
+    assert.equal((await h.other('POST', '/api/spaces/restore', { id })).status, 404, 'the same answer as for one that doesn\'t exist')
+    // Restored: everything where it was, with its rules and when its grants began.
+    const r = await h.member('POST', '/api/spaces/restore', { id })
+    assert.equal(r.status, 200, r.text)
+    assert.deepEqual([r.body.space, r.body.restored, r.body.missing], [{ path: s.path, name: s.name }, 2, 0])
+    for (const p of [top, inner, empty]) assert.ok(existsSync(join(h.notesDir, p)), p)
+    const rulesAfter = rulesInFile(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8'))
+    assert.deepEqual([rulesAfter.get(s.path), rulesAfter.get(sub)], [rulesBefore.get(s.path), rulesBefore.get(sub)])
+    assert.deepEqual(h.state.prepare("select folder, subject, since from grant_starts where folder like 'spaces/%' order by folder, subject").all(), startsBefore)
+    assert.equal((await h.other('GET', `/api/note?path=${encodeURIComponent(inner)}`)).status, 200)
+    const [back] = await alertsOf('other', 'space_restored')
+    assert.deepEqual([back.by, back.path, back.name], [h.names.member, s.path, s.name])
+    assert.deepEqual((await h.member('GET', '/api/spaces/deleted')).body.spaces, [])
+    assert.equal((await h.member('POST', '/api/spaces/restore', { id })).status, 404)
+    // The admin restores one they weren't in, without reading it.
+    const t = await newSpace(h, 'other')
+    h.write(`${t.path}/${m.aTitle()}.md`, m.aParagraph())
+    const id2 = (await h.other('DELETE', `/api/spaces?path=${encodeURIComponent(t.path)}&trash=true`)).body.deleted
+    assert.equal((await h.admin('POST', '/api/spaces/restore', { id: id2 })).status, 200)
+    assert.equal((await h.admin('GET', '/api/spaces')).body.spaces.some((x: any) => x.path === t.path), false)
+    assert.equal((await h.other('GET', '/api/spaces')).body.spaces.find((x: any) => x.path === t.path)?.level, 'manage')
+  } finally {
+    h.close()
+  }
+})
+
+test('renaming a space tells its members its old and new names', async () => {
+  const h = await setup()
+  try {
+    const s = await newSpace(h, 'member', { [h.names.other]: 'read' })
+    const name = m.aSpaceName()
+    assert.equal((await h.member('POST', '/api/spaces/rename', { path: s.path, name })).status, 200)
+    const told = (await h.other('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_renamed')
+    assert.deepEqual(told.map((a: any) => [a.by, a.from, a.name, a.path]), [[h.names.member, s.name, name, `spaces/${name}`]])
+    assert.deepEqual((await h.member('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_renamed'), [], 'not whoever did it')
+    assert.deepEqual((await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'space_renamed'), [], 'nor anyone outside it')
+  } finally {
+    h.close()
+  }
+})
+
 test('whoever manages a folder shared from someone\'s own space may take it to another space, and its owner is told; their own moves tell nobody', async () => {
   const h = await setup()
   try {
