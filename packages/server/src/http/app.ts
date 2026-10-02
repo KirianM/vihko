@@ -262,7 +262,7 @@ export type ApiEnv = { Variables: { user: User; token: string; access: Access } 
 type Env = ApiEnv
 
 function noteErrorStatus(e: NoteError) {
-  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
+  return ({ not_found: 404, exists: 409, precondition_failed: 412, invalid_path: 400, control_characters: 400, edit_mismatch: 409, too_large: 413, note_too_large: 413, unsupported_type: 415, not_configured: 409, not_empty: 409 } as const)[e.code]
 }
 
 function fetchErrorStatus(e: FetchImageError) {
@@ -685,10 +685,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     return job ? c.json(job) : fail(c, 404, 'not_found', 'no such move job')
   })
 
+  // `tooLarge`: over vihko.yaml's `notes.maxSize`, never opened live (the UI shows it as plain text, with a download).
   app.get('/api/note', (c) => {
     const r = scoped(c).read(c.req.query('path') ?? '')
     c.header('ETag', `"${r.etag}"`)
-    return c.json(r)
+    return c.json(deps.indexer.isTooLarge(r.path) ? { ...r, tooLarge: true } : r)
   })
 
   // A new note, with the given text or from a template note (its variables
@@ -1020,6 +1021,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
       const paths = unreadableNotes.filter((p) => access.canRead(p))
       const elsewhere = [...new Set(unreadableNotes.filter((p) => !access.canRead(p)).map((p) => spaceRootOf(p) ?? p.split('/')[0]!))].sort()
       alerts.push({ code: 'unreadable_notes', paths, elsewhere, actions: [] })
+    }
+    // Notes over vihko.yaml's `notes.maxSize`: shown as plain text, never indexed nor edited live. The same naming.
+    const tooLarge = admin ? deps.indexer.tooLargeNotes() : []
+    if (tooLarge.length) {
+      const paths = tooLarge.filter((p) => access.canRead(p))
+      const elsewhere = [...new Set(tooLarge.filter((p) => !access.canRead(p)).map((p) => spaceRootOf(p) ?? p.split('/')[0]!))].sort()
+      alerts.push({ code: 'notes_too_large', paths, elsewhere, limitMb: workspace.config.notes.maxSize, actions: [] })
     }
     for (const path of deps.orphans?.orphans() ?? []) {
       if (access.canRead(path)) alerts.push({ code: 'orphaned_note', path, actions: access.canWrite(path) ? ['keep_copy', 'discard_copy'] : [] })

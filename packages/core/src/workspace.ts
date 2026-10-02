@@ -42,7 +42,17 @@ export interface WorkspaceConfig {
   history: HistoryConfig
   /** The MCP server (M3): what it tells the agents that connect. */
   mcp: McpConfig
+  /**
+   * Notes (`notes` in vihko.yaml): `maxSize`, in MB, the largest note vihko
+   * indexes and opens in the live editor; a larger one shows as plain text
+   * (with a download), and the API and MCP refuse writes that would make a
+   * note larger.
+   */
+  notes: { maxSize: number }
 }
+
+/** The largest note vihko indexes and edits live by default, in MB. */
+export const DEFAULT_NOTE_MAX_MB = 5
 
 /**
  * The MCP server (`mcp` in vihko.yaml):
@@ -98,6 +108,7 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
   daily: [], attachments: { folder: null }, links: { aliases: true },
   history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
   mcp: { instructions: null },
+  notes: { maxSize: DEFAULT_NOTE_MAX_MB },
 }
 
 /**
@@ -208,8 +219,9 @@ export const STRICT_SECTIONS: readonly StrictSection[] = [PERMISSIONS_SECTION as
 
 // No `templates`: a template is a note marked `template: true` in its
 // frontmatter, wherever it is; an old `templates` key is an unknown one.
-const TOP_KEYS = ['version', 'daily', 'attachments', 'links', 'history', 'mcp']
+const TOP_KEYS = ['version', 'daily', 'attachments', 'links', 'history', 'mcp', 'notes']
 const LINKS_KEYS = ['aliases']
+const NOTES_KEYS = ['maxSize']
 const HISTORY_KEYS = ['mode', 'maxFileSize', 'exclude']
 const MCP_KEYS = ['instructions']
 const SERIES_KEYS = ['folder', 'name', 'template', 'label']
@@ -248,6 +260,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
     daily: [], attachments: { folder: null }, links: { aliases: true },
     history: { mode: 'managed', maxFileSize: DEFAULT_HISTORY_MAX_FILE_MB, exclude: [] },
     mcp: { instructions: null },
+    notes: { maxSize: DEFAULT_NOTE_MAX_MB },
   }
   const strictKeys = new Set(strict.map((s) => s.key))
   for (const key of Object.keys(data)) if (!TOP_KEYS.includes(key) && !strictKeys.has(key)) warn('unknown_key', [key])
@@ -328,6 +341,18 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
             else config.history.exclude.push(p)
           })
         }
+      }
+    }
+  }
+
+  if (data.notes !== undefined && data.notes !== null) {
+    if (!isRecord(data.notes)) fail('not_a_map', ['notes'])
+    else {
+      for (const k of Object.keys(data.notes)) if (!NOTES_KEYS.includes(k)) warn('unknown_key', ['notes', k])
+      const s = data.notes.maxSize
+      if (s !== undefined && s !== null) {
+        if (typeof s === 'number' && Number.isFinite(s) && s > 0) config.notes.maxSize = s
+        else fail('invalid_value', ['notes', 'maxSize'], 'MB > 0')
       }
     }
   }

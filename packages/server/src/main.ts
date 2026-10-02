@@ -187,7 +187,9 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   await configMigrations.run()
   // A file left without permissions applies once it stays so: then everything that depends on it hears.
   const workspace = new Workspace({ notesDir: config.notesDir, stateDir: config.stateDir, log, onSettle: () => reloadWorkspace() })
-  const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases })
+  // A note over vihko.yaml's `notes.maxSize` is indexed by its name alone, and no write makes one larger.
+  const maxNoteBytes = () => Math.floor(workspace.config.notes.maxSize * 1024 * 1024)
+  const indexer = new Indexer({ notesDir: config.notesDir, db: index, linkAliases: workspace.config.links.aliases, maxNoteBytes })
   // Users and groups. Ending someone's sessions ends their live connections
   // too (the hub exists further down). Their grants in vihko.yaml follow a
   // deletion or a group's rename (http/app.ts fills those hooks in).
@@ -241,7 +243,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   log(`index ready: ${first.added.length} added, ${first.changed.length} changed, ${first.removed.length} removed, ${first.unchanged} unchanged`)
 
   await history.open()
-  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder, agentName: (id) => keys.nameOf(id), policy })
+  const hub = new CollabHub({ notesDir: config.notesDir, stateDir: config.stateDir, indexer, auth, log, history: history.recorder, agentName: (id) => keys.nameOf(id), policy, tooLarge: (p) => indexer.isTooLarge(p) })
   // Checked against the index as the first scan left it. One that stopped may
   // have left the index behind the files: then no saved state is trusted.
   if (!first.aborted) hub.trustSavedStates()
@@ -277,7 +279,7 @@ async function run(config: Config, lock: StateLock, opts: StartOptions) {
   // Each space's note settings (noteSettings.ts): where a space's new images go, among the rest.
   const noteSettings = new NoteSettingsStore({ notesDir: config.notesDir })
   const notes = new NoteService({
-    notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes,
+    notesDir: config.notesDir, stateDir: config.stateDir, indexer, db: index, hot: hub, maxImageBytes: config.maxImageBytes, maxNoteBytes,
     attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments, history: history.recorder,
     retries: new RelinkRetries({ stateDir: config.stateDir, log }),
     // Whoever made the move is told, without names or counts; the log has the rest.

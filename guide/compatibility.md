@@ -146,7 +146,7 @@ write (write).
 | `GET /api/tree` | read | — | `notes` (`path`, `title`, `uid`, `aliases`, and `template: true` for a template, since 0.1.0-rc.5), `folders`, `pathOnly` |
 | `GET /api/spaces` | read | — | `personal` (`path`, or null when the key doesn't reach it), `spaces` (`path`, `name`, `level`, `managers`, `aiClosed`), `shared` (`path`, `level`, `pinned`, and `owner` in a personal space or `space` with `path`, `name`), `canCreate` (always false for a key). A shared space's `name` is its folder's. `managers` leaves out people the admin disabled (since 0.1.0-rc.6) |
 | `GET /api/spaces/members` | read | `path` (a folder) | `path`, `space` (`path`, `name`, or null in a personal space), `owner` (or null in a shared space), `members` (`username`, `level`, `via`: `subject`, `level`, `from` (null where the asker doesn't read that folder), and `owner: true` for a person's own space) |
-| `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fmError`, or null), `hiddenFromAgents` |
+| `GET /api/note` | read | `path` | `path`, `text`, `etag`, `meta` (`title`, `uid`, `fmError`, or null), `hiddenFromAgents`; since 0.1.0-rc.6, `tooLarge: true` for a note over `notes.maxSize` (its `meta` has nothing of its text) |
 | `GET /api/note/links` | read | `path` | `outgoing` (`raw`, `kind`, `target`, `anchor`, `status`, `dstPath`, `anchorOk`, `candidates`, `posFrom`, and `othersNoAccess`, `reason`, `self` when they apply), `backlinks` (`path`, `title`, `raw`, `context`), `titles` |
 | `GET /api/note/headings` | read | `path` | `headings` (`level`, `text`) |
 | `GET /api/note/comments` | read | `path` | `threads` (`id`, `original`, `changed`) |
@@ -263,6 +263,7 @@ These are the codes a key can meet, with their status:
 | `uid_mismatch` | 409 | Restoring, over the note at a path, a version of another note that had that path before (since 0.1.0-rc.6): restore it with `to` instead |
 | `history_off` | 409 | The history is off |
 | `too_large` | 413 | An image over the size limit |
+| `note_too_large` | 413 | A write that would make a note larger than `notes.maxSize` (5 MB by default; since 0.1.0-rc.6) |
 | `unsupported_type` | 415 | Not an image type vihko stores |
 | `busy` | 429 | Too many images received at once |
 | `precondition_required` | 428 | A write without the `If-Match` it needs |
@@ -386,6 +387,7 @@ codes 0.1.0 added for spaces:
 | `outside_spaces` | Admins | `paths`: top-level names, and folders in `spaces/` that aren't a space, that nobody sees; `into`: the admin's own space (`people/<admin>`), where they can move them on the disk. Also a `config_warnings` entry for a `vihko.yaml` path outside the spaces |
 | `unreadable_notes` | Admins | Since 0.1.0-rc.6. `paths`: notes on the disk vihko can't read (no permission, an I/O error), among those the admin reads; `elsewhere`: the roots of the spaces that hold the others. Each stays as the index had it, and the server's log names it, until it can be read. A scan or a start never stops for one |
 | `permissions_missing` | Admins | Since 0.1.0-rc.6. `file`, `folders` (how many folders the kept section has rules for), `actions` (`restore_permissions`, `dismiss`): `vihko.yaml` has no `permissions` (or there's no file), so nothing is shared, while vihko kept the last section that shared something |
+| `notes_too_large` | Admins | Since 0.1.0-rc.6. `paths` (those the admin reads), `elsewhere` (the roots of the spaces that hold the others), `limitMb`: notes over `notes.maxSize`, indexed by their name alone and never opened live |
 | `closed_spaces` | Admins | `people`: usernames of deleted people whose space nobody has decided about yet (transferred, made a shared space or deleted) |
 | `person_folder_without_user` | Admins | `names`: folders in `people/` named after no user |
 | `space_without_members` | Admins | `path`, `name`: a shared space nobody has access to |
@@ -530,6 +532,7 @@ Every key vihko reads. [Configuration](configuration.md) explains each one.
 | `history.maxFileSize` | number of MB | The largest file that enters the history |
 | `history.exclude` | pattern, or list of patterns | Paths kept out of the history |
 | `mcp.instructions` | note | A note served to agents as instructions; may hold `{user}` |
+| `notes.maxSize` | number of MB (5 by default) | Since 0.1.0-rc.6. The largest note vihko indexes and opens in the live editor: a larger one is indexed by its name alone, shows as plain text with a download, and the API and MCP refuse writes that make a note larger (`413 note_too_large`) |
 | `permissions.<folder>.name` | text | A shared space's name, only at its root |
 | `permissions.<folder>.grants` | map of subject to level | Who gets what in that folder and below |
 | `permissions.<folder>.ai` | `false` | Closes the folder and everything below it to agents |

@@ -31,7 +31,7 @@ const NO_HISTORY: NoteHistory = {
   operation: (_a, _r, fn) => fn(),
 }
 
-export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'control_characters' | 'edit_mismatch' | 'too_large' | 'unsupported_type' | 'not_configured' | 'not_empty'
+export type NoteErrorCode = 'not_found' | 'exists' | 'precondition_failed' | 'invalid_path' | 'control_characters' | 'edit_mismatch' | 'too_large' | 'note_too_large' | 'unsupported_type' | 'not_configured' | 'not_empty'
 
 export class NoteError extends Error {
   readonly code: NoteErrorCode
@@ -112,6 +112,8 @@ export interface NoteServiceOptions {
   retries?: RelinkRetries
   /** A retry that failed again: given up, for whoever made the move to be told. */
   onRelinkGaveUp?: (entry: RelinkRetry, failed: MoveReport['failed']) => void
+  /** The largest note, in bytes (vihko.yaml `notes.maxSize`): a write that makes a note larger is refused. None by default. */
+  maxNoteBytes?: () => number
 }
 
 export const DEFAULT_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -572,7 +574,17 @@ export class NoteService {
    * the note is created and the system rewrites that link so it keeps
    * leading where it did, without saying so.
    */
+  /** Unless a note's text fits the size limit (vihko.yaml `notes.maxSize`): `note_too_large`. */
+  checkSize(text: string): void {
+    const max = this.opts.maxNoteBytes?.()
+    // Never more than 3 bytes of UTF-8 per UTF-16 unit: a short text needs no counting.
+    if (max === undefined || text.length * 3 <= max) return
+    const bytes = Buffer.byteLength(text, 'utf8')
+    if (bytes > max) throw new NoteError('note_too_large', `the note would be ${bytes} bytes; notes are kept up to ${max} bytes here`)
+  }
+
   async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason; mayName?: (path: string) => boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
+    this.checkSize(text)
     const file = this.newFile(path)
     const taken = opts.mayName ? this.newNoteTakes(path, text, opts.mayName) : null
     if (taken?.refuse) throw nameTaken(path)
@@ -607,7 +619,14 @@ export class NoteService {
    * hasn't changed since it was read. If the note had no `uid`, it gets one in
    * this same write; if it had one, it's kept even if the new text omits it.
    */
-  async edit(path: string, fn: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string }> {
+  async edit(path: string, given: (text: string) => Change, opts: { ifMatch?: string; actor: Actor; mayName?: (path: string) => boolean }): Promise<{ etag: string }> {
+    // A note never grows over the size limit by an edit (`note_too_large`); one already over it is never made larger.
+    const fn = (t: string): Change => {
+      const change = given(t)
+      const next = changedText(t, change)
+      if (next.length > t.length) this.checkSize(next)
+      return change
+    }
     // An alias the edit adds is a name the note takes, as when creating one.
     const mayName = opts.mayName
     if (mayName) {

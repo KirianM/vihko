@@ -137,6 +137,13 @@ small team meets after months of use.
 
 ### Added
 
+- **A maximum note size**, `notes.maxSize` in `vihko.yaml` (5 MB by
+  default). A larger note is listed by its name but nothing of its text is
+  indexed, and it opens as plain text with a download, never in the live
+  editor; the admins get the `notes_too_large` alert, and `GET /api/note`
+  says `tooLarge: true`. The API and MCP refuse a write that would make a
+  note larger (`413 note_too_large`). A huge note slowed every browser that
+  opened it, and the server, for everyone.
 - **A deleted shared space comes back whole.** Right after deleting one,
   «Undo»; later, «Restore space» in the notice its managers get, and in the
   admin's «Spaces»: its folders (empty ones too), its notes and files from
@@ -247,6 +254,9 @@ small team meets after months of use.
   `vihko.yaml` when 0.1.0-rc.6 first starts count from the start, and so do
   the groups' members then: nobody loses a past they could see. From then on,
   whoever is given access sees the past only from that moment.
+- Notes larger than 5 MB (or `notes.maxSize`) stop being searchable and open
+  as plain text: raise `notes.maxSize` in `vihko.yaml` if you have such notes
+  and want them as before.
 - With «Members can create keys» off (the default of a new installation
   since 0.1.0-rc.4), the keys and authorised apps members made while it was
   on stop working (`403 key_suspended`) until the admin turns it on again.

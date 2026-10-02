@@ -28,6 +28,7 @@ export type ErrorCode =
   | 'already_setup'
   | 'invalid_token'
   | 'too_large' // an image over the size limit
+  | 'note_too_large' // a write that would make a note larger than vihko.yaml's `notes.maxSize` (5 MB by default)
   | 'unsupported_type' // not an image type vihko stores
   | 'fetch_failed' // an image URL could not be downloaded
   | 'busy' // too many images being received at once (uploads and copies from a URL): try again in a moment (Retry-After)
@@ -94,6 +95,15 @@ export type Alert =
    * roots of the spaces that hold the others. Only admins see it.
    */
   | { code: 'unreadable_notes'; paths: string[]; elsewhere: string[]; actions: never[] }
+  /**
+   * Notes larger than vihko.yaml's `notes.maxSize` (`limitMb`): indexed by
+   * their name alone (no words, links or tags of theirs), never opened in
+   * the live editor (they show as plain text, with a download), and the API
+   * and MCP refuse writes that make a note larger. `paths`: those the admin
+   * reads; `elsewhere`: the roots of the spaces that hold the others. Only
+   * admins see it.
+   */
+  | { code: 'notes_too_large'; paths: string[]; elsewhere: string[]; limitMb: number; actions: never[] }
   /** A note deleted from outside, with a copy pending a decision. */
   | { code: 'orphaned_note'; path: string; actions: ('keep_copy' | 'discard_copy')[] }
   /** Several notes share the same `uid`. Fixed by editing the frontmatter, never automatically. */

@@ -61,7 +61,9 @@ export async function setup(opts: SpacesSetup = {}) {
   mkdirSync(stateDir, { recursive: true })
   // Without the wait for a section gone to stay gone: a test writes the file once.
   const workspace = new Workspace({ notesDir, stateDir, settleMs: 0 })
-  const indexer = new Indexer({ notesDir, db: index })
+  // As main.ts: vihko.yaml's `notes.maxSize`.
+  const maxNoteBytes = () => Math.floor(workspace.config.notes.maxSize * 1024 * 1024)
+  const indexer = new Indexer({ notesDir, db: index, maxNoteBytes })
   const runtime: Runtime = { lastScan: null, rescan(o) { return (this.lastScan = indexer.scan(o)) } }
   runtime.rescan({})
   const keys = new ApiKeys(state)
@@ -78,7 +80,7 @@ export async function setup(opts: SpacesSetup = {}) {
     await history.recorder.settle()
     indexer.onApplied = (a) => history.recorder.observeIndexed(a)
   }
-  const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history?.recorder, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments })
+  const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history?.recorder, maxNoteBytes, attachments: (p) => (p ? noteSettings.attachmentsFor(p) : null) ?? workspace.config.attachments })
   /** How many times open editors would have been checked again (the hub's `recheckAccess`). */
   const rechecks = { n: 0 }
   const { app, services } = createServer({

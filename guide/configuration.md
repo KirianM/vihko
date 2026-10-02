@@ -100,6 +100,7 @@ permissions:
 | [`history.maxFileSize`](#history) | number (MB) | `20` | Largest file that enters the history |
 | [`history.exclude`](#history) | list of patterns | none | Paths kept out of the history |
 | [`mcp.instructions`](#mcpinstructions) | note path | none | A note served to agents as instructions |
+| [`notes.maxSize`](#notesmaxsize) | number (MB) | `5` | Largest note indexed and edited live |
 | [`permissions`](#permissions) | map of folder rules | nothing shared | Shared spaces, and who shares what |
 
 Paths in the file are relative to the root of the notes folder, with `/`
@@ -321,6 +322,22 @@ mcp:
 Someone without that note gets vihko's instructions alone. A shared space and
 a person can add a guide of their own after this one (`agents` in their
 [settings](#settings-of-a-person-or-a-space)).
+
+### `notes.maxSize`
+
+```yaml
+notes:
+  maxSize: 5    # MB
+```
+
+The largest note vihko indexes and opens in the live editor, in MB (decimals
+are fine; 5 by default). A note larger than that, written with another tool
+or imported, is still listed by its name, but nothing of its text is indexed
+(no search, links or tags from it), and opening it shows it as plain text
+with a download instead of the editor. The admins get the `notes_too_large`
+alert listing them. The API and MCP refuse a write that would make a note
+larger than this (`note_too_large`). A huge note in the live editor would make
+every browser that opens it, and the server, slow for everyone.
 
 ### `permissions`
 

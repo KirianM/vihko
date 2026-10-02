@@ -35,7 +35,7 @@ export {
   type DisplayPath, type DisplaySpace, type PersonalSpace, type SharedSpace, type Space, type SpaceKind, type SpaceNameProblem, type SpacePath,
 } from './spaces.ts'
 export { DEFAULT_ATTACHMENTS_SUFFIX, type AttachmentsConfig } from './workspace.ts'
-export { DEFAULT_HISTORY_MAX_FILE_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
+export { DEFAULT_HISTORY_MAX_FILE_MB, DEFAULT_NOTE_MAX_MB, HISTORY_MODES, type HistoryConfig, type HistoryMode, type McpConfig } from './workspace.ts'
 export { WORKSPACE_MIGRATIONS, formatVersion, migrateWorkspaceText, type MigrationOutcome, type WorkspaceMigration } from './workspaceMigrations.ts'
 export {
   EMPTY_NOTE_SETTINGS, NOTE_SETTINGS_FILE, NOTE_SETTINGS_VERSION, NoteSettingsFileError, noteSettingsPath, parseNoteSettings, resolveNoteSettings, spacePathProblem, writeNoteSettings,

@@ -69,6 +69,49 @@ test('vihko.yaml without its permissions: nothing is shared, the admin is told, 
   }
 })
 
+test('a note over notes.maxSize: indexed by its name alone, shown as too large, the admin told; the API and MCP never make one larger', async () => {
+  const h = await setup()
+  try {
+    await h.enable()
+    const file = join(h.notesDir, 'vihko.yaml')
+    // 4 KB here (the default is 5 MB): what the value is matters, so it's written.
+    writeFileSync(file, `notes:\n  maxSize: 0.00390625\n`)
+    h.workspace.reload()
+    const word = m.aUniqueWord()
+    const big = `${h.home('member')}/${m.aTitle()}.md`
+    h.write(big, `# ${m.aHeading()}\n\n${word} ${'x'.repeat(5000)}\n`)
+    // In the tree by its name, but nothing of its text in the index.
+    assert.ok((await h.member('GET', '/api/tree')).body.notes.some((n: any) => n.path === big))
+    assert.deepEqual((await h.member('GET', `/api/search?q=${word}`)).body.results, [])
+    const read = await h.member('GET', `/api/note?path=${encodeURIComponent(big)}`)
+    assert.deepEqual([read.status, read.body.tooLarge], [200, true])
+    // The admin is told, by its space (they don't read it).
+    const [alert] = (await h.admin('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'notes_too_large')
+    assert.deepEqual([alert.paths, alert.elsewhere, alert.limitMb], [[], [h.home('member')], 0.00390625])
+    assert.equal((await h.member('GET', '/api/alerts')).body.alerts.some((a: any) => a.code === 'notes_too_large'), false)
+    // Writes that would make a note larger: refused, by HTTP and MCP alike; one that keeps it within, fine.
+    const small = `${h.home('member')}/${m.aTitle()}.md`
+    assert.deepEqual([(await h.member('POST', '/api/note', { path: small, text: 'y'.repeat(5000) })).status, (await h.member('POST', '/api/note', { path: small, text: 'y'.repeat(5000) })).body.error], [413, 'note_too_large'])
+    assert.equal((await h.member('POST', '/api/note', { path: small, text: `# ${m.aHeading()}\n` })).status, 201)
+    const appended = await h.member('POST', '/api/note/edit', { path: small, ops: [{ op: 'append', text: 'z'.repeat(5000) }] })
+    assert.deepEqual([appended.status, appended.body.error], [413, 'note_too_large'])
+    const key = await h.newKey('member', { name: m.aKeyName(), canWrite: true })
+    const c = await h.mcp(key.token)
+    try {
+      const r = await c.call('create_note', { path: `${h.home('member')}/${m.aTitle()}.md`, text: 'w'.repeat(5000) })
+      assert.ok(r.error && r.raw.includes('note_too_large'), r.raw)
+    } finally { await c.close() }
+    // Back under the limit (a larger one): indexed whole again.
+    writeFileSync(file, `notes:\n  maxSize: 1\n`)
+    h.workspace.reload()
+    h.runtime.rescan({})
+    assert.equal((await h.member('GET', `/api/search?q=${word}`)).body.results.length, 1)
+    assert.equal((await h.member('GET', `/api/note?path=${encodeURIComponent(big)}`)).body.tooLarge, undefined)
+  } finally {
+    h.close()
+  }
+})
+
 test('templates are no longer folders: an old templates key is ignored with a warning, and nothing names one', async () => {
   const mine = m.aFolder()
   const h = await setup()
