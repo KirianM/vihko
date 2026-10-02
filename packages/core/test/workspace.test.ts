@@ -240,6 +240,15 @@ test('vihko.yaml: series patterns must name exactly one note per period', () => 
   assert.deepEqual(errors('daily:\n  d: Diario\n'), [['not_a_map', 'daily.d', 2]])
 })
 
+test('vihko.yaml: a series id never takes the prefix of a person\'s or a space\'s series', () => {
+  for (const prefix of ['me-', 'sp-', 'ME-', 'Sp-']) {
+    const id = `${prefix}${m.aWord().replace(/[^A-Za-z0-9]/g, '') || 'x'}`
+    assert.deepEqual(errors(`daily:\n  ${id}:\n    folder: D\n`), [['invalid_id', `daily.${id}`, 2]], id)
+  }
+  // Only as a prefix with its hyphen: `meetings`, `spare-x` or `x-me-y` are anyone's.
+  for (const id of ['meetings', 'sp', 'spare-x', 'x-me-y', 'me_x']) assert.deepEqual(warnings(`daily:\n  ${id}:\n    folder: D\n`), [], id)
+})
+
 test('vihko.yaml: every error is reported at once', () => {
   assert.deepEqual(errors('atachments: x\nattachments:\n  folder: ../x\ndaily:\n  d:\n    folder: D\n    name: "{MM}"\n'), [
     ['invalid_path', 'attachments.folder', 3],

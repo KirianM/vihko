@@ -618,8 +618,10 @@ explains it.
   person's own.
 - **Series ids**: a space's series are offered as `me-<id>` (one's own
   space) or `sp-<8 hex digits>-<id>` (a shared space's, from its root), so
-  they never take one of `vihko.yaml`'s. A `dailySeries` in the profile
-  names them that way. How the hex digits are made isn't covered.
+  they never take one of `vihko.yaml`'s: since 0.1.0-rc.6 an id in
+  `vihko.yaml` that starts with `me-` or `sp-`, in any case, is `invalid_id`.
+  A `dailySeries` in the profile names them that way. How the hex digits are
+  made isn't covered.
 
 ## Environment variables
 

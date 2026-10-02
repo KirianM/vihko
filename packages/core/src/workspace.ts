@@ -116,7 +116,8 @@ export const EMPTY_WORKSPACE: WorkspaceConfig = {
  * - `not_boolean`: a switch that isn't `true` or `false`.
  * - `invalid_path`: a folder or note path that isn't relative to the notes
  *   root, climbs out of it or goes through a hidden folder.
- * - `invalid_id`: a series key that isn't letters, digits, `-` or `_`.
+ * - `invalid_id`: a series key that isn't letters, digits, `-` or `_`, or
+ *   starts with `me-` or `sp-` (in any case), the ids of the spaces' series.
  * - `pattern_token`: an unknown `{token}` in a series pattern (`detail`).
  * - `pattern_period`: a series pattern that doesn't name one note per day,
  *   ISO week, month or year.
@@ -225,6 +226,8 @@ const ATTACHMENT_KEYS = ['mode', 'folder', 'suffix']
 const ATTACHMENT_MODES = ['next-to-note', 'folder', 'per-note']
 const DEFAULT_NAME = '{YYYY}-{MM}-{DD}'
 const SERIES_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+/** The prefixes of the ids of a person's and a shared space's series (the server's seriesPrefix), in any case: never one of this file's. */
+const SPACE_SERIES_ID = /^(?:me|sp)-/i
 
 /** A folder relative to the notes root: no leading or trailing `/`, no `.`/`..`, nothing hidden. */
 function isFolder(path: string): boolean {
@@ -367,7 +370,7 @@ export function parseWorkspaceConfig(text: string, strict: readonly StrictSectio
     if (!isRecord(data.daily)) fail('not_a_map', ['daily'])
     else for (const [id, raw] of Object.entries(data.daily)) {
       const at = ['daily', id]
-      if (!SERIES_ID.test(id)) { fail('invalid_id', at); continue }
+      if (!SERIES_ID.test(id) || SPACE_SERIES_ID.test(id)) { fail('invalid_id', at); continue }
       if (!isRecord(raw)) { fail('not_a_map', at); continue }
       for (const k of Object.keys(raw)) if (!SERIES_KEYS.includes(k)) warn('unknown_key', [...at, k])
       const s = parseSeries(id, raw, at, fail)

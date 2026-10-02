@@ -162,7 +162,7 @@ has buttons for the previous and next note in the series.
 
 | Key | Default | Notes |
 |---|---|---|
-| id (the key) | — | Letters, digits, `-` or `_`, starting with a letter or digit, up to 64 characters |
+| id (the key) | — | Letters, digits, `-` or `_`, starting with a letter or digit, up to 64 characters. Not starting with `me-` or `sp-` (in any case): those are the ids of the spaces' series |
 | `label` | the id | Name shown in the UI |
 | `folder` | the root | Folder pattern. It must be inside a space: a series at the root of the notes folder, or anywhere else outside `people/` and `spaces/`, is ignored |
 | `name` | `{YYYY}-{MM}-{DD}` | File name pattern, without `.md` and without `/` |

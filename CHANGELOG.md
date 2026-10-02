@@ -124,6 +124,9 @@ small team meets after months of use.
   Windows and SMB shares can't create. Creating or renaming a space with one
   answers `400 invalid` (`invalid_characters` or `invalid_name`). A space
   that already has such a name keeps it.
+- A series of `vihko.yaml` whose id starts with `me-` or `sp-` (in any
+  case) is `invalid_id`: those are the ids of a person's and a shared
+  space's series, and one there could take theirs.
 
 ### Security
 
@@ -310,6 +313,9 @@ small team meets after months of use.
   without the `/` (`[t](plan.md)`) to keep it next to the note. An image
   `![](/…)` written from the notes root (`/spaces/…`, `/people/…`) still
   works.
+- **A series in `vihko.yaml` whose id starts with `me-` or `sp-`** makes the
+  file invalid (`config_invalid`, the last valid file applies): rename that
+  series, and whoever had chosen it chooses again in Preferences.
 
 ## [0.1.0-rc.5] - 2026-10-02
 
