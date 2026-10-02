@@ -151,6 +151,20 @@ test('a broken link creates its note only in the note’s own space; into anothe
   assert.equal(wikiLinkNote(source, '[[people]]')?.path, `${source.slice(0, source.lastIndexOf('/'))}/people.md`)
 })
 
+test('a leading `/` is the root of the note’s space: suggesting, resolving and creating from it', () => {
+  for (const root of [`people/${m.aUsername()}`, `spaces/${m.aSpaceFolder()}`]) {
+    const [folder, title, missing] = [m.aFolder(), m.aTitle(), m.aTitle()]
+    const source = `${root}/${m.aFolder()}/${m.aTitle()}.md`
+    const target = `${root}/${folder}/${title}.md`
+    const cat = new NoteCatalog([{ path: source, title: m.aTitle() }, { path: target, title }, { path: `${folder}/${title}.md`, title }])
+    // Typed from the root of the space, the note there comes first, as its link would resolve.
+    assert.equal(cat.rank(`/${folder}/${title.slice(0, 2)}`, source)[0]?.path, target)
+    assert.equal(cat.resolve(source, `/${folder}/${title}`), target, 'and its headings are offered from there')
+    assert.equal(wikiLinkNote(source, `[[/${folder}/${missing}]]`)?.path, `${root}/${folder}/${missing}.md`)
+    assert.equal(markdownLinkNote(source, '[x](/y.md)', `/${encodeURI(folder)}/${encodeURI(missing)}.md`)?.path, `${root}/${folder}/${missing}.md`)
+  }
+})
+
 test('a broken Markdown link creates the .md it points to, relative to the note', () => {
   assert.equal(markdownLinkNote('a/b.md', '[x](nueva.md)', 'nueva.md')?.path, 'a/nueva.md')
   assert.equal(markdownLinkNote('a/b.md', '[x](../Otra%20nota.md)', '../Otra%20nota.md')?.path, 'Otra nota.md')

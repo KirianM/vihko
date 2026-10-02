@@ -289,7 +289,8 @@ To see what's around a note:
   can't. A link to a note the person can't read is `missing`, exactly like a
   link to a note that doesn't exist. A link to the note itself adds
   `self: true`. How links resolve is in [Notes and Markdown](notes.md#links):
-  by name inside the note's space, with a path from the root to another.
+  by name or by path, only inside the note's space (a leading `/` is the
+  root of that space).
 - `GET /api/note/headings?path=` gives `headings`, each with its `level` and
   `text`.
 - `GET /api/note/comments?path=` gives the note's comment `threads`, each with

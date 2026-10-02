@@ -394,11 +394,10 @@ What keeps working, because inside a space a name is looked up among that
 space's notes and files: links by name (`[[Plan]]`) or by a path inside the
 vault (`[[projects/Plan]]`), relative Markdown links, images and attachments
 by name (`![[Pasted image 20240101.png]]`, `[[invoice.pdf]]`, wherever they
-are in the space: Obsidian's attachments folder too), tags, frontmatter and
-the notes' `uid`s. What doesn't: links written from the vault's root with a
-leading slash (`[[/projects/Plan]]`, what Obsidian writes with «Absolute path
-in vault»), because the root is now the notes folder. Before copying, set
-Obsidian to «Shortest path when possible», or fix those links afterwards.
+are in the space: Obsidian's attachments folder too), links and images
+written from the vault's root with a leading slash (`[[/projects/Plan]]`,
+what Obsidian writes with «Absolute path in vault»: in vihko `/` is the root
+of the space), tags, frontmatter and the notes' `uid`s.
 Attachments that aren't images (a PDF) open in a new tab; vihko's tree
 doesn't list them yet.
 

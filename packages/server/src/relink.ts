@@ -3,7 +3,7 @@
 // we check where it resolves after the change; if it differs, it's rewritten
 // with the shortest form that still points to its destination.
 import { posix } from 'node:path'
-import { extract, markdownDest, resolveImageRef, sameSpace, wikiLink, type ImageLink, type LinkIndex, type LinkRef, type Resolution } from '@vihko/core'
+import { extract, markdownDest, resolveImageRef, rootedTarget, sameSpace, wikiLink, type ImageLink, type LinkIndex, type LinkRef, type Resolution } from '@vihko/core'
 
 export interface Replacement {
   from: number
@@ -174,18 +174,19 @@ export function planImageRelinks(
 
 /**
  * How a note at `src` writes a reference to the image at `path`, in the style
- * of `img`: from the root if it was written from the root; otherwise relative
- * (Markdown, encoded), or for embeds relative only while it doesn't climb out
- * of the note's folder (`/path` from the root if it would). The `?query` or
- * `#anchor` of a Markdown destination is kept.
+ * of `img`: from the root of its space if it was written so (`/…`, core's
+ * rootedTarget); otherwise relative (Markdown, encoded), or for embeds
+ * relative only while it doesn't climb out of the note's folder (from the
+ * root of the space if it would). The `?query` or `#anchor` of a Markdown
+ * destination is kept.
  */
 function imageDest(img: ImageLink, src: string, path: string): string {
   const bare = img.dest.replace(/^<|>$/g, '')
   const fromRoot = bare.startsWith('/')
   const rel = posix.relative(posix.dirname(src), path)
-  if (isWiki(img)) return fromRoot || rel.startsWith('../') ? '/' + path : rel
+  if (isWiki(img)) return fromRoot || rel.startsWith('../') ? rootedTarget(src, path) : rel
   const suffix = /[?#].*$/.exec(bare)?.[0] ?? ''
-  const dest = markdownDest(fromRoot ? '/' + path : rel) + suffix
+  const dest = markdownDest(fromRoot ? rootedTarget(src, path) : rel) + suffix
   return img.dest.startsWith('<') ? `<${dest}>` : dest
 }
 
@@ -212,7 +213,8 @@ export function applyReplacements(text: string, reps: Replacement[]): string {
 
 /**
  * The link written so that, in `src`, it reaches `want`: a Markdown link by
- * its relative path, encoded as image links are (`markdownDest`: spaces,
+ * its relative path (from the root of the space if it was written with a
+ * leading `/`), encoded as image links are (`markdownDest`: spaces,
  * brackets, parentheses, `%`, `#`, `?`…), keeping its `#anchor` as written,
  * its `<…>` form, its text and its title; a wikilink by the shortest target
  * that resolves there (`wikiLink`), keeping its anchor (`#…`) and visible
@@ -235,7 +237,9 @@ export function rewriteLink(link: LinkRef, src: string, want: string, index: Lin
     const angled = written.startsWith('<')
     const url = angled ? written.slice(1, written.endsWith('>') ? -1 : undefined) : written
     const hash = url.indexOf('#')
-    const dest = markdownDest(posix.relative(posix.dirname(src), want)) + (hash === -1 ? '' : url.slice(hash))
+    // Written from the root of the space (`/…`), it stays so; otherwise relative to the note.
+    const path = url.startsWith('/') ? rootedTarget(src, want) : posix.relative(posix.dirname(src), want)
+    const dest = markdownDest(path) + (hash === -1 ? '' : url.slice(hash))
     return link.raw.slice(0, start) + (angled ? `<${dest}>` : dest) + link.raw.slice(end)
   }
   // Wikilink: name, progressively longer path suffixes, and finally the path from the root.

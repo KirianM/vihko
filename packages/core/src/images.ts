@@ -2,6 +2,7 @@
 // reference resolves to a path in the notes folder, and how a path is written
 // as a Markdown link destination. Browser-safe entry point (@vihko/core/images):
 // used by the indexer, the server and the editor. No Node modules here.
+import { rootedPath } from './resolve.ts'
 
 /** Extensions shown as images (also those vihko never stores, like SVG: they can already be in a vault). */
 export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'bmp', 'ico'] as const
@@ -28,7 +29,8 @@ function decode(s: string) {
 /**
  * Path in the notes folder that a reference written in `notePath` points to, or
  * null if it isn't a local path or it leaves the folder. Markdown destinations
- * are relative to the note and may be URL-encoded; a leading `/` is the root.
+ * are relative to the note and may be URL-encoded; a leading `/` is the root
+ * of the note's space, as for links (resolve.ts `rootedPath`).
  * `![[name]]` embeds are passed with `embed: true`: a bare name is taken as
  * relative to the note, like Markdown (no name lookup across the vault).
  */
@@ -37,7 +39,9 @@ export function resolveImageRef(notePath: string, ref: string, opts: { embed?: b
   if (!dest || HAS_SCHEME.test(dest)) return null
   dest = dest.replace(/[?#].*$/, '')
   if (!opts.embed) dest = decode(dest)
-  const parts = dest.startsWith('/') ? [] : dirOf(notePath).split('/').filter(Boolean)
+  if (dest.startsWith('/')) dest = rootedPath(notePath, dest)
+  else dest = `${dirOf(notePath)}/${dest}`
+  const parts: string[] = []
   for (const seg of dest.split('/')) {
     if (seg === '' || seg === '.') continue
     if (seg === '..') {

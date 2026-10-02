@@ -83,7 +83,7 @@ function spacesGuide(access: Access, v: SpacesResponse): string[] {
   if (shared.length) lines.push(`- Folders others share with them: ${shared.join(', ')}.`)
   if (all.length > shown.length) lines.push(`- And ${all.length - shown.length} more: list_folder with folder "" lists them all.`)
   lines.push(
-    '- Links: by name ([[plan]]) or relative path, and only inside the note\'s own space: a link never leads to another space (one written to it is broken).',
+    '- Links: by name ([[plan]]), relative path, or path from the root of the note\'s space ([[/projects/plan]]), and only inside that space: a link never leads to another space (one written to it is broken).',
     '- Moving a note to another space changes who can see it and whose it is, and leaves broken the links between it and the space it leaves (the move\'s dry run lists them).',
   )
   return lines

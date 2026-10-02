@@ -17,7 +17,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
-import { DEFAULT_ATTACHMENTS_SUFFIX, readFrontmatter } from '@vihko/core'
+import { DEFAULT_ATTACHMENTS_SUFFIX, markdownDest, readFrontmatter } from '@vihko/core'
 import { Auth, Indexer, NoteError, NoteService, Notices, Profiles, RelinkRetries, Workspace, createServer, openIndex, openState, type RelinkRetry, type Runtime } from '@vihko/server'
 import { tempDir } from './_tmp.ts'
 import { yamlKey } from './_permissions.ts'
@@ -215,6 +215,48 @@ test('links stay in their space: a name or a path into another space is broken, 
   const ag = h.agent('member')
   assert.equal(ag.resolveLink(`${s.space.member}/${mine}.md`, `[[${s.home}/${list}|${list}]]`).status, 'missing')
   assert.equal(ag.resolveLink(`${s.home}/${inside}.md`, `[[${list}]]`).status, 'resolved')
+})
+
+test('a leading `/` is the root of the space: links and images resolve from it, count as backlinks, and a rename rewrites them from it still', async () => {
+  const [list, linker, folder, deep, image] = [m.aTitle(), m.aTitle(), m.aFolder(), m.aFolder(), `${m.aWord()}.png`]
+  const md = `[${m.aWord()}](/${encodeURI(folder)}/${encodeURI(list)}.md)`
+  const text = `[[/${folder}/${list}]] ${md} ![](/${encodeURI(folder)}/${encodeURI(image)})\n`
+  const h = await setup((s) => ({
+    [`${s.home}/${folder}/${list}.md`]: `# ${list}\n`,
+    [`${s.home}/${folder}/${image}`]: PNG,
+    [`${s.home}/${deep}/${linker}.md`]: text,
+    // The same path from the notes root, and next to the linking note: neither is what `/` means.
+    [`${folder}/${list}.md`]: `# ${list}\n`,
+    [`${s.home}/${deep}/${folder}/${list}.md`]: `# ${list}\n`,
+  }))
+  const { s } = h
+  const linkerPath = `${s.home}/${deep}/${linker}.md`
+  const listPath = `${s.home}/${folder}/${list}.md`
+  const outgoing = (await h.as('member')('GET', q('/api/note/links', { path: linkerPath }))).body.outgoing
+  assert.deepEqual(outgoing.map((l: any) => [l.status, l.dstPath]), [['resolved', listPath], ['resolved', listPath]])
+  const back = (await h.as('member')('GET', q('/api/note/links', { path: listPath }))).body.backlinks.map((b: any) => b.path)
+  assert.deepEqual([...new Set(back)], [linkerPath])
+  // Renaming the list into another folder: the wikilink takes its shortest form, the Markdown link stays from the root.
+  const newName = m.aTitle()
+  const sub = m.aFolder()
+  const to = `${s.home}/${sub}/${newName}.md`
+  const moved = await h.as('member')('POST', '/api/note/move', { from: listPath, to })
+  assert.equal(moved.status, 200, moved.text)
+  const after = h.body(linkerPath)
+  assert.ok(after.includes(`(/${markdownDest(`${sub}/${newName}`)}.md)`), after)
+  const now = (await h.as('member')('GET', q('/api/note/links', { path: linkerPath }))).body.outgoing
+  assert.deepEqual(now.map((l: any) => [l.status, l.dstPath]), [['resolved', to], ['resolved', to]])
+  // Moving the linking note deeper in its space changes none of its `/` links.
+  const deeper = `${s.home}/${m.aFolder()}/${m.aFolder()}/${linker}.md`
+  assert.equal((await h.as('member')('POST', '/api/note/move', { from: linkerPath, to: deeper })).status, 200)
+  assert.equal(h.body(deeper), after)
+  // Taken to the member's own space: the image it uses from the space it leaves is copied, and its `/` reference
+  // is written from the root of the new space.
+  const mine = `${s.space.member}/${linker}.md`
+  const left = await h.as('member')('POST', '/api/note/move', { from: deeper, to: mine })
+  assert.equal(left.status, 200, left.text)
+  assert.deepEqual(left.body.images.copied, [{ from: `${s.home}/${folder}/${image}`, to: `${s.space.member}/${image}` }])
+  assert.ok(h.body(mine).includes(`![](/${markdownDest(image)})`), h.body(mine))
 })
 
 test('moving a note to another space rewrites nothing across spaces; the report lists the links it leaves broken, both ways, and names nothing hidden', async () => {

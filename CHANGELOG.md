@@ -109,6 +109,15 @@ small team meets after months of use.
 - Files opened on their own: images (not SVG) and PDFs are shown in the
   browser (`Content-Disposition: inline`); an SVG, a web page or anything
   else is downloaded.
+- **A link that starts with `/` counts from the root of its note's space**,
+  in every form: `[[/recipes/Bread]]`, `[bread](/recipes/Bread.md)` and
+  `![](/images/plan.png)`, as Obsidian counts from the root of its vault.
+  Until now a wikilink counted from the notes root (and inside a space never resolved),
+  a Markdown link from the note's folder, an image from the notes root. A
+  first folder `people` or `spaces` still counts from the notes root. A
+  vault copied into a space keeps its links written from its root; a rename
+  keeps a Markdown link or an image written so in that form; `[[/…`
+  suggests notes from the root of the space.
 
 ### Security
 
@@ -285,6 +294,12 @@ small team meets after months of use.
 - The index (`index.db`) is rebuilt on its own the first time this version
   starts (it now lists the files that aren't notes, to find them by name);
   nothing to do.
+- **Links and images that start with `/`** now count from the root of the
+  note's space. A Markdown link `[t](/plan.md)` that led to a `plan.md` next
+  to the note now leads to the one at the root of the space: write it
+  without the `/` (`[t](plan.md)`) to keep it next to the note. An image
+  `![](/…)` written from the notes root (`/spaces/…`, `/people/…`) still
+  works.
 
 ## [0.1.0-rc.5] - 2026-10-02
 

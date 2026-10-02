@@ -1,13 +1,13 @@
 // Link resolution with spaces: a link never leaves its
 // note's space. A name resolves only in its note's space; a path
 // from the notes root (`people/…`, `spaces/…`), a relative Markdown link or
-// `[[/path]]` are exact, and lead to a note only in that same space: into
+// `[[/path]]` (from the root of the space) are exact, and lead to a note only in that same space: into
 // another space they're broken, as a link to nothing. What vihko writes to
 // reach a note (shortestTarget, wikiLink) never starts with `/` and never
 // reaches another space.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LinkIndex, isRootTarget, linkSpace, sameSpace, shortestTarget, wikiLink, type Resolution } from '@vihko/core'
+import { LinkIndex, isRootTarget, linkSpace, resolveImageRef, rootedPath, rootedTarget, sameSpace, shortestTarget, wikiLink, type Resolution } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -65,6 +65,55 @@ test('no path leads to another space: from the notes root, [[/path]] or relative
   // Exact: the root path of a folder the note isn't in reaches nothing (no suffix heuristics from the root).
   assert.equal(at(l.index.resolve(l.notes.mineSource, wiki(`${l.mine}/${l.name}`))), 'missing')
   assert.ok(sameSpace(l.notes.mineSource, l.notes.mineName) && !sameSpace(l.notes.mineSource, l.notes.sharedName))
+})
+
+test('a leading `/` is the root of the link\'s space, in a wikilink, a Markdown link and an image alike', () => {
+  for (const root of [`people/${m.aUsername()}`, `spaces/${m.aSpaceFolder()}`]) {
+    const folder = m.aFolder()
+    const name = m.aTitle()
+    const target = `${root}/${folder}/${name}.md`
+    const source = `${root}/${m.aFolder()}/${m.aFolder()}/${m.aTitle()}.md`
+    // The same folders from the notes root, and next to the source: neither is what `/` means.
+    const decoys = [`${folder}/${name}.md`, `${source.slice(0, source.lastIndexOf('/'))}/${folder}/${name}.md`]
+    const index = new LinkIndex()
+    for (const p of [target, source, ...decoys]) index.set({ path: p })
+    const inner = `/${folder}/${name}`
+    assert.equal(at(index.resolve(source, wiki(inner))), target)
+    assert.equal(at(index.resolve(source, wiki(inner.toUpperCase()))), target, 'in any case, as links are compared')
+    assert.equal(at(index.resolve(source, { kind: 'markdown', target: `${inner}.md`, anchor: null })), target)
+    assert.equal(LinkIndex.keyOf(source, wiki(inner)), LinkIndex.keyOf(source, { kind: 'markdown', target: `${inner}.md` }))
+    const image = `${m.aFolder()}/${m.aWord()}.png`
+    assert.equal(resolveImageRef(source, `/${image}`), `${root}/${image}`)
+    assert.equal(resolveImageRef(source, `/${image}`, { embed: true }), `${root}/${image}`)
+    assert.equal(resolveImageRef(source, `/${encodeURI(image)}`), `${root}/${image}`, 'a Markdown destination is decoded')
+    // And back: what vihko writes with a `/` reads as the same path.
+    assert.equal(rootedTarget(source, target), `${inner}.md`)
+    assert.equal(rootedPath(source, rootedTarget(source, target)), target)
+  }
+})
+
+test('a `/` before `people/` or `spaces/` is still the notes root, and never reaches another space', () => {
+  const owner = m.aUsername()
+  const mine = `people/${owner}`
+  const shared = `spaces/${m.aSpaceFolder()}`
+  const name = m.aTitle()
+  const index = new LinkIndex()
+  const own = `${mine}/${name}.md`
+  const theirs = `${shared}/${name}.md`
+  const source = `${mine}/${m.aFolder()}/${m.aTitle()}.md`
+  for (const p of [own, theirs, source]) index.set({ path: p })
+  assert.equal(at(index.resolve(source, wiki(`/${mine}/${name}`))), own)
+  assert.equal(at(index.resolve(source, { kind: 'markdown', target: `/${mine}/${name}.md`, anchor: null })), own)
+  assert.equal(at(index.resolve(source, wiki(`/${shared}/${name}`))), 'missing')
+  assert.equal(at(index.resolve(source, { kind: 'markdown', target: `/${shared}/${name}.md`, anchor: null })), 'missing')
+  assert.equal(resolveImageRef(source, `/${shared}/x.png`), `${shared}/x.png`)
+  // A folder named `people` inside the space can't be written from its root: the whole path is.
+  const hidden = `${mine}/people/${m.aWord()}/${name}.md`
+  assert.equal(rootedTarget(source, hidden), `/${hidden}`)
+  assert.equal(rootedPath(source, rootedTarget(source, hidden)), hidden)
+  // In no space (the layout before spaces), the root is the notes root.
+  assert.equal(rootedPath(`${m.aFolder()}/x.md`, `/${name}.md`), `${name}.md`)
+  assert.equal(resolveImageRef(`${m.aFolder()}/x.md`, '/x.png'), 'x.png')
 })
 
 test('`people` or `spaces` alone is a name, and only a first segment makes a root path', () => {

@@ -183,6 +183,7 @@ vihko reads both kinds of Markdown links. The editor writes wikilinks.
 | `[[Plan#Budget]]` | The heading «Budget» in `Plan` |
 | `[[launch/Plan]]` | A note of the same space whose path ends in `launch/Plan` |
 | `[text](../launch/Plan.md)` | A standard Markdown link, relative to the note |
+| `[[/launch/Plan]]`, `[text](/launch/Plan.md)` | The note at `launch/Plan` from the root of the note's space |
 | `![[Plan]]` | Also a link to `Plan` (vihko doesn't show one note inside another) |
 | `[[invoice.pdf]]` | The file `invoice.pdf`: by name, as for a note (see below). It opens in a new tab: the browser shows it (a PDF, an image) or downloads it |
 
@@ -191,11 +192,14 @@ same space as the note it's in («My notes», or a shared space): never to
 another space, whatever its form. What a link means depends only on the file
 and the space it's in, never on who reads it:
 
-1. **A Markdown link, or a path from the root of the notes folder**
-   (`[[/…]]`, or a wikilink that starts with `people/` or `spaces/`), is an
-   exact path. It leads to the note only when that note is in the same space;
-   one that leaves the space (`../` above the space, or the folder of another
-   space) is broken.
+1. **A Markdown link, or a path from a root** is an exact path: a Markdown
+   link counts from the note's folder; a link that starts with `/`
+   (`[[/recipes/Bread]]`, `[bread](/recipes/Bread.md)`) counts from the root
+   of the note's space, as Obsidian counts from the root of the vault; and a
+   wikilink that starts with `people/` or `spaces/` (with or without the `/`)
+   counts from the root of the notes folder. It leads to the note only when
+   that note is in the same space; one that leaves the space (`../` above the
+   space, or the folder of another space) is broken.
 2. **Any other `[[name]]`** is looked for **only among the notes of its own
    space**, ignoring case (and Unicode forms), never as a partial match:
    - **nearest wins**: with several candidates, the one that shares the
@@ -340,7 +344,9 @@ shallowest below that), two equally near are no answer (the image shows as
 missing), and it never reaches another space. So a vault whose images are in
 an attachments folder (`![[Pasted image 20240101.png]]`) shows them as
 Obsidian did. The same goes for a link to any other file, `[[invoice.pdf]]`.
-A Markdown link (`![](…)`, `[…](…)`) is always relative to the note.
+A Markdown link (`![](…)`, `[…](…)`) is relative to the note, or, with a
+leading `/` (`![](/images/plan.png)`), to the root of the note's space, as
+for links to notes.
 
 Uploading, pasting or dropping an image stores it in the notes folder (where,
 depends on [`attachments`](configuration.md#attachments-where-new-images-go))
@@ -465,14 +471,16 @@ Edit, add, move or delete files with any tool while vihko runs:
   folder), everything inside it works as in vihko, and nothing leads out of
   it, as in vihko.
 - **With the whole notes folder open**, links inside a space work as in
-  vihko. One difference: a name or a path that vihko shows broken because it
-  is in another space, Obsidian finds there.
+  vihko. Two differences: a name or a path that vihko shows broken because it
+  is in another space, Obsidian finds there; and a path that starts with `/`
+  (`[[/recipes/Bread]]`), which vihko reads from the root of the note's
+  space, Obsidian reads from the root of the notes folder.
 - **Files added outside a space** (at the root of the notes folder) aren't
   seen by anyone in vihko, and the admins get an alert. To bring an existing
   vault in, copy it into your own folder (`people/<you>/`), or into a shared
   space's folder (`spaces/<name>/`) after creating the space in the UI.
-  Its links by name keep working inside that space; links written as
-  `[[/path]]` from the old root need the new path.
+  Its links keep working inside that space, those written from the vault's
+  root (`[[/path]]`) included: in vihko `/` is the root of the space.
 
 ## What vihko never does to your files
 

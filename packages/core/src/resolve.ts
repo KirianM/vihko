@@ -6,8 +6,9 @@
 // With spaces, what a link means depends only on the file and the space it
 // is in, never on who reads it, and a link never leaves its note's space:
 // 1. an empty target (`[[#Heading]]`) is the note itself;
-// 2. a relative Markdown link, or `[[/path]]`, is an exact path, which
-//    leads to a note only when that note is in the source's space;
+// 2. a Markdown link (relative to the note) or any link starting with `/`
+//    (from the root of the source's space: rootedPath) is an exact path,
+//    which leads to a note only when that note is in the source's space;
 // 3. a wikilink whose first segment is `people` or `spaces` (and has more
 //    after it) is an exact path from the notes root, also only within the
 //    source's space: `[[spaces/…]]` into another space is broken;
@@ -85,6 +86,34 @@ export function isRootTarget(target: string): boolean {
   return slash > 0 && ROOT_SEGMENTS.has(normKey(t.slice(0, slash)))
 }
 
+/**
+ * A target written with a leading `/` (`[[/recipes/Bread]]`, `[t](/plan.md)`,
+ * `![](/images/a.png)`), as a path from the notes root: `/` is the root of
+ * `source`'s space (the notes root for a note in no space), never the notes
+ * root itself, since links don't cross spaces. One whose first segment is
+ * `people` or `spaces` is from the notes root still (rule 3), as without the
+ * `/`. Not normalized: `..` and empty segments are the caller's.
+ */
+export function rootedPath(source: string, target: string): string {
+  const t = target.replace(/^\/+/, '')
+  if (isRootTarget(t)) return t
+  const root = linkSpace(source)
+  return root === '' ? t : `${root}/${t}`
+}
+
+/**
+ * The inverse: how `source` writes `path` (from the notes root) with a
+ * leading `/`, so that rootedPath reads it back. From the root of `source`'s
+ * space when `path` is in it; otherwise (another space, or a first folder
+ * `people` or `spaces` inside the space, which would read from the notes
+ * root) the whole path from the notes root.
+ */
+export function rootedTarget(source: string, path: string): string {
+  const root = linkSpace(source)
+  const inner = root !== '' && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path
+  return '/' + (rootedPath(source, inner) === path ? inner : path)
+}
+
 export interface LinkIndexOptions {
   /** Whether aliases resolve links (vihko.yaml `links.aliases`, on by default). They're kept either way. */
   aliases?: boolean
@@ -142,8 +171,11 @@ export class LinkIndex {
   /** A link's lookup key, to tell whether a key change affects it. */
   static keyOf(source: string, link: Pick<LinkRef, 'kind' | 'target'>): string | null {
     if (link.target === '') return null
-    if (link.kind === 'markdown') return normKey(stripMd(joinPath(dirOf(source), link.target)))
-    return normKey(stripMd(link.target.replace(/^\/+/, '')))
+    if (link.kind === 'markdown') {
+      return normKey(stripMd(link.target.startsWith('/') ? joinPath('', rootedPath(source, link.target)) : joinPath(dirOf(source), link.target)))
+    }
+    if (link.target.startsWith('/')) return normKey(stripMd(rootedPath(source, link.target)))
+    return normKey(stripMd(link.target))
   }
 
   resolve(source: string, link: Pick<LinkRef, 'kind' | 'target' | 'anchor'>): Resolution {
@@ -151,7 +183,7 @@ export class LinkIndex {
     const key = LinkIndex.keyOf(source, link)!
 
     if (link.kind === 'markdown' || link.target.startsWith('/') || isRootTarget(link.target)) {
-      // Relative path (Markdown), absolute from the root (`[[/folder/Note]]`)
+      // Relative path (Markdown), from the root of the space (`[[/folder/Note]]`)
       // or from the notes root (`[[spaces/Home/Note]]`): exact
       // full-path match, no heuristics, and only in the source's own space.
       const space = linkSpace(source)
@@ -213,8 +245,8 @@ export class LinkIndex {
  * The shortest wikilink target that, written in `source`, resolves to `path`:
  * the name, then progressively longer path suffixes, which ends at the path
  * from the notes root (never with a leading `/`: Obsidian doesn't read
- * that). The absolute `/folder/Note` only as a last resort, for a
- * note in no space. Without the `.md` extension. A note of another space
+ * that). `/folder/Note` (from the root of the space, rootedPath) only as a
+ * last resort, for a note in no space. Without the `.md` extension. A note of another space
  * has no such target (links never cross spaces): what this returns then resolves nowhere,
  * and callers check (`sameSpace`).
  *

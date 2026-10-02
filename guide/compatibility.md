@@ -716,9 +716,12 @@ with `.` or ending in `~`, and symbolic links).
 
 How a link resolves is the same for everyone who reads it, and a link never
 leads to another space, in any form: a wikilink whose first segment is
-`people` or `spaces` is a path from the notes root; a Markdown link, or
-`[[/path]]`, is an exact path; each leads to a note only when that note is
-in the link's own space. Any other wikilink is searched only among the notes
+`people` or `spaces` is a path from the notes root; a Markdown link is an
+exact path from the note's folder; a link or an image that starts with `/`
+(`[[/path]]`, `[t](/path.md)`, `![](/path.png)`) is an exact path from the
+root of the note's space (since 0.1.0-rc.6), or from the notes root when its
+first segment is `people` or `spaces`; each leads to a note only when that
+note is in the link's own space. Any other wikilink is searched only among the notes
 of its own space, by name and path, then by aliases of that space. An alias
 that several notes of the space share is ambiguous. A link to another space
 is broken, as a link to a note that doesn't exist.
