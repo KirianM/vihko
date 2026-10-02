@@ -112,6 +112,8 @@ small team meets after months of use.
 
 ### Security
 
+- The image no longer carries npm, npx or corepack: vihko never runs them,
+  and the packages bundled with npm had known vulnerabilities.
 - **Moving a folder into another space no longer brings its grants along
   unless you manage where it goes.** With only `edit` in a shared space (or in
   a folder someone shares from their own space), moving a folder of yours

@@ -41,10 +41,13 @@ COPY packages/web packages/web
 RUN npm run build --workspace @vihko/web
 
 FROM node:26-trixie-slim
-# The note history keeps its versions with the system's git.
+# The note history keeps its versions with the system's git. vihko never runs
+# npm, npx or corepack: they go, and their bundled packages with them.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 ENV NODE_ENV=production \
     VIHKO_NOTES_DIR=/data/notes \
     VIHKO_STATE_DIR=/data/state \
