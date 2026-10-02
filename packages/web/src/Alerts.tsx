@@ -16,22 +16,41 @@ import { RelinkRows } from './MovePreview.tsx'
 import { ShiftPreview } from './Shifts.tsx'
 import { useDates } from './history/ui.tsx'
 import { historyApi } from './history/api.ts'
+import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
 import './actions.css'
 
 type ExternalMove = Extract<Alert, { code: 'external_move' }>
 type Translate = ReturnType<typeof useT>
 
 /** Notices addressed to one person: theirs to dismiss, and said when they come in. */
-export type PersonalNotice = Extract<Alert, { code: 'account_changed' | 'user_account_changed' | 'history_purged_authored' | 'links_not_updated' | 'space_changed' | 'shared_with_you' | 'retention_ran' }>
-export const isPersonalNotice = (a: Alert): a is PersonalNotice =>
-  a.code === 'account_changed' || a.code === 'user_account_changed' || a.code === 'history_purged_authored'
-  || a.code === 'links_not_updated' || a.code === 'space_changed' || a.code === 'shared_with_you' || a.code === 'retention_ran'
+export type PersonalNotice = Extract<Alert, { code: (typeof NOTICE_CODES)[number] }>
+const NOTICE_CODES = [
+  'account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you', 'retention_ran',
+  'moved_out', 'removed_from', 'space_deleted', 'space_restored', 'space_renamed', 'account_key_added',
+] as const
+export const isPersonalNotice = (a: Alert): a is PersonalNotice => (NOTICE_CODES as readonly string[]).includes(a.code)
 
-type NoticeParts = { by?: string; user?: string; path?: string; to?: string; space?: string; name?: string; owner?: string }
+type NoticeParts = { by?: string; user?: string; path?: string; to?: string; space?: string; name?: string; owner?: string; from?: string }
 
 /** A notice's title: its text's key, and what goes in it (names; a path or a space only while they can still see it). */
 function noticeTitle(a: PersonalNotice): { key: MessageKey; parts: NoticeParts } {
   switch (a.code) {
+    case 'moved_out': {
+      const name = fileName(a.from)
+      if (a.space) return { key: 'alerts.movedOutTo', parts: { by: a.by, name, space: a.space.name ?? '' } }
+      if (a.owner && a.owner.normalize('NFC').toLowerCase() !== a.by.normalize('NFC').toLowerCase()) return { key: 'alerts.movedOutToOf', parts: { by: a.by, name, owner: a.owner } }
+      return { key: 'alerts.movedOutToTheirs', parts: { by: a.by, name } }
+    }
+    case 'removed_from': {
+      if (a.kind === 'space') return { key: 'alerts.removedFromSpace', parts: { by: a.by, space: a.name ?? '' } }
+      if (a.owner && a.owner.normalize('NFC').toLowerCase() !== a.by.normalize('NFC').toLowerCase()) return { key: 'alerts.removedFromFolderOf', parts: { by: a.by, name: a.name ?? '', owner: a.owner } }
+      if (a.space) return { key: 'alerts.removedFromFolderIn', parts: { by: a.by, name: a.name ?? '', space: a.space } }
+      return { key: 'alerts.removedFromFolder', parts: { by: a.by, name: a.name ?? '' } }
+    }
+    case 'space_deleted': return { key: 'alerts.spaceWasDeleted', parts: { by: a.by, space: a.name } }
+    case 'space_restored': return a.name ? { key: 'alerts.spaceWasRestored', parts: { by: a.by, space: a.name } } : { key: 'alerts.spaceWasRestoredNeutral', parts: { by: a.by } }
+    case 'space_renamed': return { key: 'alerts.spaceWasRenamed', parts: { by: a.by, from: a.from, space: a.name ?? '' } }
+    case 'account_key_added': return { key: a.kind === 'app' ? 'alerts.appAdded' : 'alerts.keyAdded', parts: { name: a.name } }
     case 'links_not_updated': return { key: 'alerts.linksNotUpdated', parts: {} }
     case 'retention_ran': return { key: a.failed ? 'alerts.retentionFailed' : 'alerts.retentionRan', parts: {} }
     case 'space_changed': {
@@ -172,6 +191,44 @@ function RelinkDialog({ alert, onClose, onDone, onStarted }: {
   )
 }
 
+/** «Restore previous permissions»: what it does, confirmed at the moment with the admin's code or password. */
+function RestorePermissionsDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const t = useT()
+  const how = useConfirmWith()
+  const [secret, setSecret] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy || !confirmReady(how, secret)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.restorePermissions(secret.trim())
+      onDone()
+    } catch (err) {
+      setError(codeError(t, err))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog className="dialog dialog-narrow" role="alertdialog">
+      <form onSubmit={(e) => void submit(e)}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('alerts.restorePermissionsTitle')}</Heading>
+          <p className="dialog-text">{t('alerts.restorePermissionsBody')}</p>
+          <ConfirmField how={how} value={secret} onChange={setSecret} hint={t('alerts.restorePermissionsHint')} />
+          {error && <p className="error-text" role="alert">{error}</p>}
+        </div>
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy || !confirmReady(how, secret)}>{t('alerts.restorePermissionsConfirm')}</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 /** Replaces `{key}` placeholders in a translated text with elements (paths in monospace, names in bold). */
@@ -200,6 +257,8 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
   const [relink, setRelink] = useState<ExternalMove | null>(null)
   const [relinkJob, setRelinkJob] = useState<MoveJob | null>(null)
   const [relinked, setRelinked] = useState<{ ok: boolean; text: string } | null>(null)
+  /** «Restore previous permissions»: its confirmation. */
+  const [restoringPermissions, setRestoringPermissions] = useState(false)
 
   const fail = (err: unknown) => {
     if (err instanceof ApiError && err.status === 401) return onUnauthorized()
@@ -473,10 +532,23 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
       case 'links_not_updated':
       case 'space_changed':
       case 'shared_with_you':
-      case 'retention_ran': {
+      case 'retention_ran':
+      case 'moved_out':
+      case 'removed_from':
+      case 'space_deleted':
+      case 'space_restored':
+      case 'space_renamed':
+      case 'account_key_added': {
         const when = dates.dateTime(a.at)
         const n = noticeTitle(a)
-        const body = a.code === 'account_changed'
+        const restorable = a.code === 'space_deleted' && a.deleted !== null && a.actions.includes('restore_space')
+        const body = a.code === 'moved_out' ? t('alerts.movedOutBody', { when })
+          : a.code === 'removed_from' ? t('alerts.removedFromBody', { when })
+          : a.code === 'space_deleted' ? t(restorable ? 'alerts.spaceWasDeletedRestorable' : 'alerts.spaceWasDeletedBody', { when })
+          : a.code === 'space_restored' ? t('alerts.spaceRestoredBody', { when })
+          : a.code === 'space_renamed' ? t('alerts.spaceRenamedBody', { when, by: a.by })
+          : a.code === 'account_key_added' ? t('alerts.keyAddedBody', { when })
+          : a.code === 'account_changed'
           ? t(a.change === 'reset_link' ? 'alerts.accountResetLinkBody' : a.change === 'two_factor_reset' ? 'alerts.accountTwoFactorBody' : 'alerts.accountRoleBody', { when })
           : a.code === 'user_account_changed'
             // The person isn't told of an invitation, nor of being disabled or deleted.
@@ -486,12 +558,19 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
             : a.code === 'space_changed' ? t('alerts.spaceChangedBody', { when })
             : a.code === 'shared_with_you' ? t(a.path === null ? 'alerts.sharedWithYouGoneBody' : a.kind === 'space' ? 'alerts.sharedWithYouBody' : 'alerts.sharedFolderBody', { when })
             : t('alerts.purgedAuthoredBody', { when })
+        const spaced = a.code === 'shared_with_you' || a.code === 'space_changed' || a.code === 'removed_from' || a.code === 'space_deleted' || a.code === 'space_restored' || a.code === 'space_renamed' || a.code === 'moved_out'
         return frame({
-          icon: a.code === 'history_purged_authored' || a.code === 'links_not_updated' || a.code === 'retention_ran' ? icons.config : a.code === 'shared_with_you' || a.code === 'space_changed' ? icons.people : icons.person,
-          tone: a.code === 'account_changed' || a.code === 'shared_with_you' ? 'accent' : undefined,
-          title: rich(t(n.key), { by: <b>{n.parts.by}</b>, user: <b>{n.parts.user}</b>, path: n.parts.path ? mono(n.parts.path) : null, to: <b>{n.parts.to}</b>, space: <b>{n.parts.space}</b>, name: <b>{n.parts.name}</b>, owner: <b>{n.parts.owner}</b> }),
+          icon: a.code === 'history_purged_authored' || a.code === 'links_not_updated' || a.code === 'retention_ran' ? icons.config : spaced ? icons.people : icons.person,
+          tone: a.code === 'account_changed' || a.code === 'shared_with_you' || a.code === 'account_key_added' || restorable ? 'accent' : undefined,
+          title: rich(t(n.key), { by: <b>{n.parts.by}</b>, user: <b>{n.parts.user}</b>, path: n.parts.path ? mono(n.parts.path) : null, to: <b>{n.parts.to}</b>, space: <b>{n.parts.space}</b>, name: <b>{n.parts.name}</b>, owner: <b>{n.parts.owner}</b>, from: <b>{n.parts.from}</b> }),
           body,
-          actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissNotice(a.id))}>{t('alerts.dismiss')}</Button>,
+          actions: (
+            <>
+              {/* A deleted space back whole, for who managed it: the notice goes when it's back. */}
+              {restorable && <Button className="btn btn-primary" isDisabled={busy} onPress={() => act(async () => { await api.restoreSpace(a.deleted!); await api.dismissNotice(a.id) })}>{t('alerts.restoreSpace')}</Button>}
+              <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissNotice(a.id))}>{t('alerts.dismiss')}</Button>
+            </>
+          ),
         })
       }
       case 'two_factor_unreadable':
@@ -524,6 +603,34 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
           tone: 'warn',
           title: t('alerts.permissionsRejectedTitle'),
           body: t(a.fallback === 'closed' ? 'alerts.permissionsRejectedClosed' : 'alerts.permissionsRejectedLastGood'),
+          actions: null,
+        })
+      case 'permissions_missing':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.permissionsMissingTitle'),
+          body: rich(t('alerts.permissionsMissingBody', { n: a.folders }), { file: <span className="mono">{a.file}</span> }),
+          actions: (
+            <>
+              {a.actions.includes('restore_permissions') && <Button className="btn btn-primary" isDisabled={busy} onPress={() => setRestoringPermissions(true)}>{t('alerts.restorePermissions')}</Button>}
+              {a.actions.includes('dismiss') && <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissMissingPermissions())}>{t('alerts.dismiss')}</Button>}
+            </>
+          ),
+        })
+      case 'notes_too_large':
+        return frame({
+          icon: icons.warn,
+          tone: 'warn',
+          title: t('alerts.notesTooLargeTitle'),
+          body: t('alerts.notesTooLargeBody', { limit: a.limitMb }),
+          extra: (
+            <ul className="alert-paths">
+              {a.paths.slice(0, 10).map((p) => <li key={p}>{noteLink(p)}</li>)}
+              {a.paths.length > 10 && <li>{t('alerts.movedMore', { n: a.paths.length - 10 })}</li>}
+              {a.elsewhere.map((p) => <li key={`in:${p}`}>{rich(t('alerts.notesTooLargeIn'), { path: <span className="mono">{p}</span> })}</li>)}
+            </ul>
+          ),
           actions: null,
         })
       case 'permissions_held':
@@ -658,6 +765,11 @@ export function AlertsPage({ onOpen, onSpaces, onChanged, onUnauthorized }: {
             <RelinkDialog alert={relink} onClose={() => setRelink(null)} onDone={relinkDone}
               onStarted={(job) => { setRelink(null); setRelinkJob(job) }} />
           )}
+        </Modal>
+      </ModalOverlay>
+      <ModalOverlay className="modal-overlay" isOpen={restoringPermissions} onOpenChange={(o) => { if (!o) setRestoringPermissions(false) }} isDismissable>
+        <Modal className="modal">
+          {restoringPermissions && <RestorePermissionsDialog onClose={() => setRestoringPermissions(false)} onDone={() => { setRestoringPermissions(false); void load() }} />}
         </Modal>
       </ModalOverlay>
       {relinkJob && <MoveProgress key={relinkJob.id} job={relinkJob} onFinished={relinkEnded} />}

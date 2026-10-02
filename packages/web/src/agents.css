@@ -45,6 +45,7 @@
 .key-status-active { color: var(--ok); border: 1px solid var(--line); }
 .key-status-expired { background: var(--warn-soft); color: var(--warn-ink); }
 .key-status-revoked { background: var(--chip); color: var(--muted); }
+.key-status-suspended { background: var(--warn-soft); color: var(--warn-ink); }
 .key-meta { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px var(--space-4); font-size: 13px; line-height: 18px; }
 .key-row { display: contents; }
 .key-row dt { color: var(--muted); }

@@ -67,7 +67,12 @@ export interface Note {
   hiddenFromAgents: 'ai' | 'frontmatter' | null
   /** What the person may do where it is: below `edit`, the editor is read-only. */
   level?: Level
+  /** Larger than vihko.yaml's `notes.maxSize`: never opened in the live editor, shown as plain text with a download. */
+  tooLarge?: true
 }
+
+/** A shared space deleted that the person may restore whole (GET /api/spaces/deleted). */
+export interface DeletedSpace { id: string; path: string; name: string; by: string; deletedAt: string; entries: number }
 
 /** Whether a level lets the person write the note (`Level`, below: from less to more). */
 export const canEdit = (level: Level | null | undefined) => level === 'edit' || level === 'manage'
@@ -266,6 +271,8 @@ export interface Integrations {
   locked: boolean
   canCreateKeys: boolean
   publicUrl: string | null
+  /** For the admin: how many keys and apps members have, which turning `membersCanCreateKeys` off suspends. */
+  memberKeys?: number
 }
 /** An agent key as its owner (or the admin) sees it: never the secret. `folders` empty = every folder. */
 export interface KeyInfo {
@@ -280,7 +287,8 @@ export interface KeyInfo {
   lastVia: 'api' | 'mcp' | 'oauth' | null
   revokedAt: string | null
   last4: string
-  status: 'active' | 'expired' | 'revoked'
+  /** `suspended`: a member's, while the admin doesn't let members have keys (it works again once they do). */
+  status: 'active' | 'expired' | 'revoked' | 'suspended'
   /** An OAuth authorization: the client it was given to and where it goes back to. Null for a key. */
   client: { id: string; redirectUris: string[] } | null
   /** Rotated a moment ago: until when the key it replaced still works. */
@@ -370,6 +378,8 @@ export interface MembersView {
 export interface SpaceInfo { path: string; name: string; managers: string[]; members: number; aiClosed: boolean }
 /** A deleted person's personal space, closed: nobody sees it, not even the admin. */
 export interface ClosedSpace { userId: string; username: string; path: string }
+/** What a person's space shares, before deleting them: counts, and each shared folder with its people (its path only where the admin reads it). */
+export interface PersonalSummary { path: string; exists: boolean; sharedFolders: number; people: number; shared: { path: string | null; people: { username: string; level: Level }[] }[] }
 /** What becoming of a deleted person's space involves: counts only. */
 export interface PersonalSpacePlan { action: 'transfer' | 'convert' | 'delete'; from: string; to: string | null; notes: number; files: number; sharedFolders: number; people: number }
 /** A folder's lock and the person's level in it (GET /api/permissions/folders). */
@@ -501,8 +511,16 @@ export const api = {
   /** «Move to a new space»: the folder becomes a shared space of its own, named `name`; `dryRun`: the move's preview. */
   spaceFromFolder: (path: string, name: string, dryRun = false) => request<{ space?: SpaceEntry; report: FolderMoveReport }>('POST', '/api/spaces/from-folder', { path, name, dryRun }),
   renameSpace: (path: string, name: string) => request<{ space: SpaceEntry }>('POST', '/api/spaces/rename', { path, name }).then((r) => r.space),
-  /** A shared space and everything in it (to the trash with `trash`). */
-  deleteSpace: (path: string, trash = true) => request<{ path: string }>('DELETE', `/api/spaces?path=${encodeURIComponent(path)}${trash ? '&trash=true' : ''}`),
+  /** A shared space and everything in it (to the trash with `trash`); `deleted` restores it whole. */
+  deleteSpace: (path: string, trash = true) => request<{ path: string; deleted: string }>('DELETE', `/api/spaces?path=${encodeURIComponent(path)}${trash ? '&trash=true' : ''}`),
+  /** The deleted spaces this person may restore whole (who managed them; the admin, every one). */
+  deletedSpaces: () => request<{ spaces: DeletedSpace[] }>('GET', '/api/spaces/deleted').then((r) => r.spaces),
+  /** A deleted space back whole, with its members (`space_name_taken` while another space has its name). */
+  restoreSpace: (id: string) => request<{ space: { path: string; name: string }; restored: number; missing: number }>('POST', '/api/spaces/restore', { id }),
+  /** vihko.yaml's last permissions that shared something, written back (`permissions_missing`), confirmed at the moment. */
+  restorePermissions: (confirm: string) => request<{ ok: true; folders: number }>('POST', '/api/admin/permissions/restore', { confirm }),
+  /** The `permissions_missing` alert dismissed: the kept permissions are forgotten. */
+  dismissMissingPermissions: () => request<{ ok: true }>('DELETE', '/api/admin/permissions/restore'),
   /** Leaves a space, or stops seeing a folder shared with one (`leave_via_group` through a group). */
   leaveSpace: (path: string) => request<{ path: string }>('POST', '/api/spaces/leave', { path }),
   /** Who has access to a folder one reads (a space's members); not_found for anything one doesn't. */
@@ -512,8 +530,8 @@ export const api = {
   adminSpaces: () => request<{ spaces: SpaceInfo[]; closed: ClosedSpace[] }>('GET', '/api/admin/spaces'),
   assignManager: (path: string, userId: string, confirm: string) => request<{ space: SpaceInfo }>('POST', '/api/admin/spaces/managers', { path, userId, confirm }).then((r) => r.space),
   joinSpace: (path: string, level: Level, confirm: string) => request<{ space: SpaceInfo }>('POST', '/api/admin/spaces/join', { path, level, confirm }).then((r) => r.space),
-  /** Before deleting someone: what their space shares, as counts. */
-  personalSummary: (userId: string) => request<{ path: string; exists: boolean; sharedFolders: number; people: number }>('GET', `/api/admin/users/${encodeURIComponent(userId)}/space`),
+  /** Before deleting someone: what their space shares, as counts, and who has access to what (a folder's path only where the admin reads it). */
+  personalSummary: (userId: string) => request<PersonalSummary>('GET', `/api/admin/users/${encodeURIComponent(userId)}/space`),
   /**
    * A deleted person's closed space: transferred, made a shared space or deleted (`dryRun`: what it would do).
    * With `deleteUser`, a disabled person not deleted yet: deleted, and their space transferred or converted at once.
@@ -537,6 +555,8 @@ export const api = {
   /** Moves a note; if rewriting the links takes long, they go on in the background (a job). */
   startMove: (from: string, to: string) => request<MoveReport | { job: MoveJob }>('POST', '/api/note/move', { from, to, background: true }).then(started<MoveReport>),
   trash: (path: string) => request<TrashEntry>('DELETE', `/api/note?path=${encodeURIComponent(path)}`),
+  /** The trash as this person sees it: what they may restore. */
+  trashEntries: () => request<{ entries: TrashEntry[] }>('GET', '/api/trash').then((r) => r.entries),
   /** Asked once per page load: it only changes when the server restarts. */
   config: () => (config ??= request<ServerConfig>('GET', '/api/config').catch((err) => { config = null; throw err })),
   uploadImage: (note: string, file: Blob) =>
@@ -579,12 +599,18 @@ export const api = {
   /** The alert of a migration of state.db at start, dismissed (the admin, for every admin). */
   dismissStateMigration: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/state-migrations/${encodeURIComponent(id)}`),
   endOtherSessions: () => request<{ ended: number }>('DELETE', '/api/account/sessions'),
-  /** Other sessions end; `wrong_password` if `current` isn't right. */
-  changePassword: (current: string, password: string) => request<{ ok: true }>('POST', '/api/auth/password', { current, password }),
+  /** With `revokeOthers` (the default), other sessions end and keys and apps are revoked; `wrong_password` if `current` isn't right. */
+  changePassword: (current: string, password: string, revokeOthers = true) =>
+    request<{ ok: true; sessionsEnded: number; keysRevoked: number }>('POST', '/api/auth/password', { current, password, revokeOthers }),
   users: () => request<{ users: UserInfo[] }>('GET', '/api/admin/users').then((r) => r.users),
-  /** A new admin, with `confirm`: the admin's current code, or their password without a second factor. */
-  createUser: (username: string, role: UserInfo['role'], confirm?: string) =>
-    request<{ user: UserInfo; link: NewLink }>('POST', '/api/admin/users', { username, role, ...(confirm === undefined ? {} : { confirm }) }),
+  /**
+   * A new admin, with `confirm`: the admin's current code, or their password without a second factor.
+   * `adopt`: their folder already in people/, with something in it, becomes theirs (never by default).
+   */
+  createUser: (username: string, role: UserInfo['role'], confirm?: string, adopt = false) =>
+    request<{ user: UserInfo; link: NewLink }>('POST', '/api/admin/users', { username, role, ...(confirm === undefined ? {} : { confirm }), ...(adopt ? { adopt: true } : {}) }),
+  /** Someone who hasn't used their invitation yet, renamed (`not_invited` otherwise). */
+  renameUser: (id: string, username: string) => request<{ user: UserInfo }>('PUT', `/api/admin/users/${encodeURIComponent(id)}/username`, { username }).then((r) => r.user),
   /** A new link for them (an invitation, or a reset if they have a password); the earlier one stops working. */
   /** A new link; a reset (they have a password) is confirmed with `confirm`. */
   userLink: (id: string, confirm?: string) => request<{ link: NewLink; user: UserInfo }>('POST', `/api/admin/users/${encodeURIComponent(id)}/link`, confirm ? { confirm } : {}),

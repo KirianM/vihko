@@ -428,6 +428,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
           <VersionView path={path} id={version} store={versions} exists session={c.session} closeLabel={t('version.back')}
             onClose={() => { onVersion(null); requestAnimationFrame(() => view?.focus()) }}
             onRestored={(r) => { versions.refresh(); onRestored(r) }}
+            onOpen={(p) => { onVersion(null); onNavigate(p) }}
             onReverted={(r) => { versions.refresh(); onVersion(null); setReverted((p) => ({ seq: (p?.seq ?? 0) + 1, report: r })) }}
             onPurged={known === 'manage' && history?.mode === 'managed' ? () => { versions.refresh(); onVersion(null) } : undefined} />
         )}

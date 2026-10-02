@@ -1,7 +1,8 @@
 // Dialogs of the spaces: a new shared space (its name and,
 // if wanted, its first members; whoever creates it manages it), renaming one,
-// leaving a space or a folder shared with one, and deleting a space (what it
-// holds goes to the trash, which its managers can restore).
+// leaving a space or a folder shared with one, deleting a space (what it
+// holds goes to the trash, and its managers can restore it whole), and the
+// notice after that offers «Undo».
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Button, Dialog, Heading, Input, Label, Text, TextField } from 'react-aria-components'
 import { ApiError, LEVELS, api, type Grants, type Level, type SpaceEntry } from './api.ts'
@@ -190,8 +191,39 @@ export function LeaveSpaceDialog({ path, name, kind, onClose, onLeft }: { path: 
   )
 }
 
-/** Deleting a shared space: how many notes go to the trash, and who can bring them back (its managers). */
-export function DeleteSpaceDialog({ space, notes, onClose, onDeleted }: { space: SpaceEntry; notes: number; onClose: () => void; onDeleted: () => void }) {
+/**
+ * After deleting a space: «Undo» brings it back whole (its folders, notes and
+ * members), right away. Later, the notice its managers get does the same.
+ */
+export function SpaceDeletedToast({ deleted, name, onRestored, onDismiss }: { deleted: string; name: string; onRestored: (path: string) => void; onDismiss: () => void }) {
+  const t = useT()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const undo = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      onRestored((await api.restoreSpace(deleted)).space.path)
+    } catch (err) {
+      setError(spaceError(t, err))
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="toast">
+      <span className="toast-icon">{Icon.trash}</span>
+      <span className="toast-text" role="status">
+        {t('spaces.deletedToast', { name })}
+        {error && <span className="error-text">{error}</span>}
+      </span>
+      <Button className="btn" onPress={() => void undo()} isDisabled={busy}>{t('spaces.undo')}</Button>
+      <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={onDismiss}>{Icon.close}</Button>
+    </div>
+  )
+}
+
+/** Deleting a shared space: how many notes go to the trash, and who can bring it back whole (its managers). `onDeleted` gets what restores it. */
+export function DeleteSpaceDialog({ space, notes, onClose, onDeleted }: { space: SpaceEntry; notes: number; onClose: () => void; onDeleted: (deleted: string) => void }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -200,8 +232,8 @@ export function DeleteSpaceDialog({ space, notes, onClose, onDeleted }: { space:
     setBusy(true)
     setError(null)
     try {
-      await api.deleteSpace(space.path, true)
-      onDeleted()
+      const r = await api.deleteSpace(space.path, true)
+      onDeleted(r.deleted)
     } catch (err) {
       setError(spaceError(t, err))
       setBusy(false)
@@ -213,7 +245,7 @@ export function DeleteSpaceDialog({ space, notes, onClose, onDeleted }: { space:
         <Heading slot="title" className="dialog-title">{t('spaces.deleteTitle', { name: space.name })}</Heading>
         <ul className="consequences">
           <li>{notes === 0 ? t('spaces.deleteEmpty') : t(notes === 1 ? 'spaces.deleteNotesOne' : 'spaces.deleteNotes', { n: notes })}</li>
-          {notes > 0 && <li>{t('spaces.deleteRestore', { managers })}</li>}
+          <li>{t('spaces.deleteRestore', { managers })}</li>
           <li>{t('spaces.deleteMembers')}</li>
         </ul>
         {error && <p className="error-text" role="alert">{error}</p>}

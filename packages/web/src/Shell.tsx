@@ -2,7 +2,8 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, Tooltip, TooltipTrigger, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@vihko/core/series'
-import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Note, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { TooLargeNote } from './TooLargeNote.tsx'
 import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
 import { renamedPath } from './legacyAddress.ts'
 import { openingNote } from './onOpen.ts'
@@ -10,7 +11,7 @@ import { HomePage } from './Home.tsx'
 import { NoteSettingsDialog } from './NoteSettings.tsx'
 import { addressOf } from '@vihko/core/spaces'
 import { SpaceSections, type Section, type SectionAction } from './Sidebar.tsx'
-import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, spaceError } from './SpaceDialogs.tsx'
+import { DeleteSpaceDialog, LeaveSpaceDialog, NewSpaceDialog, RenameSpaceDialog, SpaceDeletedToast, spaceError } from './SpaceDialogs.tsx'
 import { SpacesPage } from './SpacesAdmin.tsx'
 import { audienceChanges } from './Audience.tsx'
 import { MembersDialog, PermissionsDialog } from './Permissions.tsx'
@@ -157,8 +158,26 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const [restored, setRestored] = useState<{ seq: number; report: RestoreReport } | null>(null)
   const restoredDone = (report: RestoreReport) => { setVersion(null); setRestored((r) => ({ seq: (r?.seq ?? 0) + 1, report })) }
   const [ready, setReady] = useState<string | null>(null)
+  /** The open note, when it's too large to edit live: shown as plain text, with a download. */
+  const [large, setLarge] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [trashed, setTrashed] = useState<Trashed | null>(null)
+  /**
+   * Someone else put the open note in the trash: «Restore» only when this
+   * person may (its entry is in their trash), and the space it was in, when
+   * it was deleted with it: never a «Restore» that fails.
+   */
+  const othersTrash = async (t: Trashed) => {
+    const [entries, now] = await Promise.all([api.trashEntries().catch(() => null), api.spaces().catch(() => null)])
+    if (entries === null) return
+    const root = rootOf(t.path)
+    // Deleted with its space: it comes back with the space, whole («Restore space» in the notice), never on its own here.
+    const spaceGone = now !== null && root !== null && root.startsWith('spaces/') && !now.spaces.some((s) => s.path === root) && !now.shared.some((s) => t.path.startsWith(`${s.path}/`))
+    const restorable = !spaceGone && entries.some((e) => e.id === t.id)
+    setTrashed((cur) => (cur?.id === t.id ? { ...cur, restorable, spaceGone } : cur))
+  }
+  /** A shared space this person just deleted: «Undo» brings it back whole. */
+  const [spaceDeleted, setSpaceDeleted] = useState<{ deleted: string; name: string } | null>(null)
   /** You opened one of an ambiguous link's candidates: pin the link there? */
   const [pinOffer, setPinOffer] = useState<PinOffer | null>(null)
   /** Your last rename or move, if some link could not be rewritten. */
@@ -194,16 +213,21 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const loadWorkspace = () => api.workspace().then(setWorkspace).catch(() => {})
   const loadAlerts = () => api.alerts().then((a) => setAlerts(a.length)).catch(() => {})
 
+  /** The notices already said (the toast): one that arrives later, live, is said once. */
+  const seenNotices = useRef<Set<string>>(new Set())
+  const loadNotices = () => api.alerts().then((a) => {
+    setAlerts(a.length)
+    const mine = a.filter(isPersonalNotice).filter((n) => !seenNotices.current.has(n.id))
+    for (const n of mine) seenNotices.current.add(n.id)
+    if (!mine.length) return
+    setArrived(mine)
+    // On a phone the tree starts open over everything: the notice goes first.
+    setNavOpen(false)
+  }).catch(() => {})
+
   useEffect(() => {
     void loadTree()
-    api.alerts().then((a) => {
-      setAlerts(a.length)
-      const mine = a.filter(isPersonalNotice)
-      if (!mine.length) return
-      setArrived(mine)
-      // On a phone the tree starts open over everything: the notice goes first.
-      setNavOpen(false)
-    }).catch(() => {})
+    void loadNotices()
     void loadWorkspace()
     const startedEmpty = !openPath && !view
     api.profile().then(async (p) => {
@@ -250,6 +274,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       if (timer) return
       timer = setTimeout(() => { timer = null; void loadTree() }, 150)
     })
+    // A notice arrived for this person (what someone did to their account or their spaces): said at once.
+    events.addEventListener('notices', () => { void loadNotices() })
     return () => { if (timer) clearTimeout(timer); events.close() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -304,8 +330,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     setError(null)
     setMissing(null)
     setNoAccess(null)
+    setLarge(null)
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
-    api.note(openPath).then(() => { setReady(openPath); rememberNote(openPath) }).catch((err) => {
+    // One too large to edit live (vihko.yaml `notes.maxSize`) shows as plain text instead.
+    api.note(openPath).then((n) => { if (n.tooLarge) setLarge(n); else setReady(openPath); rememberNote(openPath) }).catch((err) => {
       // Moved again a moment ago, while its editor reopened it at the last place it heard of: follow it.
       if (err instanceof ApiError && err.code === 'not_found' && typeof err.data?.movedTo === 'string') return setOpenPathState(err.data.movedTo)
       if (versionRef.current && err instanceof ApiError && err.code === 'not_found') setMissing(openPath)
@@ -643,7 +671,19 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </header>
             <VersionView key={version} path={openPath} id={version} store={missingVersions} exists={false} closeLabel={t('version.close')}
               onClose={showChanges}
-              onRestored={(report) => { restoredDone(report); setMissing(null); setReady(openPath); rememberNote(openPath); void loadTree() }} />
+              onRestored={(report) => { restoredDone(report); setMissing(null); setReady(openPath); rememberNote(openPath); void loadTree() }}
+              onOpen={(p) => { setVersion(null); setOpenPath(p); void loadTree() }} />
+          </>
+        ) : openPath && large?.path === openPath ? (
+          <>
+            <header className="main-head">
+              <MenuButton />
+              <Crumbs path={openPath} />
+              <span className="spacer" />
+              <SearchButton />
+              <ThemeToggle />
+            </header>
+            <TooLargeNote note={large} />
           </>
         ) : openPath && ready === openPath ? (
           <Suspense fallback={<div className="empty">{t('common.loading')}</div>}>
@@ -656,7 +696,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
               onMoved={(to, report) => { setOpenPath(to); if (report && moveNotice(report)) setMoveIssue(report); void loadTree() }}
               onMovedOutside={movedOutside}
               onMoveStarted={moveStarted}
-              onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree() }}
+              onTrashed={(t) => { setOpenPath(null); setTrashed(t); void loadTree(); if (t.by !== null) void othersTrash(t) }}
               templates={templates}
               onCreated={created}
               onPickCandidate={(offer) => { setPinOffer(offer); setOpenPath(offer.target) }}
@@ -736,6 +776,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
         )}
         {restored && <RestoreToast key={restored.seq} report={restored.report} onDismiss={() => setRestored(null)} />}
+        {spaceDeleted && (
+          <SpaceDeletedToast key={spaceDeleted.deleted} deleted={spaceDeleted.deleted} name={spaceDeleted.name}
+            onRestored={(root) => { setSpaceDeleted(null); setSideTab('folders'); setExpanded((e) => new Set([...e, root])); void loadTree() }}
+            onDismiss={() => setSpaceDeleted(null)} />
+        )}
         {trashed && (
           <TrashToast
             key={trashed.id}
@@ -816,10 +861,12 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             }} />
           )}
           {treeDialog?.kind === 'deleteSpace' && (
-            <DeleteSpaceDialog space={treeDialog.space} notes={notesUnder(treeDialog.space.path)} onClose={closeTreeDialog} onDeleted={() => {
+            <DeleteSpaceDialog space={treeDialog.space} notes={notesUnder(treeDialog.space.path)} onClose={closeTreeDialog} onDeleted={(deleted) => {
               const root = treeDialog.space.path
               closeTreeDialog()
               if (openPath?.startsWith(`${root}/`)) setOpenPath(null)
+              // «Undo», right away: the space back whole.
+              setSpaceDeleted({ deleted, name: treeDialog.space.name })
               void loadTree()
             }} />
           )}

@@ -80,7 +80,8 @@ export async function signIn(browser: Browser, user: { username: string; passwor
  */
 export async function dismissNotices(api: APIRequestContext) {
   const { alerts } = await (await api.get('/api/alerts')).json() as { alerts: { id?: string; code: string; actions: string[] }[] }
-  const personal = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you']
+  const personal = ['account_changed', 'user_account_changed', 'history_purged_authored', 'links_not_updated', 'space_changed', 'shared_with_you',
+    'moved_out', 'removed_from', 'space_deleted', 'space_restored', 'space_renamed', 'account_key_added']
   for (const a of alerts) if (a.id && personal.includes(a.code)) await api.delete(`/api/account/notices/${encodeURIComponent(a.id)}`)
 }
 
