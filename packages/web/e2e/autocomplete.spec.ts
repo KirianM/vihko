@@ -234,7 +234,8 @@ test('a broken link offers to create the note in this folder; the link then reso
   await k.keyboard.press('Enter')
   await k.keyboard.type(`${m.aWord()}: [[${missing}]] y [md](${markdownDest(missingMd)}.md).`)
   await k.locator('.cm-h1').first().click()
-  const broken = k.locator('.cm-wikilink-missing', { hasText: missing })
+  // By its start: another link of the note may hold the same word («[[note#… basado]]»).
+  const broken = k.locator('.cm-wikilink-missing', { hasText: starts(missing) })
   await expect(broken.locator('.cm-wikilink-badge')).toHaveText('no existe · crear')
   await expect(broken.getByRole('button', { name: 'crear' })).toHaveAttribute('title', `Crear «${missing}» en ${SHOWN}`)
   await k.screenshot({ path: `${SHOTS}/create-link-light.png`, animations: 'disabled' })
@@ -249,7 +250,7 @@ test('a broken link offers to create the note in this folder; the link then reso
 
   await k.goBack().catch(() => {})
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
-  await expect(k.locator('.cm-wikilink-resolved', { hasText: missing })).toBeVisible()
+  await expect(k.locator('.cm-wikilink-resolved', { hasText: new RegExp(`^${literally(missing)}$`, 'u') })).toBeVisible()
   const links = await (await k.request.get(`/api/note/links?path=${encodeURIComponent(SOURCE)}`)).json() as { outgoing: { raw: string; status: string; dstPath: string }[] }
   expect(links.outgoing.find((l) => l.raw === `[[${missing}]]`)).toMatchObject({ status: 'resolved', dstPath: `${DIR}/${missing}.md` })
 
@@ -267,7 +268,7 @@ test('never overwrites: if the note appeared meanwhile and the link leads there,
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
   await typeAtEnd(k, ` [[${late}]]`)
   await k.locator('.cm-h1').first().click()
-  const broken = k.locator('.cm-wikilink-missing', { hasText: late })
+  const broken = k.locator('.cm-wikilink-missing', { hasText: starts(late) })
   await expect(broken.getByRole('button', { name: 'crear' })).toBeVisible()
   // Someone else creates it first, with other text.
   expect((await k.request.post('/api/note', { data: { path: `${DIR}/${late}.md`, text: `# ${late}\n\n${theirs}\n` } })).status()).toBe(201)
@@ -290,7 +291,7 @@ test('with templates to offer, «create» asks which one', async () => {
   await k.goto(`/?note=${encodeURIComponent(SOURCE)}`)
   await typeAtEnd(k, ` [[${fresh}]]`)
   await k.locator('.cm-h1').first().click()
-  const create = k.locator('.cm-wikilink-missing', { hasText: fresh }).getByRole('button', { name: 'crear' })
+  const create = k.locator('.cm-wikilink-missing', { hasText: starts(fresh) }).getByRole('button', { name: 'crear' })
   const menu = k.getByRole('menu')
   // Dark first (the theme button would close the menu), then light, where it's used.
   await k.getByRole('button', { name: 'Cambiar a tema oscuro' }).click()
