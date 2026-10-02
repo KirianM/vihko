@@ -357,7 +357,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   users.hooks.onGroupDeleted ??= async (name, by) => { await permissionsFile.removeSubjectGrants(`@${name}`, { actor: by }) }
   // Deleting someone closes their space for everyone: open editors are checked again at once.
   users.hooks.onUserRemoved ??= () => { permissionsChanged() }
-  // The event streams open (GET /api/events), each with its session: those of a session that ends go at once,
+  // The event streams open (GET /api/live), each with its session: those of a session that ends go at once,
   // after whatever else hears it (the hub's editors).
   const streams = new Set<{ userId: string; token: string; end: () => void }>()
   const sessionsEnded = users.hooks.onSessionsEnded
@@ -773,7 +773,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // The tree, live (liveTree.ts): a server-sent event stream that only ever
   // says «read your tree again» (`tree`), to this person, when a change
   // concerns what they see. A comment every 25 s keeps proxies from closing it.
-  app.get('/api/events', (c) => {
+  app.get('/api/live', (c) => {
     const access = c.get('access')
     if (access.isAgent) return fail(c, 404, 'not_found', 'does not exist')
     c.header('Cache-Control', 'no-store')

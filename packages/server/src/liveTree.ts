@@ -1,7 +1,7 @@
 // The tree and the sidebar, live: when someone creates, renames,
 // moves or deletes notes or folders, or a folder is shared or a space's
 // members change, each person whose view that changes is told to read their
-// tree again, over a server-sent event stream (GET /api/events). An event
+// tree again, over a server-sent event stream (GET /api/live). An event
 // says nothing but «read your tree again»: no path, no name, no count. And
 // it only reaches someone the change concerns, judged by their access at
 // that moment, so nobody learns that something they can't read changed:

@@ -264,10 +264,10 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   todayRef.current = dailyOn ? () => void openToday() : null
 
   // The tree and the sidebar, live: the server says «read your tree again» when someone
-  // else's change concerns what this person sees (GET /api/events). The browser reconnects by itself.
+  // else's change concerns what this person sees (GET /api/live). The browser reconnects by itself.
   useEffect(() => {
     if (typeof EventSource === 'undefined') return
-    const events = new EventSource('/api/events')
+    const events = new EventSource('/api/live')
     let timer: ReturnType<typeof setTimeout> | null = null
     events.addEventListener('tree', () => {
       if (timer) return

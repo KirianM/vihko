@@ -206,7 +206,7 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         // «Home»: recent, changed by others, shared lately; a person's only.
         { route: 'GET /api/home', method: 'GET', path: '/api/home', expect: who === 'agent' ? 404 : 200 },
         // The tree, live: a stream that never ends for a person (live-tree.test.ts covers it); an agent has none.
-        ...(who === 'agent' ? [{ route: 'GET /api/events', method: 'GET', path: '/api/events', expect: 404 }] : []),
+        ...(who === 'agent' ? [{ route: 'GET /api/live', method: 'GET', path: '/api/live', expect: 404 }] : []),
         // Note settings: one's own; a space's, what they don't read as missing.
         { route: 'GET /api/settings', method: 'GET', path: '/api/settings', expect: who === 'agent' ? 404 : 200 },
         { route: 'GET /api/settings', method: 'GET', path: q('/api/settings', { space: DIR.shared }) },

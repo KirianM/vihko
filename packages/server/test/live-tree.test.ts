@@ -1,4 +1,4 @@
-// The tree, live (liveTree.ts): GET /api/events tells a person to
+// The tree, live (liveTree.ts): GET /api/live tells a person to
 // read their tree again when a change concerns what they see, and only then;
 // an event never says what changed.
 import { test } from 'node:test'
@@ -16,7 +16,7 @@ const QUIET = 700
 /** Listens to someone's events: what arrived (event name and data), and how to stop. */
 async function listen(h: Spaces, who: Name) {
   const ctrl = new AbortController()
-  const res = await h.app.request('/api/events', { headers: { cookie: h.cookie(who) }, signal: ctrl.signal })
+  const res = await h.app.request('/api/live', { headers: { cookie: h.cookie(who) }, signal: ctrl.signal })
   assert.equal(res.status, 200)
   assert.match(res.headers.get('content-type') ?? '', /^text\/event-stream/)
   const reader = res.body!.getReader()
@@ -146,9 +146,13 @@ test('live tree: an agent has no event stream; nobody signed in, neither', async
   try {
     await h.enable()
     const key = await h.newKey('member', { name: m.aKeyName(), canWrite: false })
-    assert.equal((await h.withKey(key.token)('GET', '/api/events')).status, 404)
-    assert.equal((await h.app.request('/api/events')).status, 401)
+    assert.equal((await h.withKey(key.token)('GET', '/api/live')).status, 404)
+    assert.equal((await h.app.request('/api/live')).status, 401)
     assert.equal(h.services.live.size, 0)
+    // Its old name is no stream any more, for anyone: it's kept for something else.
+    const old = await h.app.request('/api/events', { headers: { cookie: h.cookie('member') } })
+    assert.equal(old.status, 404)
+    assert.notEqual(old.headers.get('content-type'), 'text/event-stream')
   } finally {
     h.close()
   }

@@ -32,7 +32,7 @@ that network is an alternative to a public address.
 - **Pass WebSocket upgrades.** The live editor connects to `/collab` with a
   WebSocket and keeps it open. Without it, the editor stays offline: notes
   don't save and don't show other people's changes.
-- **Don't buffer `/api/events`.** The sidebar keeps a server-sent event
+- **Don't buffer `/api/live`.** The sidebar keeps a server-sent event
   stream open there to update the tree live. vihko answers it with
   `X-Accel-Buffering: no`, which nginx follows; a proxy that buffers it
   anyway only delays the tree's updates until a reload.

@@ -127,6 +127,9 @@ small team meets after months of use.
 - A series of `vihko.yaml` whose id starts with `me-` or `sp-` (in any
   case) is `invalid_id`: those are the ids of a person's and a shared
   space's series, and one there could take theirs.
+- **The live tree's event stream is `GET /api/live`**, no longer
+  `GET /api/events`, which answers `404`: that name is kept for a log of
+  events to come.
 
 ### Security
 
@@ -141,7 +144,7 @@ small team meets after months of use.
   still goes with it, and so do its grants for whoever manages the
   destination, who could give them there anyway. Within a space nothing
   changes.
-- The live tree's event stream (`GET /api/events`) ends with its session:
+- The live tree's event stream (`GET /api/live`) ends with its session:
   at once when the person signs out, is disabled or changes their password;
   at the next keep-alive when the session expires. An open editor's
   connection also ends within seconds of its session expiring, not only
@@ -324,6 +327,9 @@ small team meets after months of use.
 - **A series in `vihko.yaml` whose id starts with `me-` or `sp-`** makes the
   file invalid (`config_invalid`, the last valid file applies): rename that
   series, and whoever had chosen it chooses again in Preferences.
+- **A reverse proxy told not to buffer `/api/events`** (as the reverse proxy
+  guide said) should say `/api/live` now; otherwise the tree may update only
+  when the page is reloaded. The UI uses the new address by itself.
 
 ## [0.1.0-rc.5] - 2026-10-02
 

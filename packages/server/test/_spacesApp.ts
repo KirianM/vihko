@@ -138,7 +138,7 @@ export async function setup(opts: SpacesSetup = {}) {
   return {
     dir, notesDir, stateDir, state, index, app, services, auth, users, keys, indexer, notes, workspace, runtime, clock, rechecks, group, names, created,
     as, admin: as('admin'), member: as('member'), other: as('other'), withKey, enable, newKey, mcp, write, rule, login, close,
-    /** The session cookie of `who` (a request that streams, GET /api/events). */
+    /** The session cookie of `who` (a request that streams, GET /api/live). */
     cookie: (who: Name) => cookies[who],
     home: (who: Name) => `people/${names[who]}`,
   }
