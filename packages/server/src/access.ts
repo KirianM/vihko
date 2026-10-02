@@ -380,7 +380,9 @@ export class Access {
    */
   sawAt(folder: string, at: string): boolean {
     const t = Date.parse(at)
-    return Number.isNaN(t) ? false : t >= this.readableSince(folder)
+    // In whole seconds, as the history keeps its times: a note written the moment after
+    // someone is given access is theirs to see, whatever the milliseconds say.
+    return Number.isNaN(t) ? false : t >= Math.floor(this.readableSince(folder) / 1000) * 1000
   }
 
   /** Whether a note's text is hidden from this principal (`ai: false`, unreadable frontmatter): never for a user. */

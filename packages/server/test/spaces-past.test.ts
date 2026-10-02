@@ -289,3 +289,22 @@ test('the name is free again once the retention empties the trash and a purge em
     await h.close()
   }
 })
+
+test('a note written the moment after a folder is shared is seen by whoever it was shared with: the history counts whole seconds', async () => {
+  const h = await setup({ history: true })
+  try {
+    // Shared late in a second; the version made in that same second is dated at its start.
+    const folder = `${h.home('member')}/${m.aFolder()}`
+    await put(h, 'member', `${folder}/${m.aTitle()}.md`, `# ${m.aHeading()}\n`)
+    later(h)
+    h.clock.now = new Date(Math.floor(h.clock.now.getTime() / 1000) * 1000 + 900)
+    await h.rule(folder, { grants: { [h.names.other]: 'edit' } })
+    const note = `${folder}/${m.aTitle()}.md`
+    await put(h, 'member', note, `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
+    const versions = await ids(h, 'member', note)
+    assert.equal(versions.length, 1)
+    assert.deepEqual(await seen(h, 'other', note), versions)
+  } finally {
+    await h.close()
+  }
+})
