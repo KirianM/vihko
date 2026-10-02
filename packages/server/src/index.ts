@@ -74,7 +74,7 @@ export { BACKUP_DIR, ConfigMigrations, KEEP_BACKUPS, type ConfigMigrationsOption
 export { ACCESS_MESSAGE, COLLAB_PATH, CollabHub, HUB_MESSAGES, MAX_WS_MESSAGE, MOVED_MESSAGE, ORPHAN_MESSAGE, ORPHAN_RESOLVED_MESSAGE, SAVED_MESSAGE, SESSION_ENDED_CODE, SESSION_ENDED_MESSAGE, STALE_MESSAGE, TEXT, TRASHED_MESSAGE, type AgentPresenceState, type HubOptions } from './hub.ts'
 export { applyEdits, applySplices, planEdits, spliceOf, type EditOp, type Splice } from './edits.ts'
 export { FetchImageError, SERVED_TYPES, attachmentPath, fetchImage, noteAttachmentsDir, sniffImage, type FetchErrorCode, type FetchImageOptions } from './attachments.ts'
-export { Workspace, type WorkspaceOptions } from './workspace.ts'
+export { LAST_VALID_FILE, Workspace, type WorkspaceOptions } from './workspace.ts'
 export { FALLBACK_TIMEZONE, ProfileError, Profiles, type Profile } from './profiles.ts'
 export { createFromTemplate } from './templates.ts'
 export { frontmatterFields, type Field, type FieldKind } from './extensions/fields.ts'

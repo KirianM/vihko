@@ -14,12 +14,21 @@
 // file has stayed so for a moment (`settleMs`): an editor that truncates the
 // file and writes it again leaves it empty for an instant, and every shared
 // space would vanish from its members' open editors meanwhile.
-import { readFileSync } from 'node:fs'
+//
+// The last valid file is kept in the state volume too (`stateDir`), so that
+// vihko starting with one that can't be used (a typo before an upgrade's
+// restart) goes on with it, not with nothing: an empty configuration would
+// drop `history.exclude` and record what it keeps out, or turn a history
+// that is off on. Its permissions still fail closed, as above.
+import { readFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { readText, writeTmp } from './fsutil.ts'
 import { CLOSED_PERMISSIONS, EMPTY_WORKSPACE, NO_PERMISSIONS, WORKSPACE_FILE, parseWorkspaceConfig, type ConfigError, type Permissions, type WorkspaceConfig } from '@vihko/core'
 
 export interface WorkspaceOptions {
   notesDir: string
+  /** The state volume, where the last valid file is kept (LAST_VALID_FILE); none: it isn't. */
+  stateDir?: string
   log?: (msg: string) => void
   /**
    * How long the file must stay without permissions (deleted, emptied, the
@@ -32,6 +41,9 @@ export interface WorkspaceOptions {
 
 /** Default of `settleMs`. */
 export const PERMISSIONS_SETTLE_MS = 2000
+
+/** The last valid vihko.yaml, in the state volume. */
+export const LAST_VALID_FILE = 'vihko.yaml.last-valid'
 
 export class Workspace {
   private opts: WorkspaceOptions
@@ -52,6 +64,8 @@ export class Workspace {
   /** The file without permissions, since when (its text, null if missing): no permissions wait until it stays so. */
   private opening: { text: string | null; since: number } | null = null
   private settleTimer: NodeJS.Timeout | null = null
+  /** The text kept as the last valid file (undefined: not looked at yet). */
+  private kept: string | null | undefined = undefined
 
   constructor(opts: WorkspaceOptions) {
     this.opts = opts
@@ -99,6 +113,7 @@ export class Workspace {
         const was = JSON.stringify([this.problems, this.permsFallback])
         this.problems = [{ code: 'unreadable', at: null, line: null, detail: code ?? String(err) }]
         this.lastText = undefined
+        if (!this.hasGood) this.useKept()
         this.permissionsUnusable()
         return was !== JSON.stringify([this.problems, this.permsFallback])
       }
@@ -112,6 +127,7 @@ export class Workspace {
       this.hasGood = false
       this.problems = []
       this.ignored = []
+      this.keep(null)
       this.offerPermissions(NO_PERMISSIONS, text)
     } else {
       const r = parseWorkspaceConfig(text)
@@ -120,11 +136,13 @@ export class Workspace {
         this.hasGood = true
         this.problems = []
         this.ignored = r.warnings
+        this.keep(text)
         const p = r.sections.permissions as Permissions
         if (p.kind === 'closed') this.permissionsUnusable()
         else this.offerPermissions(p, text)
       } else {
         this.problems = r.errors
+        if (!this.hasGood) this.useKept()
         // The section stands on its own: a mistake elsewhere in the file doesn't touch it.
         const p = r.sections?.permissions as Permissions | undefined
         if (p === undefined || p.kind === 'closed') this.permissionsUnusable()
@@ -137,6 +155,36 @@ export class Workspace {
       else this.opts.log?.(text === null ? `no ${WORKSPACE_FILE}: nothing configured` : `${WORKSPACE_FILE} loaded${this.ignored.length ? ` without ${this.ignored.map((e) => `${e.code}${e.at ? ` at ${e.at}` : ''}`).join(', ')}` : ''}`)
     }
     return changed
+  }
+
+  /** Keeps `text` as the last valid file in the state volume (null: there is none, nothing is configured). */
+  private keep(text: string | null) {
+    const dir = this.opts.stateDir
+    if (dir === undefined) return
+    const file = join(dir, LAST_VALID_FILE)
+    if (this.kept === undefined) this.kept = readText(file)
+    if (this.kept === text) return
+    try {
+      if (text === null) rmSync(file, { force: true })
+      else renameSync(writeTmp(file, text), file)
+      this.kept = text
+    } catch (err) {
+      this.opts.log?.(`the last valid ${WORKSPACE_FILE} couldn't be kept in the state volume: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /** With nothing valid read yet: the last valid file kept in the state volume, if there is one. */
+  private useKept() {
+    const dir = this.opts.stateDir
+    if (dir === undefined) return
+    const text = readText(join(dir, LAST_VALID_FILE))
+    this.kept = text
+    if (text === null) return
+    const r = parseWorkspaceConfig(text)
+    if (!r.ok) return
+    this.good = r.config
+    this.hasGood = true
+    this.opts.log?.(`${WORKSPACE_FILE} can't be used: going on with the last valid one, kept in the state volume (${LAST_VALID_FILE})`)
   }
 
   /**

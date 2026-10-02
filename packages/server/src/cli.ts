@@ -112,7 +112,7 @@ async function main(argv: string[]) {
     const args = parsePurge(rest)
     if (!args) return usage()
     // vihko.yaml says the mode (never the user's own repository) and what is excluded.
-    const { history } = new Workspace({ notesDir: config.notesDir }).config
+    const { history } = new Workspace({ notesDir: config.notesDir, stateDir: config.stateDir }).config
     const report = await purgeHistory({
       stateDir: config.stateDir, notesDir: config.notesDir, path: args.path, version: args.version, dryRun: args.dryRun,
       mode: history.mode, excluded: pathMatcher(history.exclude), git: config.history.git,

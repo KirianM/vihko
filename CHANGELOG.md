@@ -44,6 +44,13 @@ small team meets after months of use.
 
 ### Fixed
 
+- vihko starting with a `vihko.yaml` that can't be used (a typo before a
+  restart, an upgrade's among them) no longer goes on with nothing
+  configured, which dropped `history.exclude` and recorded what it keeps
+  out, or turned a history that is off on: the last valid file is kept in the
+  state volume and applies, with the `config_invalid` alert
+  (`fallback: last_good`), until the file is fixed. Its permissions still
+  fail closed, as before.
 - Renaming a shared space no longer hides its notes' history from
   everyone, and renaming a folder within its space no longer hides the
   history from before the rename from whoever it's shared with: each version
