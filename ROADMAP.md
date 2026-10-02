@@ -148,6 +148,14 @@ message; and an installation built from the documentation alone works.
   of (its name isn't secret), or for a higher level in a folder someone
   already shares with you; never from a link that looks broken, which may
   lead to what you can't see.
+- Offline in the browser: what's typed without a connection kept on the
+  device (IndexedDB) and offered back when it returns.
+- Renaming people who already use vihko: their space's folder, their grants
+  and the links to their notes, as renaming a space does.
+- Exporting a space (or one's own notes) as a zip, with its images and files.
+- Selecting several notes in the tree, to move or delete them at once.
+- A stable hidden id for each space, so that renaming it on the disk keeps
+  its members, choices and links.
 
 ## Why this order
 
