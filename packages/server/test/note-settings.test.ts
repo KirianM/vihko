@@ -128,6 +128,40 @@ test('«Today\'s note» never falls back to another series when the one chosen i
   }
 })
 
+test('renaming a shared space changes its series\' ids, and the series its members chose follows', async () => {
+  const h = await setup()
+  try {
+    h.clock.now = today()
+    const made = async () => (await h.member('POST', '/api/spaces', { name: m.aSpaceName(), members: { [h.names.other]: 'edit' } })).body.space.path as string
+    const [space, kept] = [await made(), await made()]
+    const [id, keptId] = [m.anId(), m.anId()]
+    for (const [where, sid] of [[space, id], [kept, keptId]] as const) {
+      assert.equal((await put(h, 'member', (s) => { s.daily.push({ id: sid, label: null, folder: m.aFolder(), name: '{YYYY}-{MM}-{DD}', template: null }) }, where)).status, 200)
+    }
+    const idOf = async (folder: string, series: string) => {
+      const daily = (await h.other('GET', '/api/workspace')).body.daily as { id: string; folder: string }[]
+      return daily.find((s) => s.folder.startsWith(`${folder}/`) && s.id.endsWith(`-${series}`))!.id
+    }
+    // Each member chooses one series: the other member the one of the space to be renamed, the member the other space's.
+    const before = await idOf(space, id)
+    assert.equal((await h.other('PUT', '/api/profile', { dailySeries: before })).status, 200)
+    const keptBefore = await idOf(kept, keptId)
+    assert.equal((await h.member('PUT', '/api/profile', { dailySeries: keptBefore })).status, 200)
+    const renamed = await h.member('POST', '/api/spaces/rename', { path: space, name: m.aSpaceName() })
+    assert.equal(renamed.status, 200, renamed.text)
+    const after = await idOf(renamed.body.space.path, id)
+    assert.notEqual(after, before, 'the id is made from the space\'s root')
+    assert.equal((await h.other('GET', '/api/profile')).body.dailySeries, after)
+    const opened = await h.other('POST', '/api/daily', {})
+    assert.deepEqual([opened.status, opened.body.series], [201, after], opened.text)
+    assert.ok(opened.body.path.startsWith(`${renamed.body.space.path}/`), opened.body.path)
+    // A series of another space isn't touched.
+    assert.equal((await h.member('GET', '/api/profile')).body.dailySeries, keptBefore)
+  } finally {
+    h.close()
+  }
+})
+
 test('«Today\'s note» with no choice: one\'s own series first, then a space\'s, then the installation\'s; the one it opens stays', async () => {
   const installation = m.anId()
   const h = await setup({ config: `daily:\n  ${installation}:\n    folder: ${JSON.stringify(`people/{user}/${m.aFolder()}`)}\n` })

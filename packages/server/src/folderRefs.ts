@@ -2,7 +2,8 @@
 // moves that folder: the folders of agent keys and of
 // OAuth codes not yet exchanged, what people pinned in the sidebar, the
 // paths notices name (a space someone was added to, a folder shared with
-// them, a note purged), and the original paths of trash entries. Before 0.1.0
+// them, a note purged), the original paths of trash entries, and the series
+// people chose of a shared space renamed (its ids are made from its root). Before 0.1.0
 // none of them followed: a key limited to a folder that moved stopped
 // reaching it, and «ana added you to Home» became «shared something you no
 // longer see» once Home was renamed.
@@ -12,8 +13,10 @@
 // folder as far as these are concerned.
 import { readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { parseSpacePath } from '@vihko/core'
 import type { Db } from './db.ts'
 import { writeTmp } from './fsutil.ts'
+import { seriesPrefix } from './noteSettings.ts'
 
 /** `path` with the folder `from` (or what's under it) now at `to`; null if it isn't there. */
 export function movedPath(path: string, from: string, to: string): string | null {
@@ -30,6 +33,8 @@ export interface RefsReport {
   pins: number
   notices: number
   trash: number
+  /** People whose chosen series (`dailySeries`) was a renamed space's. */
+  dailySeries: number
 }
 
 export class FolderRefs {
@@ -47,7 +52,26 @@ export class FolderRefs {
     const pins = this.rewritePins(from, to)
     const notices = this.rewriteNotices(from, to)
     const trash = this.rewriteTrash(from, to)
-    return { keys, pins, notices, trash }
+    const dailySeries = this.rewriteDailySeries(from, to)
+    return { keys, pins, notices, trash, dailySeries }
+  }
+
+  /**
+   * A shared space renamed (`from` and `to` its roots): the ids of its series
+   * start with a prefix made from its root (noteSettings.ts seriesPrefix), so
+   * the series people chose (`profiles.daily_series`) take the new prefix.
+   * Nothing for any other folder: a personal space's prefix is always `me-`.
+   */
+  private rewriteDailySeries(from: string, to: string): number {
+    const isSharedRoot = (p: string) => {
+      const s = parseSpacePath(p)
+      return s !== null && s.space.kind === 'shared' && s.inner === ''
+    }
+    if (!isSharedRoot(from) || !isSharedRoot(to)) return 0
+    const [before, after] = [seriesPrefix(from), seriesPrefix(to)]
+    if (before === after) return 0
+    return Number(this.state.prepare('update profiles set daily_series = ? || substr(daily_series, ?) where substr(daily_series, 1, ?) = ?')
+      .run(after, before.length + 1, before.length, before).changes)
   }
 
   /**

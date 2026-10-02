@@ -294,7 +294,7 @@ can't call, they can change in any release.
 |---|---|---|---|
 | `POST /api/spaces` | Anyone, or only admins with the setting `spacesCreation: admins` (`403 forbidden` otherwise) | `name`, `members`? (`{ "<user>" or "@<group>": level }`) | `201`: `space` (as in `GET /api/spaces`), at `spaces/<name>`. The creator manages it. `409 space_name_taken` with `name` (as the other space writes it) when a space has that name in any case; `400 invalid` with `problem` for a name that can't be a space's folder (`empty`, `too_long`, `control_characters`, `spaces_around`, `invalid_characters`, `invalid_name`) |
 | `POST /api/spaces/from-folder` | `manage` in the folder and `edit` in its parent, and who may create spaces | `path` (a folder inside a space), `name`? (the folder's own by default), `dryRun`? | A dry run: `report` (the folder move's, with `audience`). Otherwise `201`: `space` (as in `GET /api/spaces`), `report`. The folder becomes a shared space of its own, `spaces/<name>`: what it holds goes to the new space's root, with the folder's own grants and its mover managing it. `400 space_root` for a space's root; `409 space_name_taken` (in a dry run too) and `400 invalid` as for `POST /api/spaces` |
-| `POST /api/spaces/rename` | `manage` at the space's root | `path`, `name` | `space`, at its new path. Its folder becomes `spaces/<name>` with everything in it, its rules, and the keys, pins, notices and trash entries that named it; links don't change. Another case of its own name renames it too. `409 space_name_taken` and `400 invalid` as for `POST /api/spaces` |
+| `POST /api/spaces/rename` | `manage` at the space's root | `path`, `name` | `space`, at its new path. Its folder becomes `spaces/<name>` with everything in it, its rules, and the keys, pins, notices and trash entries that named it, and the `dailySeries` of whoever chose one of its series (whose ids change with the name); links don't change. Another case of its own name renames it too. `409 space_name_taken` and `400 invalid` as for `POST /api/spaces` |
 | `DELETE /api/spaces` | `manage` at the space's root | `path`, `trash`? (query) | `path`. With `trash=true`, what it holds goes to the trash, which its managers keep seeing; otherwise only an empty space goes (`409 not_empty`) |
 | `POST /api/spaces/leave` | A grant of one's own there | `path` | `path`. One's own grants there and below go; nothing is deleted. `409 leave_via_group` with `group` when it comes through a group; `400 invalid` for one's own space, or a grant from a folder above |
 | `POST /api/spaces/pin` | What is shared with one | `path`, `pinned` | `path`, `pinned` |
@@ -620,8 +620,10 @@ explains it.
   space) or `sp-<8 hex digits>-<id>` (a shared space's, from its root), so
   they never take one of `vihko.yaml`'s: since 0.1.0-rc.6 an id in
   `vihko.yaml` that starts with `me-` or `sp-`, in any case, is `invalid_id`.
-  A `dailySeries` in the profile names them that way. How the hex digits are
-  made isn't covered.
+  A `dailySeries` in the profile names them that way. A shared space's
+  series change id when the space is renamed; a `dailySeries` that named one
+  is rewritten to the new id (since 0.1.0-rc.6). How the hex digits are made
+  isn't covered.
 
 ## Environment variables
 

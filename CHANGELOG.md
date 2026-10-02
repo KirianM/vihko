@@ -248,6 +248,11 @@ small team meets after months of use.
   system's git would choose: with a git that makes SHA-256 repositories by
   default (as git 3.0 is to), the history would record nothing. An
   existing history is unchanged.
+- Renaming a shared space changes the ids of its series (they're made from
+  its folder), and «Today's note» of whoever had chosen one of them asked
+  them to choose again (`series_gone`): their choice now follows the new id.
+  A script or an agent that kept such an id gets `not_found` with it, as
+  before: `GET /api/workspace` lists the ids.
 
 ### Documentation
 
