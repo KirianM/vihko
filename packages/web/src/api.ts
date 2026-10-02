@@ -444,6 +444,13 @@ let config: Promise<ServerConfig> | null = null
 
 const started = <R>(r: R | { job: MoveJob }): MoveStart<R> => (r !== null && typeof r === 'object' && 'job' in r ? { job: r.job } : { report: r as R })
 
+/**
+ * The keys made in this tab: its own notice of each (`account_key_added`, sent
+ * however a key is made) goes to the notices, not to a toast over what the
+ * person just did.
+ */
+export const keysMadeHere = new Set<string>()
+
 export const api = {
   setupNeeded: () => request<{ needed: boolean }>('GET', '/api/setup'),
   setup: (token: string, username: string, password: string) => request<{ user: User }>('POST', '/api/setup', { token, username, password }),
@@ -573,7 +580,7 @@ export const api = {
   allKeys: () => request<{ keys: KeyWithUser[] }>('GET', '/api/keys?all=1').then((r) => r.keys),
   /** A new key: the token comes back this once and never again. */
   /** `confirm`: the current code, or the password without a second factor. */
-  createKey: (input: KeyInput & { name: string; confirm: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input),
+  createKey: (input: KeyInput & { name: string; confirm: string }) => request<{ key: KeyInfo; token: string }>('POST', '/api/keys', input).then((r) => { keysMadeHere.add(r.key.name); return r }),
   /** A change that lets it do more (writing, more folders, a later expiry or none) takes `confirm`, as a new key does. */
   updateKey: (id: string, patch: KeyInput & { confirm?: string }) => request<{ key: KeyInfo }>('PATCH', `/api/keys/${encodeURIComponent(id)}`, patch).then((r) => r.key),
   /** Its owner, or the vihko admin for anyone's. */

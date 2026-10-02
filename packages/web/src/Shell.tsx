@@ -2,7 +2,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, Modal, ModalOverlay, Tab, TabList, TabPanel, Tabs, Tooltip, TooltipTrigger, type Key } from 'react-aria-components'
 import { seriesNeighbors } from '@vihko/core/series'
-import { ApiError, SESSION_ENDED_EVENT, api, atLeast, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Note, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
+import { ApiError, SESSION_ENDED_EVENT, api, atLeast, keysMadeHere, type FolderLock, type FolderMoveReport, type MoveJob, type MoveReport, type Note, type Profile, type SpaceEntry, type SpacesInfo, type TreeNote, type User, type WorkspaceInfo } from './api.ts'
 import { TooLargeNote } from './TooLargeNote.tsx'
 import { SpacesContext, notePathOf, rootOf, usePathLabels, useSpacesValue } from './spaces.tsx'
 import { renamedPath } from './legacyAddress.ts'
@@ -217,8 +217,13 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const seenNotices = useRef<Set<string>>(new Set())
   const loadNotices = () => api.alerts().then((a) => {
     setAlerts(a.length)
-    const mine = a.filter(isPersonalNotice).filter((n) => !seenNotices.current.has(n.id))
-    for (const n of mine) seenNotices.current.add(n.id)
+    const fresh = a.filter(isPersonalNotice).filter((n) => !seenNotices.current.has(n.id))
+    for (const n of fresh) seenNotices.current.add(n.id)
+    // What this person just did themselves stays in the notices, without a toast over it
+    // (deleting a space has its own «Undo»; a key made here was just shown to them).
+    const own = (n: (typeof fresh)[number]) => (n.code === 'space_deleted' && n.by === user.username)
+      || (n.code === 'account_key_added' && n.kind === 'key' && keysMadeHere.has(n.name))
+    const mine = fresh.filter((n) => !own(n))
     if (!mine.length) return
     setArrived(mine)
     // On a phone the tree starts open over everything: the notice goes first.
@@ -739,62 +744,65 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </div>
           </>
         )}
-        {arrived && view !== 'alerts' && (
-          <NoticeToast notices={arrived} onSee={() => { setArrived(null); setNavOpen(false); showAlerts() }} onDismiss={() => setArrived(null)} />
-        )}
-        {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
-        {outsideMove && outsideMove.to === openPath && (
-          <div className="toast">
-            <span className="toast-icon">{Icon.rename}</span>
-            <span className="toast-text" role="status">
-              {t('movedOutside.done', { name: baseName(outsideMove.from).replace(/\.md$/i, ''), to: shellLabels.label(outsideMove.to) })}
-              {outsideMove.links ? ` ${t(outsideMove.links === 1 ? 'movedOutside.linksOne' : 'movedOutside.links', { n: outsideMove.links })}` : ''}
-            </span>
-            {!!outsideMove.links && <Button className="btn" onPress={() => { setOutsideMove(null); showAlerts() }}>{t('movedOutside.review')}</Button>}
-            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setOutsideMove(null)}>{Icon.close}</Button>
-          </div>
-        )}
-        {folderIssue && (
-          <div className="toast toast-warn">
-            <span className="toast-icon">{Icon.alert}</span>
-            <span className="toast-text" role="alert">{[
-              folderIssue.failed.length > 0 && t('folder.partial', { name: baseName(folderIssue.to), notes: folderIssue.failed.map((f) => baseName(f.path).replace(/\.md$/i, '')).join(', ') }),
-              shiftedNotice(t, baseName(folderIssue.to), folderIssue.shifted),
-            ].filter(Boolean).join(' ')}</span>
-            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setFolderIssue(null)}>{Icon.close}</Button>
-          </div>
-        )}
-        {jobIssue && (
-          <div className="toast toast-warn">
-            <span className="toast-icon">{Icon.alert}</span>
-            <span className="toast-text" role="alert">{jobIssue}</span>
-            <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setJobIssue(null)}>{Icon.close}</Button>
-          </div>
-        )}
-        {moveJob && <MoveProgress key={moveJob.id} job={moveJob} onFinished={(end) => moveEnded(moveJob, end)} />}
-        {pinOffer && pinOffer.target === openPath && (
-          <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
-        )}
-        {restored && <RestoreToast key={restored.seq} report={restored.report} onDismiss={() => setRestored(null)} />}
-        {spaceDeleted && (
-          <SpaceDeletedToast key={spaceDeleted.deleted} deleted={spaceDeleted.deleted} name={spaceDeleted.name}
-            onRestored={(root) => { setSpaceDeleted(null); setSideTab('folders'); setExpanded((e) => new Set([...e, root])); void loadTree() }}
-            onDismiss={() => setSpaceDeleted(null)} />
-        )}
-        {trashed && (
-          <TrashToast
-            key={trashed.id}
-            trashed={trashed}
-            canPurge={historyStatus?.mode === 'managed' && (admin || managesFolder((f) => locks?.get(f)?.level, noteFolder(trashed.path)))}
-            onRestored={(path) => {
-              if (trashed.folder) setExpanded((e) => new Set([...e, ...ancestors(path), path]))
-              else setOpenPath(path)
-              setTrashed(null)
-              void loadTree()
-            }}
-            onDismiss={() => setTrashed(null)}
-          />
-        )}
+        {/* The toasts, one above the other: a notice that comes in live never covers another. */}
+        <div className="toasts">
+          {arrived && view !== 'alerts' && (
+            <NoticeToast notices={arrived} onSee={() => { setArrived(null); setNavOpen(false); showAlerts() }} onDismiss={() => setArrived(null)} />
+          )}
+          {moveIssue && <MoveToast report={moveIssue} onDismiss={() => setMoveIssue(null)} />}
+          {outsideMove && outsideMove.to === openPath && (
+            <div className="toast">
+              <span className="toast-icon">{Icon.rename}</span>
+              <span className="toast-text" role="status">
+                {t('movedOutside.done', { name: baseName(outsideMove.from).replace(/\.md$/i, ''), to: shellLabels.label(outsideMove.to) })}
+                {outsideMove.links ? ` ${t(outsideMove.links === 1 ? 'movedOutside.linksOne' : 'movedOutside.links', { n: outsideMove.links })}` : ''}
+              </span>
+              {!!outsideMove.links && <Button className="btn" onPress={() => { setOutsideMove(null); showAlerts() }}>{t('movedOutside.review')}</Button>}
+              <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setOutsideMove(null)}>{Icon.close}</Button>
+            </div>
+          )}
+          {folderIssue && (
+            <div className="toast toast-warn">
+              <span className="toast-icon">{Icon.alert}</span>
+              <span className="toast-text" role="alert">{[
+                folderIssue.failed.length > 0 && t('folder.partial', { name: baseName(folderIssue.to), notes: folderIssue.failed.map((f) => baseName(f.path).replace(/\.md$/i, '')).join(', ') }),
+                shiftedNotice(t, baseName(folderIssue.to), folderIssue.shifted),
+              ].filter(Boolean).join(' ')}</span>
+              <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setFolderIssue(null)}>{Icon.close}</Button>
+            </div>
+          )}
+          {jobIssue && (
+            <div className="toast toast-warn">
+              <span className="toast-icon">{Icon.alert}</span>
+              <span className="toast-text" role="alert">{jobIssue}</span>
+              <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setJobIssue(null)}>{Icon.close}</Button>
+            </div>
+          )}
+          {moveJob && <MoveProgress key={moveJob.id} job={moveJob} onFinished={(end) => moveEnded(moveJob, end)} />}
+          {pinOffer && pinOffer.target === openPath && (
+            <PinOfferToast key={`${pinOffer.source}#${pinOffer.raw}#${pinOffer.target}`} offer={pinOffer} onDismiss={() => setPinOffer(null)} />
+          )}
+          {restored && <RestoreToast key={restored.seq} report={restored.report} onDismiss={() => setRestored(null)} />}
+          {spaceDeleted && (
+            <SpaceDeletedToast key={spaceDeleted.deleted} deleted={spaceDeleted.deleted} name={spaceDeleted.name}
+              onRestored={(root) => { setSpaceDeleted(null); setSideTab('folders'); setExpanded((e) => new Set([...e, root])); void loadTree() }}
+              onDismiss={() => setSpaceDeleted(null)} />
+          )}
+          {trashed && (
+            <TrashToast
+              key={trashed.id}
+              trashed={trashed}
+              canPurge={historyStatus?.mode === 'managed' && (admin || managesFolder((f) => locks?.get(f)?.level, noteFolder(trashed.path)))}
+              onRestored={(path) => {
+                if (trashed.folder) setExpanded((e) => new Set([...e, ...ancestors(path), path]))
+                else setOpenPath(path)
+                setTrashed(null)
+                void loadTree()
+              }}
+              onDismiss={() => setTrashed(null)}
+            />
+          )}
+        </div>
       </main>
       <DismissGuardContext.Provider value={dismissGuard}>
       <ModalOverlay className="modal-overlay" isOpen={treeDialog !== null} onOpenChange={(o) => { if (!o && !dismissGuard.current?.()) closeTreeDialog() }} isDismissable>
