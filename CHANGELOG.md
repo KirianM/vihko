@@ -10,7 +10,7 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
-## [0.1.0-rc.5] - unreleased
+## [0.1.0-rc.5] - 2026-10-02
 
 Templates marked in the notes themselves, and searching by any frontmatter
 field.
@@ -48,7 +48,9 @@ field.
 - `GET /api/workspace` no longer has `templates`, and the note settings
   (`GET/PUT /api/settings`) no longer have `templates`.
 - A query word with a colon in it (`re:budget`) is now a frontmatter filter,
-  or a reserved one; times (`10:30`) and addresses (`https://…`) stay words.
+  or a reserved one; quoted whole (`"re:budget"`) it's searched as text, and
+  times (`10:30`) and addresses (`https://…`) stay words.
+- Preferences: the box that chooses and defines daily notes is «Daily notes».
 - The admin setting for saving copies of images from private addresses says
   what it guards, in plain words, and the notes guide explains it.
 
