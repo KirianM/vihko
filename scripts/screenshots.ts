@@ -11,8 +11,8 @@
 //
 // The vault follows the spaces layout: the shown note is in a shared
 // space («Team», which both people belong to), the admin has notes of their
-// own («My notes»), and the member shares a folder of theirs with the admin
-// («Shared with me»).
+// own («My notes»), and the member shares two folders of theirs with the
+// admin: one the admin pinned to the sidebar, the other in «Shared with me».
 //
 // SCREENSHOTS_PORT (4630) is vihko's port; the browser server takes the next
 // one. SCREENSHOTS_OUT writes the images to another folder (to look at them
@@ -46,6 +46,8 @@ const NOTE = 'spaces/Team/handbook/Welcome.md'
 const COMMENTED = 'If vihko ever went away, we would still have every word.'
 /** Where the member's cursor rests, at the end of this line: the admin sees it, with the member's name. */
 const CARET = 'Turn on the API and MCP'
+/** Of the member's folders shared with the admin, the one the admin pinned to their sidebar. */
+const PINNED = 'people/ravi/website'
 /** The people: fixed demo content, not test data. Their passwords are only for this run. */
 const ADMIN = { username: 'hanna', password: randomBytes(12).toString('hex') }
 const MEMBER = { username: 'ravi', password: randomBytes(12).toString('hex') }
@@ -150,11 +152,24 @@ async function startBrowser(): Promise<Browser> {
   return browser!
 }
 
+async function signIn(ctx: BrowserContext, who: { username: string; password: string }) {
+  const login = await ctx.request.post('/api/auth/login', { data: who })
+  if (!login.ok()) throw new Error(`sign-in of ${who.username}: ${login.status()} ${await login.text()}`)
+}
+
+/** The admin pins one of the folders the member shares with them: it gets a section of its own, the other stays in «Shared with me». */
+async function pin(browser: Browser, folder: string) {
+  const ctx = await browser.newContext({ baseURL: BASE })
+  await signIn(ctx, ADMIN)
+  const res = await ctx.request.post('/api/spaces/pin', { data: { path: folder, pinned: true } })
+  if (!res.ok()) throw new Error(`pinning ${folder}: ${res.status()} ${await res.text()}`)
+  await ctx.close()
+}
+
 /** A person's own browser session (English UI, light theme), signed in, with the note open. */
 async function open(browser: Browser, who: { username: string; password: string }, device: typeof DESKTOP | typeof MOBILE): Promise<Page> {
   const ctx: BrowserContext = await browser.newContext({ ...device, baseURL: BASE, locale: 'en-US', timezoneId: 'UTC', colorScheme: 'light' })
-  const login = await ctx.request.post('/api/auth/login', { data: who })
-  if (!login.ok()) throw new Error(`sign-in of ${who.username}: ${login.status()} ${await login.text()}`)
+  await signIn(ctx, who)
   const page = await ctx.newPage()
   await page.goto(`/?note=${encodeURIComponent(NOTE)}`)
   await page.locator('.cm-content').waitFor()
@@ -211,6 +226,7 @@ async function main() {
   await startServer(env)
   const browser = await startBrowser()
   console.log(`vihko on ${BASE}, browser ${IMAGE}`)
+  await pin(browser, PINNED)
 
   // Desktop: the member has the note open too (a second face in the header);
   // the admin's side panel is on the comments.
