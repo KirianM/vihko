@@ -125,7 +125,7 @@ The [API guide](api.md) explains how to use it.
 | Base path | `/api`, no version prefix |
 | Authentication | `Authorization: Bearer <key>`; a request with a key is judged by the key alone |
 | `Origin` | Not checked on a request with a key: a key is no credential a browser sends on its own. Without a key (the UI's session), a write from another origin is `403 forbidden` |
-| CORS | None: vihko sends no CORS headers and answers no preflight, so a page on another site can't call the API from a browser |
+| CORS | None: vihko sends no CORS headers and approves no preflight request, so a page on another site can't call the API from a browser |
 | Key format | Starts with `vihko_`; the rest is opaque (in 0.1.0, a 26-character id, `_` and a 43-character secret) |
 | The API switch off | Every request with a key answers `404 not_found` |
 | A route not open to keys | `404 not_found` |
