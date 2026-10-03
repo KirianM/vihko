@@ -390,25 +390,55 @@ stay where they are. An agent takes along only images in its key's folders and
 out of folders closed to agents.
 
 - Right after deleting, «Restore» brings it back, with its images.
-- Later, in «Recent changes», open the change that deleted it: «Restore it as
-  it was before» puts it back from the history, images included.
-- A person sees, and restores, only what was deleted from folders where they
-  can edit. What was in a shared space that has since been deleted is seen
-  and restored by the people who managed it, somewhere they can write.
+- Later, **Trash** in the sidebar (under «Recent changes»; in the menu on a
+  phone) lists what you deleted, and what others deleted, that you can still
+  restore: see below.
+- In «Recent changes», open the change that deleted it: «Restore it as it was
+  before» puts it back from the history, images included.
+
+### The Trash screen
+
+**Trash** lists, newest first, what was deleted from folders where you can
+edit, since you could read there (sharing a folder with someone doesn't show
+them what was deleted in it before), and the shared spaces that were deleted
+whole that you may bring back. Each line says its name, where it was (the
+space and the folders, as the sidebar names them), who deleted it and when,
+and how much it takes; at the top, how much all of it takes. A search box
+and, when what's there comes from more than one space, a choice of space
+narrow the list. With the admin's retention on, each line also says when it
+leaves the trash on its own.
+
+- **Restore** puts it back where it was. Anyone who sees a line may restore
+  it.
+- **Delete forever** removes it from the trash for good, with its images: in
+  a shared space, only its managers may (its members restore, but never
+  destroy); in a person's own space, only that person. **Empty the trash…**
+  deletes for good everything you may delete (of one space, if you chose one)
+  and says first how many and how much, and how many stay because only
+  someone else may delete them. Both ask before anything goes and confirm it's
+  you, with your code or password, as other irreversible actions do (not
+  again for 15 minutes in that browser). The versions the history keeps of
+  what you delete this way stay there, until a purge or the history's
+  retention takes them.
+- **A deleted shared space** is one line: **Restore space** brings it back
+  whole, with its folders, notes and members, under its own name (while
+  another space has that name, it can't). Who managed it when it was deleted
+  sees it, with its size, and may delete it forever; the admin may restore it
+  too, without seeing what it held or how much.
 
 Restoring never overwrites anything. If a note with that name exists by then,
-the note isn't restored: rename or move that one first. If one of its images'
-names was taken meanwhile by another file, the image comes back with a number
-(`plan-2026-09-28-1012-2.png`) and the note links it there; an identical file
-already there counts as restored.
+the Trash asks where it should go instead: under another name («Plan
+(restored)», to start with), or in another folder or space you can write in.
+If one of its images' names was taken meanwhile by another file, the image
+comes back with a number (`plan-2026-09-28-1012-2.png`) and the note links it
+there; an identical file already there counts as restored.
 
 vihko never empties the trash on its own by default. The admin can turn on
 **Empty the trash after…** in «Users and groups» → Retention: then, once a
 week, what was deleted longer ago than that leaves the trash for good, with
 its images (see [Operations](operations.md#retention)). Each entry sits in
 its own folder under `trash/` in the state volume (`note.md`, its images
-under `files/`, and a `meta.json` that lists them); with vihko stopped, you
-can also delete those by hand if you need the space.
+under `files/`, and a `meta.json` that lists them).
 
 ### Deleting a folder
 

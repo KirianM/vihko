@@ -46,6 +46,7 @@ import { RenameDialog, TrashDialog } from './editor/NoteActions.tsx'
 import { TagsView } from './TagsView.tsx'
 import type { RestoreReport } from './history/api.ts'
 import { ChangesPage } from './history/Changes.tsx'
+import { TrashPage } from './Trash.tsx'
 import { HistoryIcon, RestoreToast, TimeZoneContext, useHistoryStatus, useVersions } from './history/ui.tsx'
 import { VersionView } from './history/VersionView.tsx'
 
@@ -68,7 +69,7 @@ type TreeDialog =
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 /** Views that aren't a note, in the URL as `?view=` (no router). */
-const VIEWS = ['alerts', 'changes', 'agents', 'privacy', 'users', 'account', 'spaces'] as const
+const VIEWS = ['alerts', 'changes', 'trash', 'agents', 'privacy', 'users', 'account', 'spaces'] as const
 type View = (typeof VIEWS)[number]
 /** Earlier names of a view, still opened (bookmarks, links already sent); the URL then says the current one. */
 const VIEW_ALIASES: Record<string, View> = { avisos: 'alerts' }
@@ -142,6 +143,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   }
   const showAlerts = () => show('alerts')
   const showChanges = () => show('changes')
+  const showTrash = () => show('trash')
   const showAgents = () => show('agents')
   const showPrivacy = () => show('privacy')
   const showUsers = () => show('users')
@@ -390,7 +392,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
   const tree = useMemo(() => (notes ? buildTree(notes, folders) : []), [notes, folders])
   const admin = user.role === 'admin'
   /** The main area holds the open note (and the rescue banner goes under its header), as the render below decides. */
-  const pageShown = view === 'alerts' || view === 'agents' || view === 'privacy' || view === 'account' || view === 'changes' || ((view === 'users' || view === 'spaces') && admin)
+  const pageShown = view === 'alerts' || view === 'agents' || view === 'privacy' || view === 'account' || view === 'changes' || view === 'trash' || ((view === 'users' || view === 'spaces') && admin)
   const noteShown = !pageShown && !!openPath && ready === openPath && !(version && missing === openPath)
   /** The person's level and a folder's marks, for the tree's actions and locks. */
   const folderInfo = useMemo<FolderInfoOf>(() => (path) => {
@@ -598,6 +600,11 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       {HistoryIcon.history}<span>{t('changes.link')}</span>
     </a>
   )
+  const trashLink = (
+    <a className="sidebar-link" href="?view=trash" aria-current={view === 'trash' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showTrash() }}>
+      {Icon.trash}<span>{t('trash.link')}</span>
+    </a>
+  )
   const alertsLink = alerts > 0 && (
     <a className="sidebar-alerts" href="?view=alerts" aria-current={view === 'alerts' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); setNavOpen(false); showAlerts() }}>
       {Icon.alert}<span>{t(alerts === 1 ? 'shell.alertsOne' : 'shell.alerts', { n: alerts })}</span>
@@ -638,6 +645,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
                 {editsSomewhere && <Button className="btn btn-primary btn-xl" onPress={pick(() => setPalette('create'))}>{t('shell.newNote')}</Button>}
                 {dailyOn && <Button className="btn btn-xl" onPress={pick(() => void openToday())}>{Icon.calendar}{t('shell.today')}</Button>}
                 {changesLink}
+                {trashLink}
                 {alertsLink}
               </div>
               {userRow}
@@ -668,6 +676,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           </Button>
           {treeView}
           {changesLink}
+          {trashLink}
           {alertsLink}
           {userRow}
         </nav>
@@ -695,6 +704,8 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
           <AccountPage user={user} onUnauthorized={onUnauthorized} />
         ) : view === 'changes' ? (
           <ChangesPage status={historyStatus} notes={notes} admin={admin} onOpenVersion={openVersion} onUnauthorized={onUnauthorized} />
+        ) : view === 'trash' ? (
+          <TrashPage onOpen={setOpenPath} onChanged={() => void loadTree()} onUnauthorized={onUnauthorized} />
         ) : openPath && version && missing === openPath ? (
           <>
             <header className="main-head">

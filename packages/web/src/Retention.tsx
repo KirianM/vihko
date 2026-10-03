@@ -13,7 +13,8 @@ import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, TextField }
 import { ApiError, api, type AdminSettings, type RetentionCounts, type RetentionStatus } from './api.ts'
 import { Toggle } from './Agents.tsx'
 import { ConfirmField, codeError, confirmReady, useConfirmWith } from './TwoFactor.tsx'
-import { errorText, useLang, useT } from './i18n.tsx'
+import { errorText, useT } from './i18n.tsx'
+import { useBytes } from './ui.tsx'
 import { useDates } from './history/ui.tsx'
 import './retention.css'
 
@@ -42,17 +43,6 @@ function daysOf(p: Period): number | null | undefined {
 /** Whether going from `now` to `next` removes more: one turned on, or shorter. */
 function tighter(now: Periods, next: Periods): boolean {
   return (['trashRetentionDays', 'historyRetentionDays'] as const).some((k) => next[k] !== null && (now[k] === null || next[k]! < now[k]!))
-}
-
-function useBytes() {
-  const lang = useLang()
-  return (bytes: number) => {
-    const units = ['byte', 'kilobyte', 'megabyte', 'gigabyte'] as const
-    let i = 0
-    let n = bytes
-    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
-    return new Intl.NumberFormat(lang, { style: 'unit', unit: units[i], unitDisplay: 'short', maximumFractionDigits: i === 0 ? 0 : 1 }).format(n)
-  }
 }
 
 /**

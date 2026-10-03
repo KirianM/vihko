@@ -72,6 +72,8 @@ anything you can't see getting in your way or telling you it exists.
       so many days and history versions older than so many days or months
       deleted, every week or at once; each note keeps its current version, and a note
       in the trash its whole history. Previewed in counts and confirmed.
+- [x] A trash screen: what's in it, how much it takes, restore, and empty it
+      with confirmation.
 
 **Done when:** three people (an admin and two members) work at the same time
 with their own spaces, a shared space and a folder shared between two of
@@ -107,8 +109,6 @@ message; and an installation built from the documentation alone works.
       writes `![](clip.mp4)` and also reads `![[clip.mp4]]`.
 - [ ] `VIHKO_MAX_VIDEO_MB`, 500 MB by default; files served by ranges and
       streamed.
-- [ ] A trash screen: what's in it, how much it takes, restore, and empty it
-      with confirmation (it never empties on its own).
 - [ ] External videos as a card that loads nothing from outside, with an
       optional «click to load» for domains the admin lists.
 - [ ] Uploading videos through the API (`POST /api/attachments`).

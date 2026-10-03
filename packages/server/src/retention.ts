@@ -247,6 +247,27 @@ export class Retention {
     return r
   }
 
+  /**
+   * Trash entries deleted for good by a person («Delete forever», «Empty the
+   * trash»), as a run removes expired ones: with the history's retention on
+   * (and the history managed), their notes' history goes at the next run, as
+   * for an entry the retention empties. What it removed (an entry restored
+   * or gone meanwhile isn't counted).
+   */
+  discard(entries: readonly TrashEntry[]): { entries: number; bytes: number } {
+    const s = this.opts.settings.view()
+    if (entries.length && s.historyRetentionDays !== null && this.opts.history?.status().mode === 'managed') {
+      this.state.emptied.push(...entries.flatMap(filesOf))
+      this.save()
+    }
+    const out = { entries: 0, bytes: 0 }
+    for (const e of entries) {
+      const bytes = this.entryBytes(e.id)
+      if (this.removeEntry(e.id)) { out.entries++; out.bytes += bytes }
+    }
+    return out
+  }
+
   /** Removes a trash entry for good: out of the trash in one step, then from the disk. */
   private removeEntry(id: string): boolean {
     if (!/^[0-9A-Z]{26}$/.test(id)) return false

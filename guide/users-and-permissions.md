@@ -230,7 +230,8 @@ for the others, and someone who manages it has to add you again to come back.
 The space's menu → **Delete space…** (it takes `manage`). Its notes go to the
 trash, and its members stop seeing it at once; they get a notice. **Undo**,
 right after, brings it back whole; later, so does **Restore space** in the
-notice its managers get (and, for the admin, in «Spaces»): its folders, its
+notice its managers get, in their **Trash** (where they may also delete it
+forever) and, for the admin, in «Spaces» and their Trash: its folders, its
 notes and its members with their levels, as they were. Only under its own
 name: while another space has it, it can't come back.
 

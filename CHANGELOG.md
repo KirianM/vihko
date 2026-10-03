@@ -12,6 +12,27 @@ its entries are kept at the end of this file.
 
 ## [0.1.0-rc.7] - unreleased
 
+### Added
+
+- **The Trash screen**, «Trash» in the sidebar under «Recent changes»
+  (`?view=trash`). It lists what was deleted where you can edit, since you
+  could read there, and the shared spaces deleted whole that you may bring
+  back, one line each: its name, where it was, who deleted it and when, how
+  much it takes (and, at the top, all of it), and when the admin's retention
+  takes it, if it's on. A search box, and a choice of space, narrow it.
+  Anyone who sees a line may restore it; a note whose name was taken
+  meanwhile comes back under another name, or in another place, instead of
+  failing. **Delete forever** and **Empty the trash…** are for a shared
+  space's managers (its members restore, but never destroy), a personal
+  space's owner, and who managed a deleted space; they ask first and are
+  confirmed at the moment. A deleted space comes back whole from there too.
+  `GET /api/trash` now says each entry's size, who deleted it, what the person
+  may do with it and when it expires, with the deleted spaces and the total;
+  `DELETE /api/trash/:id`, `POST /api/trash/empty` and `DELETE
+  /api/spaces/deleted/:id` are new. They're for the web UI: a key gets 404,
+  and MCP has no tools for them (an agent restores a deleted note from its
+  history).
+
 ### Changed
 
 - **Changing your password no longer revokes your keys and apps unless you
