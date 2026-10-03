@@ -664,7 +664,8 @@ test('a closed space converted into a shared space: its members see all of it, w
   try {
     const { shared, note, own } = await deletedMember(h)
     // The person's own settings folder: theirs, not the shared space's.
-    h.write(`${h.home('member')}/.vihko/${m.aTitle()}.md`, m.aParagraph())
+    const [settingsName, settingsText] = [`${m.aTitle()}.md`, m.aParagraph()]
+    h.write(`${h.home('member')}/.vihko/${settingsName}`, settingsText)
     const name = m.aSpaceName()
     // Someone has to manage it: a dry run says so too.
     for (const members of [{}, { [h.names.admin]: 'edit', [`@${h.group}`]: 'read' }]) {
@@ -678,6 +679,11 @@ test('a closed space converted into a shared space: its members see all of it, w
     const dest = r.body.plan.to as string
     assert.equal(dest, `spaces/${name}`)
     assert.ok(!existsSync(join(h.notesDir, dest, '.vihko')), 'their settings don\'t come along')
+    // …but go to the trash, as anything hidden in a folder that goes does: never lost for good.
+    const entry = h.notes.trash().find((e) => e.kind === 'files' && e.files?.some((f) => f.path === `${dest}/.vihko/${settingsName}`))
+    assert.ok(entry, JSON.stringify(h.notes.trash()))
+    const stored = entry.files!.find((f) => f.path === `${dest}/.vihko/${settingsName}`)!.stored
+    assert.equal(readFileSync(join(h.stateDir, 'trash', entry.id, stored), 'utf8'), settingsText)
     const admin = (await h.admin('GET', '/api/spaces')).body.spaces
     assert.deepEqual(admin.map((s: any) => [s.path, s.name, s.level]), [[dest, name, 'manage']])
     assert.equal((await h.admin('GET', `/api/note?path=${encodeURIComponent(dest + own.slice(h.home('member').length))}`)).status, 200, 'all of it, also what was never shared')

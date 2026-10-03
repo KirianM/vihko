@@ -735,10 +735,11 @@ export class SpaceService {
     }, { actor: access.actor }).catch((err) => this.opts.log?.(`the old rules of ${shownPath(from)} stay in vihko.yaml after it moved to ${shownPath(dest)}: ${err instanceof Error ? err.message : String(err)}`))
     // Its trash goes along, whatever space it lands in: what was shared stays so, with what was deleted there.
     this.opts.refs.moved(from, dest, { trash: 'always' })
-    // A person's settings (their `.vihko/`) aren't a shared space's: they don't come along.
+    // A person's settings (their `.vihko/`) aren't a shared space's: they don't come along. They go to
+    // the trash, as anything hidden in a folder that goes does, never lost for good.
     if (action === 'convert') {
       for (const entry of readdirSync(join(this.opts.notesDir, dest))) {
-        if (isReserved(`${dest}/${entry}`)) rmSync(join(this.opts.notesDir, dest, entry), { recursive: true, force: true })
+        if (isReserved(`${dest}/${entry}`)) await this.opts.notes.trashHidden(dest, entry, access.actor)
       }
     }
     if (action === 'transfer') {

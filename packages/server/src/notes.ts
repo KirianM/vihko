@@ -1,7 +1,7 @@
 // Note service: the system's only write point (UI, API and MCP all go
 // through here). Optimistic concurrency by hash, safe writes
 // (fsutil.ts), lazy `uid` and deletion to trash.
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
 import { addToFrontmatterList, classifyPath, contentHash, hasControlCharacter, extract, folderOf, isIgnoredDir, isReserved, linkSpace, newUid, sameSpace, normKey, pathKeys, readFrontmatter, resolveImageRef, setFrontmatterKey, spaceRootOf, type AttachmentsConfig, type ErrorCode, type LinkIndex } from '@vihko/core'
 import { commitText, createFile, followable, isPlainFile, linkNew, readStable, readText } from './fsutil.ts'
@@ -1301,6 +1301,40 @@ export class NoteService {
       }
       this.removeFolder(path, rest.junk)
       return { path, trashed }
+    })
+  }
+
+  /**
+   * Something hidden at the root of `folder` (`name`: a person's `.vihko/`,
+   * which doesn't come along when their space becomes a shared one) to the
+   * trash instead of being lost: its files as one entry of files alone, as
+   * `trashFolder` takes a hidden folder; then what is left of it (empty
+   * folders, and symbolic links, removed and never followed). Null if it had
+   * no file.
+   */
+  async trashHidden(folder: string, name: string, actor: Actor): Promise<TrashEntry | null> {
+    const root = join(this.dir(folder), name)
+    let kind: 'folder' | 'file' | 'other'
+    try {
+      const st = lstatSync(root)
+      kind = st.isDirectory() ? 'folder' : st.isFile() ? 'file' : 'other'
+    } catch {
+      return null
+    }
+    const files: string[] = []
+    const walk = (rel: string) => {
+      for (const e of readdirSync(rel ? join(root, rel) : root, { withFileTypes: true })) {
+        const r = rel ? `${rel}/${e.name}` : e.name
+        if (e.isDirectory()) walk(r)
+        else if (e.isFile()) files.push(`${folder}/${name}/${r}`)
+      }
+    }
+    if (kind === 'folder') walk('')
+    else if (kind === 'file') files.push(`${folder}/${name}`)
+    return this.history.operation(actor, null, async () => {
+      const entry = files.length ? this.trashFiles(folder, files, actor) : null
+      if (kind !== 'file') rmSync(root, { recursive: true, force: true })
+      return entry
     })
   }
 
