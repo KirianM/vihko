@@ -31,8 +31,9 @@ export interface HistoryAuthor {
  */
 export interface Reason {
   code: string
-  from?: string
-  to?: string
+  /** Null where the reader can't read it: a reason never names a path the reader may not. */
+  from?: string | null
+  to?: string | null
   by?: HistoryAuthor | null
   moves?: { from: string; to: string }[]
   alias?: string

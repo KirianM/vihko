@@ -210,7 +210,8 @@ Details that go with them:
   holding the link) has the reason `links_kept`, with `to` (the note that
   took the name, or null where the reader can't read it) and `by`. A space
   of 0.1.0-rc.1 or rc.2 renamed to its name when vihko started has the
-  reason `space_renamed`, with `from` and `to` (its roots). Since
+  reason `space_renamed`, with `from` and `to` (its roots; both null for
+  a reader who can't read the space now, its name to one who can). Since
   0.1.0-rc.6, a key's person (as everyone) sees the versions, and the
   trash entries, only from when they could read where the note is: the
   grant that reaches them, or their joining the group it names. A note's

@@ -10,6 +10,15 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.7] - unreleased
+
+### Fixed
+
+- **A space renamed when vihko was upgraded is named in the history again**
+  («Space renamed to its name, “…”»): the name came out empty for everyone.
+  Whoever reads the space gets its name, in the API and over MCP; whoever
+  doesn't, `from` and `to` as `null`, as before.
+
 ## [0.1.0-rc.6] - 2026-10-03
 
 Fixes from two reviews before 0.1.0: security, and flows that a family or a
