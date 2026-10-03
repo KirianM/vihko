@@ -77,6 +77,9 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'POST /api/attachments/fetch': 'session',
   'GET /api/trash': 'session',
   'POST /api/trash/:id/restore': 'session',
+  'DELETE /api/trash/:id': 'session',
+  'POST /api/trash/empty': 'session',
+  'DELETE /api/spaces/deleted/:id': 'session',
   'GET /api/alerts': 'session',
   'GET /api/conflict': 'session',
   'POST /api/admin/rescan': 'session',
@@ -274,6 +277,10 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'POST /api/note/orphan': 'edit',
   'POST /api/external-moves/:id/relink': 'edit',
   'POST /api/trash/:id/restore': 'edit',
+  // Deleting for good: whoever manages where it was (a personal space's owner; who managed a deleted space).
+  'DELETE /api/trash/:id': 'manage',
+  'POST /api/trash/empty': 'filtered',
+  'DELETE /api/spaces/deleted/:id': 'manage',
   'POST /api/folder': 'edit',
   // Templates: the mark written into notes, as any edit.
   'POST /api/folder/templates': 'edit',

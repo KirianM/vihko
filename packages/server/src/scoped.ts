@@ -77,7 +77,17 @@ export interface ScopedDeps {
    * (notices.ts `moved_out`).
    */
   onMovedOut?: (move: { kind: 'note' | 'folder'; owner: string; from: string; to: string; by: string }) => void
+  /** Removes trash entries for good, once the person may (retention.ts `discard`). */
+  discardTrash?: (entries: readonly TrashEntry[]) => void
 }
+
+/**
+ * A trash entry as the trash screen lists it (GET /api/trash): what the
+ * person sees of it (`trash`), what that takes on the disk (`bytes`: its
+ * note and the files they see, never more) and whether they may delete it
+ * for good (`canDelete`).
+ */
+export type TrashListing = TrashEntry & { space: string | null; bytes: number; canDelete: boolean }
 
 /**
  * What a folder holds, as `not_empty` tells whoever tried to delete it
@@ -1508,6 +1518,15 @@ export class ScopedNotes {
    * edit any of them; of an entry's files, only those.
    */
   trash(): (TrashEntry & { space: string | null })[] {
+    return this.seenTrash().map((s) => s.shown)
+  }
+
+  /**
+   * The entries `trash` shows, each with what it is whole (`entry`),
+   * whether the person sees all of it (`whole`: every one of its files) and
+   * whether it's theirs as a deleted space's manager (`orphaned`).
+   */
+  private seenTrash(): { entry: TrashEntry; shown: TrashEntry & { space: string | null }; whole: boolean; orphaned: boolean }[] {
     return this.deps.notes.trash().flatMap((e) => {
       const orphaned = this.orphanedFor(e)
       // Only what was deleted since the person could read there: sharing a folder doesn't share what left it before.
@@ -1516,8 +1535,63 @@ export class ScopedNotes {
       if (!orphaned && (e.kind === 'files' ? !files?.length : !this.access.canWrite(e.path) || !since(e.path))) return []
       // Who managed a deleted space is kept for the trash, never shown.
       const { managers: _, ...shown } = e
-      return [{ ...shown, ...(files ? { files } : {}), space: spaceRootOf(e.kind === 'files' ? `${e.path}/_` : e.path) }]
+      return [{ entry: e, shown: { ...shown, ...(files ? { files } : {}), space: spaceRootOf(e.kind === 'files' ? `${e.path}/_` : e.path) }, whole: (files?.length ?? 0) === (e.files?.length ?? 0), orphaned }]
     })
+  }
+
+  /**
+   * The trash as its screen shows it: `trash`, each entry with the bytes of
+   * what the person sees of it, and whether they may delete it for good
+   * (`mayDiscard`).
+   */
+  trashListing(): TrashListing[] {
+    return this.seenTrash().map((s) => ({
+      ...s.shown,
+      bytes: this.deps.notes.trashBytes(s.entry.id, (s.shown.files ?? []).map((f) => f.stored)),
+      canDelete: this.mayDiscard(s.entry, s.whole, s.orphaned),
+    }))
+  }
+
+  /**
+   * Whether the person may delete a trash entry they see for good: never an
+   * agent, and only one they see whole (nothing they can't see is destroyed
+   * through it). In a shared space, whoever manages the folder it was in (its
+   * managers manage all of it); in a personal space, its owner alone,
+   * whoever else edits there; of a deleted space, who managed it then.
+   * Restoring is for whoever sees it (`edit` where it was).
+   */
+  private mayDiscard(e: TrashEntry, whole: boolean, orphaned: boolean): boolean {
+    if (this.access.isAgent || !whole) return false
+    if (orphaned) return true
+    const folder = e.kind === 'files' ? e.path : folderOf(e.path)
+    const s = parseSpacePath(`${folder}/_`)
+    if (!s) return false
+    if (s.space.kind === 'personal') return s.space.owner === this.access.user.username.normalize('NFC')
+    return this.access.canManage(folder)
+  }
+
+  /**
+   * The trash entries `ids` names, for deleting them for good: each one the
+   * person sees (`not_found` otherwise, as for one that isn't there) and may
+   * delete (`forbidden`: one they see but may only restore). Nothing is
+   * deleted here: all of them may be, or none is.
+   */
+  discardable(ids: readonly string[]): TrashEntry[] {
+    const seen = new Map(this.seenTrash().map((s) => [s.entry.id, s]))
+    return ids.map((id) => {
+      const s = seen.get(id)
+      if (!s) throw new NoteError('not_found', `not in the trash: ${id}`)
+      if (!this.mayDiscard(s.entry, s.whole, s.orphaned)) throw new AccessError('deleting this for good is for whoever manages where it was')
+      return s.entry
+    })
+  }
+
+  /** Deletes trash entries for good (`discardable` first): what they were, as the trash listed them. */
+  discardTrash(ids: readonly string[]): TrashListing[] {
+    const entries = this.discardable(ids)
+    const listed = this.trashListing().filter((e) => ids.includes(e.id))
+    this.deps.discardTrash?.(entries)
+    return listed
   }
 
   /**

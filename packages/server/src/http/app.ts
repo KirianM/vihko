@@ -73,6 +73,7 @@ import { FolderRefs } from '../folderRefs.ts'
 import { GrantStarts } from '../grantStarts.ts'
 import { SpaceError, SpaceService } from '../spaceService.ts'
 import { spaceRoutes } from './spaces.ts'
+import { trashRoutes } from './trash.ts'
 import { jsonBody } from './jsonBody.ts'
 import { scrub } from '../logging.ts'
 
@@ -370,6 +371,8 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     onFolderMoved: (from, to) => { refs.moved(from, to) },
     onNoteMoved: (from, to) => { refs.noteMoved(from, to) },
     onFolderMoving: (from, to) => { grantStarts.moving(from, to) },
+    // Deleting for good from the trash, as its retention removes what expired.
+    discardTrash: (entries) => { retention.discard(entries) },
     onMovedOut: (m) => {
       const owner = auth.state.prepare('select id from users where username = ? and deleted_at is null').get(m.owner) as { id: string } | undefined
       if (owner) notices.add(owner.id, { code: 'moved_out', kind: m.kind, by: m.by, from: m.from, to: m.to })
@@ -405,6 +408,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     moveFolder: (access, from, to, o) => new ScopedNotes(scopedDeps, access).moveFolder(from, to, o),
     pastPaths: deps.history ? () => deps.history!.pastPaths() : undefined,
     starts: grantStarts,
+    discardTrash: (entries) => { retention.discard(entries) },
   })
   const services: Services = { keys, integrations, policy, permissionsFile, scoped: (access) => new ScopedNotes(scopedDeps, access), history: deps.history, oauth, users, imageSlots: new ImageSlots(), spaces, live, noteSettings }
   const app = new Hono<Env>()
@@ -1021,12 +1025,9 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // The trash: each person sees what was deleted where they'd have `edit`
-  // now, and restores with `edit` where it goes.
-  app.get('/api/trash', (c) => c.json({ entries: scoped(c).trash() }))
-  app.post('/api/trash/:id/restore', async (c) => {
-    const { to } = await jsonBody<{ to?: string }>(c).catch(() => ({ to: undefined }))
-    return c.json(await scoped(c).restoreTrash(c.req.param('id'), to))
-  })
+  // now, and restores with `edit` where it goes; its screen also deletes
+  // for good, and lists the deleted spaces to restore whole (http/trash.ts).
+  trashRoutes(app, { scoped, spaces, settings: adminSettings, userName: (id) => auth.username(id) ?? id, keyName: (id) => keys.nameOf(id), confirm: tf.confirmIdentity })
 
   // Workspace alerts: codes with their data, never text. Admin actions are
   // only offered to those who can perform them; the endpoint enforces it again.
