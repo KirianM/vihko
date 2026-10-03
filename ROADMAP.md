@@ -37,7 +37,8 @@ anything you can't see getting in your way or telling you it exists.
 - [x] Moving between spaces says who gains and loses access, and whose it
       becomes, before anything moves; agents confirm it explicitly.
 - [x] The admin: a directory of shared spaces (names, managers, member
-      counts, never content), assigning a manager, joining a space visibly,
+      counts, never content), assigning a manager to a space without one,
+      joining such a space visibly to rescue it,
       and deciding what becomes of a deleted person's closed space
       (transfer, make it shared, delete). Notices to the people concerned.
 - [x] API and MCP: `GET /api/spaces` and `/api/spaces/members`;
@@ -87,9 +88,14 @@ message; and an installation built from the documentation alone works.
       live, and the reader isn't a cursor. Whoever can't edit is always in
       reading mode.
 - [ ] «Open notes in»: automatic (reading on a phone, editing on a
-      computer), editing or reading; remembered while browsing.
+      computer), editing or reading; remembered while browsing. A new note,
+      and today's note, always open for editing.
 - [ ] «Show the Markdown»: on the line being edited, always, or as little as
-      possible (experimental, on the same editor; no WYSIWYG editor).
+      possible (experimental, on the same editor; no WYSIWYG editor); and a
+      command to see a note's Markdown for a moment.
+- [ ] Offline in the browser: what's typed without a connection kept on the
+      device (IndexedDB) and offered back when it returns, not only while
+      the tab stays open.
 - [ ] The UI's per-person settings: opening mode and Markdown in the
       account, next to the language and «On opening» (what their notes do
       is already their space's settings file, in 0.1.0).
@@ -112,6 +118,8 @@ message; and an installation built from the documentation alone works.
 - [ ] External videos as a card that loads nothing from outside, with an
       optional «click to load» for domains the admin lists.
 - [ ] Uploading videos through the API (`POST /api/attachments`).
+- [ ] The History tab says when a video is too large to enter the history,
+      and deleting a note says how much its videos take.
 
 ## Later
 
@@ -131,8 +139,9 @@ message; and an installation built from the documentation alone works.
   projects…); embeddings in a worker thread with `sqlite-vec` and hybrid
   search, never of what the agent can't see; intent tools
   (`project_context`, `decisions`, `timeline`).
-- Importing an existing vault into a space from the UI, rewriting its links
-  from the root.
+- An import command (`vihko import`) that brings an existing vault into a
+  space, rewriting its links from the notes root. Until then, importing is
+  copying the files ([Install](guide/install.md#notes-you-already-have)).
 - Themes: light and dark as the first two of a theme system (palette and type
   per theme), so others can be added.
 - Purge from the history everything no longer in the folder, listing what is
@@ -148,14 +157,17 @@ message; and an installation built from the documentation alone works.
   of (its name isn't secret), or for a higher level in a folder someone
   already shares with you; never from a link that looks broken, which may
   lead to what you can't see.
-- Offline in the browser: what's typed without a connection kept on the
-  device (IndexedDB) and offered back when it returns.
 - Renaming people who already use vihko: their space's folder, their grants
   and the links to their notes, as renaming a space does.
 - Exporting a space (or one's own notes) as a zip, with its images and files.
 - Selecting several notes in the tree, to move or delete them at once.
 - A stable hidden id for each space, so that renaming it on the disk keeps
   its members, choices and links.
+- Files that aren't notes (PDFs, images…) in the folder tree.
+- Moving a note to another space with the notes it links to, in one go, so
+  their links keep working.
+- The editor's recovery log written to the disk at once (`fsync`), so what
+  was typed also survives a power cut, not only a crash.
 
 ## Why this order
 

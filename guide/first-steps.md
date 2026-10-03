@@ -122,7 +122,7 @@ instead):
 
 - **Find a note**: type words. It searches titles, aliases and text, ignoring
   accents, and shows each hit in context. With nothing typed, it lists your
-  recent notes.
+  recent notes in this browser (forgotten when you sign out).
 - **Filters**, alone or with words:
 
   | Filter | Keeps |
@@ -369,8 +369,11 @@ rules are in [Configuration](configuration.md#daily-daily-notes).
 
 **If you have more than one series** (yours, and one of a space you're in,
 say): Preferences → **Daily note series** → pick the one «Today's note»
-should open → **Save**. Until you pick one, it opens the first in that list:
-your own series come first, then your spaces', then the installation's. The
+should open → **Save**. Until you pick one, when every series you have is in
+your own space, it opens the first in that list (your own series come first,
+then the installation's); when one of them is a shared space's, the first
+time «Today's note» asks which one to use, so your notes never land in a
+shared space by themselves. The
 first time you open «Today's note», the series it opened becomes your choice,
 so a series a space adds later never takes its place: you change it only in
 Preferences. If the series you chose goes away (it was removed or renamed,
@@ -485,8 +488,10 @@ To open something else when you come in:
 1. Your name → Preferences → **On opening**.
 2. Choose:
    - **Home, vihko's start page**, the default;
-   - **The last note (on this device)**: the note you had open last in this
-     browser. Your phone and your computer each remember their own;
+   - **The last note (on this device)**: the note you had open last on this
+     device. Your phone and your computer each have their own, kept in your
+     account, not in the browser: it's still there after you sign out and
+     back in, and nothing of it stays in the browser once you sign out;
    - **A specific note**: type part of its name in **Note** and pick it from
      the list (its name and where it is). It shows above the box once
      chosen;
@@ -496,9 +501,9 @@ To open something else when you come in:
 3. Press **Save**.
 
 «On opening» only applies when you come in without asking for anything
-else: a link to a note opens that note. The note you chose stays chosen when
-it's renamed or moved in vihko, or its folder is. If it is deleted, or you
-can no longer read it, vihko opens Home.
+else: a link to a note opens that note. The note you chose, or the last one,
+follows it when it's renamed or moved in vihko, or its folder is. If it is
+deleted, or you can no longer read it, vihko opens Home.
 
 ## On a phone
 

@@ -598,7 +598,7 @@ anything in it, and confirms at the moment:
 - **Make it a shared space…**, with the members the admin chooses (at least
   one who manages it). Its members will see everything the person had, also
   what they never shared; the dialog says so. The person's own settings
-  folder (`.vihko/`) doesn't come along.
+  folder (`.vihko/`) doesn't come along: it goes to the trash.
 - **Delete…**: its files are deleted from the disk, with no trash, since
   nobody could see it. The history keeps what it had, with nobody to read it;
   the admin can purge it by path ([History](history.md#purging)).
@@ -807,10 +807,14 @@ when they sign in and in the alerts until they dismiss them:
   their role (the other admins get one too);
 - to every other admin: an admin created a new admin («Lead made Noa an
   admin», as for a role change);
-- someone added them to a shared space, or shared a folder with them;
-- the admin made them a manager of a space, joined a space they manage, or
-  gave them (or its members) a deleted person's space; the other admins are
-  told too;
+- someone added them to a shared space, or shared a folder with them, or
+  took them out of one;
+- a shared space they're in was deleted, restored or renamed;
+- someone they shared a folder or note of their own space with moved it out
+  of their space;
+- the admin made them a manager of a space, joined a space they're in (only
+  one with no active managers, to rescue it), or gave them (or its members) a
+  deleted person's space; the other admins are told too;
 - a move of theirs left links that couldn't be updated, even after vihko
   tried again;
 - someone purged from the history a note or a version they wrote in (see

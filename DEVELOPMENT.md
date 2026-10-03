@@ -327,7 +327,7 @@ ci` needed), build the image and name it:
 docker build -t vihko:local .
 npm run upgrade-smoke -- --new vihko:local                        # from the previous stable release
 npm run upgrade-smoke -- --new vihko:local --version 1.2.0         # as the release of 1.2.0 would
-npm run upgrade-smoke -- --new vihko:local --old ghcr.io/kirianm/vihko:0.1.0-rc.7   # from any image
+npm run upgrade-smoke -- --new vihko:local --old ghcr.io/kirianm/vihko:0.1.0   # from any image
 ```
 
 It publishes vihko on a free port of the host (`--port` to choose it), with

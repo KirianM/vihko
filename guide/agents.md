@@ -280,7 +280,7 @@ The server offers these tools. A read-only key is offered only the reading ones
 | `list_folder` | The folders and notes in a folder, optionally everything under it. With `""`, the spaces the person reaches: their own, the shared spaces they belong to (with their names), and the folders others share with them (with whose they are) |
 | `related` | How a note connects to others: its links with the titles they lead to, and the notes that link to it with the text around each link |
 | `resolve_link` | Where a link written in a note leads: resolved, ambiguous (with candidates), missing or `no_access` |
-| `daily_note` | Today's note of the person the key acts for, in their time zone. With a key that writes, it creates the note from its template if it doesn't exist yet (`create: false` only looks) |
+| `daily_note` | Today's note of the person the key acts for, in their time zone. With a key that writes, it creates the note from its template if it doesn't exist yet (`create: false` only looks). `series` picks another of their series: an id of `vihko.yaml`, or a space's series as `me-…` (their own space) or `sp-…` (a shared space) |
 
 **Writing** (keys that may write)
 

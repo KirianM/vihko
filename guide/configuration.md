@@ -1,7 +1,7 @@
 # Workspace configuration: `vihko.yaml`
 
 `vihko.yaml` holds the settings that belong to your notes rather than to the
-server: who shares what, the shared spaces' names, daily notes, where images
+server: who shares what, the shared spaces' members, daily notes, where images
 go, how the history is kept. It lives at the root of the notes
 folder, so it travels, and is backed up, with the notes.
 
@@ -35,6 +35,10 @@ of their space: see
     [How vihko writes the permissions](#how-vihko-writes-the-permissions);
   - when it starts after an upgrade that changed the file's format. See
     [Format changes on upgrade](#format-changes-on-upgrade).
+- **It may be a symbolic link** (to keep it elsewhere on purpose): vihko reads
+  it through the link, and writes the file the link points to, atomically,
+  leaving the link as it is. It's the only symbolic link vihko follows in
+  the notes folder.
 - **Problems show up as alerts**, never as a crash. Only admins see them, in
   the workspace alerts (the «N alerts» link that appears at the bottom of the
   sidebar). See [When something is wrong](#when-something-is-wrong).
@@ -67,7 +71,7 @@ Every setting, with its default:
 | Language | `state.db`, the person's account | Automatic (the browser's) | Preferences → «Account» → «Language» | Each person | Yes |
 | Timezone, «Daily note series», «On opening» | `state.db`, the person's account | The browser's timezone; the first series; Home | Preferences | Each person | Yes |
 | Theme (light or dark) | That browser only | The system's | The sun or moon button in the note's header | Each person, per device | Yes |
-| Images linked from other sites | `VIHKO_EXTERNAL_IMAGES` | `ask` (installed before 0.1.0-rc.6: `allow`) | None | Whoever runs the server | Restart |
+| Images linked from other sites | `VIHKO_EXTERNAL_IMAGES` | `ask` | None | Whoever runs the server | Restart |
 | Daily notes, where images go, guide for agents of a person | `people/<user>/.vihko/settings.yaml` | None | Preferences → «Your note settings» | That person | Yes |
 | The same, of a shared space | `spaces/<name>/.vihko/settings.yaml` | None | The space's menu → «Settings…» | Its managers | Yes |
 | [`daily`](#daily-daily-notes), [`attachments`](#attachments-where-new-images-go), [`links.aliases`](#linksaliases), [`history`](#history), [`notes.maxSize`](#notesmaxsize), [`mcp`](#mcpinstructions) | `vihko.yaml` | See [Reference](#reference) | None | Whoever can write the file | Yes |
@@ -194,9 +198,11 @@ Each entry is a **series**: a folder and a name pattern that give one note per
 day, week, month or year. Each person picks theirs in Preferences («Daily
 note series»), with the option to open today's note when vihko opens (it only
 opens a note that exists; it never creates one). Until they pick one, the
-default is their own first series, else the first of their shared spaces',
-else the first here; the first time «Today's note» opens a note, that series
-becomes their choice, so a series added later never takes its place. A person
+default is their own first series when every series they're offered is in
+their own space; when one of them is in a shared space, «Today's note» asks
+them which one the first time, so their notes never land in another space by
+themselves. The first time «Today's note» opens a note, that series becomes
+their choice, so a series added later never takes its place. A person
 can also make series of their own without this file: see
 [A daily journal](first-steps.md#a-daily-journal).
 
@@ -436,8 +442,8 @@ manager.
 | A folder inside a person's space, `people/<user>/<folder>` and below | `grants`, `ai` |
 
 Anything else **rejects the section**: `""` (the root), `people`, `spaces`, a
-folder outside them, a `{user}` segment, grants at `people/<user>`, `name`
-anywhere but a shared space's root, or the same folder written twice. Quote a
+folder outside them, a `{user}` segment, grants at `people/<user>`, or the same folder written
+twice. Quote a
 key that YAML would read as something else.
 
 **Each rule** takes these keys, all optional:
@@ -447,10 +453,7 @@ key that YAML would read as something else.
 | `grants` | map of subject → level | Who gets what in this folder and below. Left out, or `{}`: nobody is added here |
 | `ai` | `false` | Closes the folder and everything under it to agents |
 
-A shared space's name is its folder's: there's no key for it. (0.1.0-rc.1
-and rc.2 wrote `name` at a shared space's root, with a folder like
-`spaces/home-7k2q9x`; vihko renames such a folder to that name when it
-starts and removes `name`.)
+A shared space's name is its folder's: there's no key for it.
 
 **Subjects** in `grants`:
 
@@ -523,7 +526,8 @@ group is renamed or deleted (its grants follow).
   rule's line, or at the end of its `grants:` line, is kept. The exception is a
   section written in flow style over several lines (`{ … }` spanning lines):
   vihko rewrites it keeping comments and order, but not its spacing.
-- Writes are atomic (a temporary file renamed into place), and never over a
+- Writes are atomic (a temporary file renamed into place; when `vihko.yaml`
+  is a symbolic link, next to the file it points to), and never over a
   file that changed since vihko read it: if you saved it by hand in between,
   the dialog reloads and asks you to review your change.
 - vihko won't edit a file it can't use (not valid YAML, or a rejected
@@ -582,9 +586,9 @@ A person's file names a note of theirs instead: `agents: For agents`.
   in a **shared space**, `guide`, the text itself, which only its managers
   change (a note there could be changed by any member who edits); in a
   **person's** file, `agents`, a note of theirs. A shared space's file
-  that still names a note under `agents` (as before 0.1.0-rc.6) applies
-  none of it, and its managers get `space_guide_note` until they write the
-  text under «Guide for agents» and save.
+  that names a note under `agents` applies none of it, and its managers get
+  `space_guide_note` until they write the text under «Guide for agents» and
+  save.
   `version` is the format's number, `1` now; a file without it is version 1.
 - **Who reads and changes it.** A person's file is theirs alone. A shared
   space's file is changed by its managers, and read by its members only to
@@ -602,14 +606,13 @@ A person's file names a note of theirs instead: `agents: For agents`.
   **Remove**: saving takes it out of the file.
 - **Keys vihko retires** are migrated by vihko when it starts, once: it does
   what the key asked for, removes it from the file (the rest as it was) and
-  tells whom the file belongs to. `templates` (0.1.0-rc.4) is the first: its
-  folders' notes are marked as templates.
+  tells whom the file belongs to.
 
 ### How they add up
 
 | Setting | What a person gets |
 |---|---|
-| Daily-note series | Their own, those of the shared spaces they belong to, and `vihko.yaml`'s: those where they can write today's note. Two series that give the same note are one, the closest to the person (their own, then a space's, then `vihko.yaml`'s), with its name and template, so a personal series that repeats one of the installation's is offered once, as theirs. Listed in that order: until a person chooses, the first is the default. If the series they chose goes away, «Today's note» asks them to choose again; it never moves to another series by itself |
+| Daily-note series | Their own, those of the shared spaces they belong to, and `vihko.yaml`'s: those where they can write today's note. Two series that give the same note are one, the closest to the person (their own, then a space's, then `vihko.yaml`'s), with its name and template, so a personal series that repeats one of the installation's is offered once, as theirs. Listed in that order. Until a person chooses, the first is the default when every series offered is in their own space; when one is in a shared space, «Today's note» asks them which one the first time, so it never lands in another space by itself. If the series they chose goes away, it asks them to choose again; it never moves to another series by itself |
 | Templates | Not a setting: every note marked `template: true` they can read, wherever it is ([Templates](notes.md#templates)) |
 | Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
 | Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. `vihko.yaml`'s and the person's are notes the agent must be able to read; a space's is text in its settings |

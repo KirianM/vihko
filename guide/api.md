@@ -39,13 +39,17 @@ Send the key in the `Authorization` header of every request:
 curl -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/tree"
 ```
 
-A request with a key is judged by the key alone, never by a session cookie.
+A request with a key is judged by the key alone, never by a session cookie,
+and its `Origin` header isn't checked: a browser never sends a key on its
+own, so a page on another site can't use one it doesn't have. vihko sends no
+CORS headers, though, so a page on another site can't call the API from a
+browser either: call it from a server or a script.
 
 | Answer | When |
 |---|---|
 | `401 unauthorized` | The key is wrong, revoked or expired, or its person is disabled |
 | `403 key_suspended` | A member's key while the admin has **Members can create keys** off; it works again once it's back on |
-| `403 forbidden` | A read-only key on a route that writes, or a request that writes with an `Origin` header that isn't vihko's own (a page on another site) |
+| `403 forbidden` | A read-only key on a route that writes |
 | `404 not_found` | The API is off, or the route isn't open to keys |
 
 The key acts for its person, within its folders, and never sees notes or
@@ -96,7 +100,7 @@ The codes you can meet with a key:
 | `exists` | 409 | Creating or moving a note to a name that is taken, or that isn't available there because it would change where someone else's link leads (see [Known limits](compatibility.md#known-limits)) |
 | `edit_mismatch` | 409 | An edit operation doesn't fit the text: `find` not found the expected number of times (or empty), a heading that isn't there, a frontmatter that can't be written |
 | `not_configured` | 409 | The daily note, when the key's person has no daily-note series (none in `vihko.yaml`, in their own settings or in their spaces') |
-| `series_gone` | 409 | The daily note without `series`, when the series the person chose no longer exists for them: they choose another in Preferences |
+| `series_gone` | 409 | The daily note without `series`, when the series the person chose no longer exists for them, or when they never chose one and one of the series offered to them is in a shared space: they choose one in vihko |
 | `audience_widens` | 409 | A move would show the note to people who can't see it now; `audience` says who. Repeat with `confirmAudience: true` only if its person agrees |
 | `permissions_invalid` | 409 | Moving a note whose folder of images has sharing rules of its own in `vihko.yaml`, while a mistake in that file keeps vihko from changing it |
 | `not_revertible` | 409 | Reverting a version that creates or deletes the note |
@@ -556,7 +560,7 @@ is only for whoever can edit the note: a key whose person only reads it gets
 | `GET /api/history/diff?path=&id=&against=` | What the version changed against `previous` (default), `current` or another version id: `ops`, pairs of `-1` (removed), `0` (kept) or `1` (added) and a piece of text, which turn the older text into the version's, and the words `added` and `removed` |
 | `GET /api/history/changes?limit=&cursor=&author=` | Recent changes across the notes the key can see, newest first: `changes`, each with its `id`, `at`, `authors`, `reason`, `foundAtStartup` and `files` (each with its `path`, `change`, `from`, `added` and `removed`, as in `versions`); `next`; and the `authors` to filter by (`author` takes an author's `key`) |
 | `GET /api/history/resolved?path=` | Comment threads that left the note in the last 30 days |
-| `POST /api/history/restore` `{ path, id, ifMatch?, to? }` | Writes that version's text back, as a new version: `etag`, and `images` (`restored`, `missing`). If the note at `path` now is another one (another `uid`) than the version's, `409 uid_mismatch`: with `to`, a free path where the key may write, the version comes back there as a new note (the answer adds its `path`) |
+| `POST /api/history/restore` `{ path, id, ifMatch?, to? }` | Writes that version's text back, as a new version: `etag`, and `images` (`restored`, `missing`). If the note at `path` now is another one than the version's (the version has a `uid`, and the note another one or none), `409 uid_mismatch`: with `to`, a free path where the key may write, the version comes back there as a new note (the answer adds its `path`) |
 | `POST /api/history/revert` `{ path, id, ifMatch?, dryRun? }` | Undoes only what that version changed, keeping later changes; what clashes is left and listed in `skipped` |
 
 An author has a `kind`, a `name` and a `key` (the value for the `author`
