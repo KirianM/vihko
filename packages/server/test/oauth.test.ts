@@ -645,6 +645,34 @@ test('an Origin at /mcp: no credential always gets the challenge; a key only fro
   } finally { await h.close() }
 })
 
+test('an access token whose authorization no longer holds (its person disabled) gets the 401 and its challenge from any Origin, never a 403 for the Origin', async () => {
+  const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
+  try {
+    await h.enableMcp()
+    await openRegistration(h)
+    assert.equal((await h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
+    const client = await register(h)
+    // The member authorizes the app.
+    const { verifier, challenge } = pkce()
+    const r = await consent(h, authorizeQuery(client.client_id, challenge), {}, 'member')
+    assert.equal(r.status, 200, r.text)
+    const code = new URL(r.body.redirect).searchParams.get('code')!
+    const t = await form(h, '/oauth/token', { grant_type: 'authorization_code', code, redirect_uri: REDIRECT, client_id: client.client_id, code_verifier: verifier, resource: RESOURCE })
+    assert.equal(t.status, 200, t.text)
+    const access: string = t.body.access_token
+    assert.equal((await mcpPost(h, access, { origin: new URL(REDIRECT).origin })).status, 200)
+    assert.equal((await mcpPost(h, access, { origin: ATTACKER })).status, 403, 'a valid token, from elsewhere')
+    // The member is disabled: their app's token no longer holds, whoever's site the request comes from.
+    const off = await h.admin('POST', `/api/admin/users/${h.users.member.id}/disable`, { confirm: h.users.admin.password })
+    assert.equal(off.status, 200, off.text)
+    for (const headers of [{ origin: ATTACKER }, { origin: new URL(REDIRECT).origin }, { origin: PUBLIC }, {}] as Record<string, string>[]) {
+      const res = await mcpPost(h, access, headers)
+      assert.equal(res.status, 401, `${JSON.stringify(headers)}: ${res.text}`)
+      assert.match(res.headers.get('www-authenticate') ?? '', /error="invalid_token"/)
+    }
+  } finally { await h.close() }
+})
+
 test('a new password: without revokeKeys an authorized app goes on; with it, its tokens, its refresh token and a code not yet exchanged stop working', async () => {
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {

@@ -150,6 +150,39 @@ test('sharing a folder doesn\'t share its past: who it\'s shared with sees versi
   }
 })
 
+test('a note\'s history is for whoever can edit it: someone who only reads gets forbidden, by the UI, a key and MCP (history, and changes_since from a version) alike', async () => {
+  const h = await setup({ history: true })
+  try {
+    await h.enable()
+    const folder = `${h.home('member')}/${m.aFolder()}`
+    const note = `${folder}/${m.aTitle()}.md`
+    await put(h, 'member', note, `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
+    later(h)
+    await put(h, 'member', note, `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
+    await h.settle()
+    const [version] = await ids(h, 'member', note)
+    assert.ok(version)
+    await h.rule(folder, { grants: { [h.names.other]: 'read' } })
+    assert.equal((await h.other('GET', `/api/note?path=${q(note)}`)).status, 200, 'they read it')
+    const forbidden = (r: { status: number; body: any; text: string }, what: string) => assert.deepEqual([r.status, r.body?.error], [403, 'forbidden'], `${what}: ${r.text}`)
+    forbidden(await h.other('GET', `/api/history/versions?path=${q(note)}`), 'the UI')
+    const key = await h.newKey('other', { name: m.aKeyName(), canWrite: false })
+    forbidden(await h.withKey(key.token)('GET', `/api/history/versions?path=${q(note)}`), 'a key')
+    const c = await h.mcp(key.token)
+    try {
+      for (const [tool, args] of [['history', { path: note }], ['history', { path: note, version }], ['changes_since', { path: note, since: version }]] as const) {
+        const r = await c.call(tool, args)
+        assert.deepEqual([r.error, r.data?.error], [true, 'forbidden'], `${tool} ${JSON.stringify(args)}: ${r.raw}`)
+      }
+      // From an ETag it was given, it's not the history: the current text, as ever.
+      const read = await c.call('get_note', { path: note })
+      assert.equal((await c.call('changes_since', { path: note, since: read.data.etag })).data.changed, false)
+    } finally { await c.close() }
+  } finally {
+    await h.close()
+  }
+})
+
 test('a grant to a group reaches the past only from when each person joined it; a grant written by hand, from when vihko saw it', async () => {
   const h = await setup({ history: true, group: false })
   try {

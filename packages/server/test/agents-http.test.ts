@@ -43,6 +43,27 @@ test('switched off (the default), a key reaches nothing: 404 everywhere, as a ro
   } finally { await h.close() }
 })
 
+test('switched on, a write with a key is judged by the key alone: another site\'s Origin changes nothing (it does for a session); no CORS headers', async () => {
+  const h = await setup({ files: FILES })
+  try {
+    await h.enableApi()
+    const key = h.withKey((await h.newKey({ name: m.aKeyName(), canWrite: true })).token)
+    for (const origin of ['https://elsewhere.example', 'null']) {
+      const path = m.aNotePath(DIR)
+      const r = await key('POST', '/api/note', { path, text: m.aSentence() }, { origin })
+      assert.equal(r.status, 201, `${origin}: ${r.text}`)
+      assert.equal(r.headers.get('access-control-allow-origin'), null)
+      // A read-only key: still its own 403, never one for the Origin.
+      const ro = h.withKey((await h.newKey({ name: m.aKeyName() })).token)
+      const refused = await ro('POST', '/api/note', { path: m.aNotePath(DIR), text: m.aSentence() }, { origin })
+      assert.deepEqual([refused.status, refused.body.message], [403, 'this key is read-only'])
+    }
+    // A session from another site is still refused.
+    const session = await h.admin('POST', '/api/note', { path: m.aNotePath(DIR), text: m.aSentence() }, { origin: 'https://elsewhere.example' })
+    assert.deepEqual([session.status, session.body.error], [403, 'forbidden'])
+  } finally { await h.close() }
+})
+
 test('switched on: only the listed routes, by the key alone; a bad key is 401, a read-only key can\'t write', async () => {
   const h = await setup({ files: FILES })
   try {
@@ -131,7 +152,8 @@ test('changing a key: letting it do more is confirmed at the moment, as a new ke
   const h = await setup({ files: FILES })
   try {
     const password = h.users.admin.password
-    const now = h.clock.now.getTime()
+    // Keys judge their expiry by the real clock (not the setup's, which is fixed in the past): the days are counted from now.
+    const now = Date.now()
     const at = (days: number) => new Date(now + days * 86_400_000).toISOString()
     const key = (await h.admin('POST', '/api/keys', { confirm: password, name: m.aKeyName(), folders: [DIR], expiresAt: at(30) })).body.key
     const patch = (b: Record<string, unknown>) => h.admin('PATCH', `/api/keys/${key.id}`, b)

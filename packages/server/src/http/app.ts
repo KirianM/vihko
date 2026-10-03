@@ -487,7 +487,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   })
 
   // CSRF: a request that modifies something and comes from another origin is rejected.
+  // Only a session's: a browser sends its cookie by itself, never a key (a
+  // request with one was judged by the key alone, above), so `Origin` says
+  // nothing about who sent it. There are still no CORS headers.
   app.use('/api/*', async (c, next) => {
+    if ((c.get('access') as Access | undefined)?.isAgent) return next()
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       const origin = c.req.header('origin')
       if (origin && !sameHost(origin, new URL(c.req.url).host)) return fail(c, 403, 'forbidden', 'origin not allowed')

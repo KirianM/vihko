@@ -123,6 +123,8 @@ test('the tools each key gets: a read-only key sees none that write and can\'t c
   const h = await setup({ files: FILES, config: CONFIG })
   try {
     await h.enableMcp()
+    // The series is in a shared space: the person chose it (vihko never picks one there by itself).
+    await h.admin('PUT', '/api/profile', { dailySeries: DAILY.id })
     const ro = await h.mcp((await h.newKey({ name: m.aKeyName() })).token)
     const rw = await h.mcp((await h.newKey({ name: m.aKeyName(), canWrite: true })).token)
     const names = async (c: typeof ro) => (await c.client.listTools()).tools.map((t) => t.name).sort()
@@ -555,6 +557,7 @@ test('daily_note: the person\'s note for today, created from its template if nee
   })
   try {
     await h.enableMcp()
+    await h.admin('PUT', '/api/profile', { dailySeries: DAILY.id })
     const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true })
     for (const mode of ['legacy', 'auto'] as const) {
       const c = await h.mcp(token, mode)
@@ -579,6 +582,7 @@ test('daily_note with create: false only looks: today\'s note if it exists, or w
   const h = await setup({ files: FILES, config: `${CONFIG}  ${away.id}:\n    folder: ${JSON.stringify(away.folder)}\n` })
   try {
     await h.enableMcp()
+    await h.admin('PUT', '/api/profile', { dailySeries: DAILY.id })
     const c = await h.mcp((await h.newKey({ name: m.aKeyName(), canWrite: true, folders: [P] })).token)
     const today = `${DAILY.folder}/${TODAY}.md`
     const file = join(h.notesDir, today)
@@ -664,6 +668,10 @@ test('the descriptions say what agents asked about: move\'s report, search in pa
     for (const t of ['changes_since', 'history']) assert.match(d[t]!, /words and punctuation marks/, t)
     for (const t of ['edit_note', 'create_note']) assert.match(d[t]!, /no agent can undo that; only a person can/, t)
     assert.match(c.client.getInstructions() ?? '', /only a person can undo it/)
+    // daily_note's series: any id the person is offered, a space's and their own settings' too.
+    const daily = (await c.client.listTools()).tools.find((t) => t.name === 'daily_note')!
+    const series = String((daily.inputSchema.properties?.series as { description?: string } | undefined)?.description)
+    for (const prefix of ['`sp-…`', '`me-…`', 'series_gone']) assert.ok(series.includes(prefix), `${prefix}: ${series}`)
     await c.close()
   } finally { await h.close() }
 })

@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { DIR, FILES, GROUP, MEMBER, OTHER, PATH, setup } from './_m4.ts'
+import { ADMIN, DIR, FILES, GROUP, MEMBER, OTHER, PATH, setup } from './_m4.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -74,11 +74,14 @@ test('MCP: move with dry_run gives the audience; widening needs confirm_audience
       assert.equal(dry.error, false, dry.raw)
       const { users, groups, keys } = dry.data.audience
       assert.deepEqual({ users, groups, keys }, { users: { gain: GAINERS, lose: [] }, groups: { gain: [GROUP], lose: [] }, keys: { gain: 0, lose: 0 } })
+      // From the admin's own space to a shared one: whose it is before and after, as over HTTP (the instructions warn of it).
+      assert.deepEqual(dry.data.audience.owner, { before: { kind: 'personal', owner: ADMIN.username }, after: { kind: 'shared', path: DIR.shared, name: DIR.shared.slice('spaces/'.length) } })
 
       const refused = await c.call('move', plan)
       assert.equal(refused.error, true)
       assert.equal(refused.data.error, 'audience_widens')
       assert.deepEqual(refused.data.audience.users.gain, GAINERS)
+      assert.deepEqual(refused.data.audience.owner, dry.data.audience.owner)
       assert.ok(existsSync(join(h.notesDir, plan.from)))
 
       const moved = await c.call('move', { ...plan, confirm_audience: true })
