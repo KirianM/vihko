@@ -102,8 +102,11 @@ services:
     #   VIHKO_PUBLIC_URL: https://notes.example.com
     #   # The reverse proxy's address as vihko sees it, so the login limits
     #   # count each client apart (X-Forwarded-For is believed only from it).
-    #   # A proxy on this machine or in this file: 172.16.0.0/12. On another
-    #   # machine: its address alone (such as 10.0.0.50), never a range.
+    #   # A proxy on this machine with the 127.0.0.1 port line, or in this file
+    #   # without publishing the port: 172.16.0.0/12. With the port published on
+    #   # every address, or a Docker network shared with other containers, and
+    #   # on another machine: the proxy's address alone (such as 10.0.0.50),
+    #   # never a range. See guide/reverse-proxy.md.
     #   VIHKO_TRUSTED_PROXIES: 172.16.0.0/12
 ```
 
@@ -212,6 +215,8 @@ Back it up. See [Backups](backups.md).
 | `trash/` | Deleted notes and folders, which people can restore from the UI | Yes |
 | `collab/` | Saved editor states of the notes opened in the editor (`.ystate`), and recovery logs of notes being edited (`.ylog`), so a crash loses no typing | Yes |
 | `config-backups/` | Copies of `vihko.yaml` made before vihko rewrote it after an upgrade | Yes |
+| `vihko.yaml.last-valid`, `vihko.yaml.last-permissions` | The last `vihko.yaml` vihko could use, and the last one whose `permissions` shared something: what applies if it starts with a file it can't use, and what «Restore previous permissions» writes back | Yes |
+| `retention.json`, `permission-holds.json`, `external-moves.json`, `relink-retries.json` | Work in progress: what [retention](operations.md#retention) has to finish, notes held after a move made outside vihko, and links still to rewrite. Small, and only there when needed | Yes |
 | `state.db.bak-v<N>` | A copy of `state.db` made before an upgrade migrated it. See [Rolling back](upgrading.md#rolling-back) | Optional |
 | `index.db` | The search index. Derived from the notes, rebuilt when needed | No |
 | `state.db-wal`, `state.db-shm`, `index.db-wal`, `index.db-shm` | SQLite's companion files of the two databases, while vihko runs | With its database |
@@ -346,8 +351,9 @@ reach it on the host port you published.)
 1. Open `http://<your-server>:8080`.
 2. vihko shows «Create the administrator». Paste the token from the log.
 3. Choose a username (2 to 64 letters, digits, `.`, `_` or `-`, not starting
-   with a dot) and a password of at least 10 characters. You're signed in, in
-   «My notes», your own space (`people/<your username>/`), still empty.
+   with a dot) and a password of at least 10 characters, and press «Create
+   and sign in». You're signed in, on Home; in the sidebar, «My notes» is
+   your own space (`people/<your username>/`), still empty.
 
 The token works once. While there are no users, vihko prints a new one every
 time it starts; once the admin exists, it prints none. A script can do the
