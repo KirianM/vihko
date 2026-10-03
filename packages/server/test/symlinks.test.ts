@@ -110,6 +110,25 @@ test('a person\'s settings are never read or written through a symbolic link', a
   assert.ok(readFileSync(join(s.outside, 'settings.yaml'), 'utf8').includes(label), 'nothing written there')
 })
 
+test('a shared space\'s settings are never read or written through a symbolic link either (its .vihko/settings.yaml leading elsewhere)', async (t) => {
+  const s = await withLinks()
+  t.after(() => s.close())
+  const created = await s.member('POST', '/api/spaces', { name: m.aSpaceName() })
+  assert.equal(created.status, 201, JSON.stringify(created.body))
+  const space = created.body.space.path as string
+  const label = m.aWord()
+  writeFileSync(join(s.outside, 'settings.yaml'), `daily:\n  ${m.anId()}:\n    label: ${JSON.stringify(label)}\n    folder: diary\n    name: "{YYYY}-{MM}-{DD}"\n`)
+  mkdirSync(join(s.notesDir, space, '.vihko'), { recursive: true })
+  symlinkSync(join(s.outside, 'settings.yaml'), join(s.notesDir, space, '.vihko', 'settings.yaml'))
+  const read = await s.member('GET', s.url('/api/settings', { space }))
+  assert.equal(read.status, 200, JSON.stringify(read.body))
+  assert.ok(!JSON.stringify(read.body).includes(label), 'what is behind the link is not read')
+  const written = await s.member('PUT', '/api/settings', { space, settings: { version: 1, daily: [], attachments: null, agents: null, guide: m.aSentence() }, ifMatch: read.body.etag })
+  assert.deepEqual([written.status, written.body.error], [400, 'invalid_path'], JSON.stringify(written.body))
+  assert.ok(readFileSync(join(s.outside, 'settings.yaml'), 'utf8').includes(label), 'nothing written there')
+  assert.ok(lstatSync(join(s.notesDir, space, '.vihko', 'settings.yaml')).isSymbolicLink())
+})
+
 test('nothing is written through a symbolic link', async (t) => {
   const s = await withLinks()
   t.after(() => s.close())

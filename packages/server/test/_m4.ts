@@ -87,6 +87,8 @@ export interface M4Setup {
   config?: string
   /** Group memberships by group name (GROUP: the member and the other by default). */
   groups?: Record<string, Name[]>
+  /** How long a move waits before it answers with a job (1 s by default). */
+  moveWaitMs?: number
 }
 
 export async function setup(opts: M4Setup = {}) {
@@ -133,7 +135,7 @@ export async function setup(opts: M4Setup = {}) {
   const notes = new NoteService({ notesDir, stateDir, indexer, db: index, history: history.recorder, attachments: () => workspace.config.attachments })
   const policy = new AccessPolicy({ index, permissions, holds })
   const { app, services } = createServer({
-    confirmWindowMs: 0,
+    confirmWindowMs: 0, moveWaitMs: opts.moveWaitMs,
     auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, policy, holds, groups,
     now: () => new Date('2026-09-27T10:00:00Z'),
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25 }) },

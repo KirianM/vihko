@@ -55,7 +55,7 @@ test('search filters: the reserved names are never a frontmatter field; those wi
   }
   assert.deepEqual(RESERVED_FILTERS, ['tag', 'path', 'is', 'has', 'in', 'prop', 'before', 'after'])
   // Close to a reserved name is not one: a field.
-  assert.deepEqual(parseSearchQuery(`isn:${value} hash:${value} created:${value}`).filters.map((f) => f.kind === 'field' && f.key), ['isn', 'hash', 'created'])
+  assert.deepEqual(parseSearchQuery(`isn:${value} hash:${value} created:${value} modified:${value}`).filters.map((f) => f.kind === 'field' && f.key), ['isn', 'hash', 'created', 'modified'])
 })
 
 test('search filters: what only looks like one stays text (a time, a URL, a colon before a space, part of a word)', () => {

@@ -378,8 +378,15 @@ test('leaving: one\'s own grants go and nothing is deleted; through a group, lea
     assert.equal((await h.admin('DELETE', `/api/admin/groups/${group.id}/members/${h.created.other.id}`)).status, 200)
     assert.ok(h.rechecks.n > before)
     assert.ok(!(await h.other('GET', '/api/spaces')).body.spaces.some((x: any) => x.path === g.path))
+    // The admin also has a grant of their own in a subfolder (above what the space gives them), the other one too.
+    const sub = `${s.path}/${m.aFolder()}`
+    assert.equal((await h.member('POST', '/api/folder', { path: sub })).status, 201)
+    await h.rule(sub, { grants: { [h.names.admin]: 'edit', [h.names.other]: 'manage' } })
     assert.equal((await h.admin('POST', '/api/spaces/leave', { path: s.path })).status, 200)
     assert.deepEqual((await h.admin('GET', '/api/spaces')).body.spaces.map((x: any) => x.path), [g.path])
+    // Leaving takes one's grants below too; the others' stay.
+    assert.deepEqual(rulesInFile(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8')).get(sub)?.grants, { [h.names.other]: 'manage' })
+    assert.equal((await h.admin('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 404)
     // Now the admin sees nothing of it: as for a space that doesn't exist.
     const again = await h.admin('POST', '/api/spaces/leave', { path: s.path })
     const missing = await h.admin('POST', '/api/spaces/leave', { path: `spaces/${m.aSpaceFolder()}` })
@@ -1032,6 +1039,16 @@ test('whoever manages a folder shared from someone\'s own space may take it to a
     h.write(mine, m.aParagraph())
     assert.equal((await h.member('POST', '/api/note/move', { from: mine, to: `${h.home('member')}/${m.aTitle()}.md` })).status, 200)
     assert.equal((await movedOut('member')).length, 2)
+    assert.deepEqual(await movedOut('other'), [])
+    // «Move to a new space» of a folder they manage there is a move out too: its owner is told.
+    const another = `${proj}/${m.aFolder()}`
+    h.write(`${another}/${m.aTitle()}.md`, m.aParagraph())
+    await h.rule(another, { grants: { [h.names.other]: 'manage' } })
+    const made = await h.other('POST', '/api/spaces/from-folder', { path: another })
+    assert.equal(made.status, 201, made.text)
+    const fromFolder = (await movedOut('member')).find((a: any) => a.from === another)
+    assert.ok(fromFolder, JSON.stringify(await movedOut('member')))
+    assert.deepEqual([fromFolder.kind, fromFolder.by], ['folder', h.names.other])
     assert.deepEqual(await movedOut('other'), [])
   } finally {
     h.close()

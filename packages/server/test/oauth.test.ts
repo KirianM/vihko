@@ -673,6 +673,31 @@ test('an access token whose authorization no longer holds (its person disabled) 
   } finally { await h.close() }
 })
 
+test('members\' keys turned off: a member\'s authorized app is suspended at /mcp (403 key_suspended, never deleted) and back when they\'re on; the admin\'s works throughout', async () => {
+  const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
+  try {
+    await h.enableMcp()
+    await openRegistration(h)
+    const members = (on: boolean) => h.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: on, ...(on ? {} : { confirm: h.users.admin.password }) })
+    assert.equal((await members(true)).status, 200)
+    const client = await register(h)
+    const { verifier, challenge } = pkce()
+    const r = await consent(h, authorizeQuery(client.client_id, challenge), {}, 'member')
+    assert.equal(r.status, 200, r.text)
+    const code = new URL(r.body.redirect).searchParams.get('code')!
+    const theirs = (await form(h, '/oauth/token', { grant_type: 'authorization_code', code, redirect_uri: REDIRECT, client_id: client.client_id, code_verifier: verifier, resource: RESOURCE })).body.access_token as string
+    const admins = (await authorize(h, client.client_id)).access_token
+    for (const t of [theirs, admins]) assert.equal((await mcpPost(h, t)).status, 200)
+    const off = await members(false)
+    assert.equal(off.status, 200, JSON.stringify(off.body))
+    const suspended = await mcpPost(h, theirs)
+    assert.deepEqual([suspended.status, suspended.body?.error], [403, 'key_suspended'], suspended.text)
+    assert.equal((await mcpPost(h, admins)).status, 200, 'the admin\'s goes on')
+    assert.equal((await members(true)).status, 200)
+    assert.equal((await mcpPost(h, theirs)).status, 200, 'back, never deleted')
+  } finally { await h.close() }
+})
+
 test('a new password: without revokeKeys an authorized app goes on; with it, its tokens, its refresh token and a code not yet exchanged stop working', async () => {
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {
