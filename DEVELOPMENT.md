@@ -391,8 +391,8 @@ npm run screenshots
 It builds the UI, starts a fresh vihko on a copy of the demo workspace in
 `scripts/screenshots/vault` (plain Markdown in the spaces layout: the note
 shown is `handbook/Welcome.md` in the shared space «Team», the admin has notes
-of their own, and the member shares a folder with them), with two people and a
-comment thread, and takes the
+of their own, and the member shares two folders with them, one of which the
+admin pinned), with two people and a comment thread, and takes the
 pictures with Chromium from the Playwright image of the installed
 `@playwright/test` (Docker required, as for the browser tests): the desktop in
 light and dark (1440×900 at 2×) and the phone (390×844 at 3×). The split
