@@ -16,9 +16,9 @@ export interface IntegrationSettings {
   /**
    * OAuth clients may register themselves (RFC 7591), when OAuth exists at
    * all (VIHKO_PUBLIC_URL and the MCP server on; oauth.ts). Off by default:
-   * claude.ai and mcp-remote register themselves, so connecting them needs it
-   * on; a client that names itself by a metadata URL (cimd.ts) doesn't. Off,
-   * clients already registered keep working.
+   * a client that registers itself (mcp-remote, say) needs it on; one that
+   * names itself by a metadata URL (cimd.ts), as claude.ai does, doesn't.
+   * Off, clients already registered keep working.
    */
   oauthRegistration: boolean
 }
