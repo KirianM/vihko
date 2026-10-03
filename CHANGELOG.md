@@ -10,6 +10,114 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.8] - unreleased
+
+Fixes from a review of the rules of the spaces and of the published
+contract against the code, before 0.1.0.
+
+### Added
+
+- **`PUT /api/profile/last-note`** and **`lastNote` in `GET/PUT
+  /api/profile`**: the last note opened on this device, kept in the account
+  (see *Changed*). For the web UI: a key gets 404.
+
+### Changed
+
+- **«On opening: Last note (on this device)» survives signing out.** It was
+  read from the browser's list of recent notes, which goes when you sign
+  out, so after signing in again it always opened Home. vihko now keeps each
+  device's last note in your account (a device is a browser, by its device
+  cookie, which it now keeps from one sign-in to the next), follows the note
+  when it's moved or renamed, and opens Home instead of a note you can no
+  longer read or that is gone. Nothing of it stays in the browser after you
+  sign out; the palette's recent notes are still per browser, and still go
+  then.
+- **«Today's note» never lands in a shared space by itself.** With no series
+  chosen it took the first one offered, which could be a shared space's; it
+  now takes the first in your own space, and with none there it asks which
+  one to use (`409 series_gone`, as when a chosen series is gone).
+- **An alias typed in the editor goes through the same check as one added
+  through the API or MCP**: one that would change where a link in a note you
+  read leads, to a note you can't read, is taken out of the note before it's
+  saved, and you're told.
+- **A request with an API key is judged by the key alone**: a write from a
+  page of another site (any `Origin`) is no longer refused with 403; the
+  check is for sessions, whose cookie a browser sends by itself. There are
+  still no CORS headers.
+- **An OAuth token whose authorization no longer holds** (its person
+  disabled, say) gets `401` and its challenge from any `Origin`, instead of a
+  403 for the `Origin`.
+- `GET /api/spaces/members` with a key, on a folder its person reads but
+  that is outside the key's folders or closed to agents, answers `403
+  agent_denied` with the reason, as for a note, instead of 404.
+- MCP: `changes_since` from a version id needs `edit` where the note is, as
+  `history` does (`forbidden`); `config_invalid` comes as over HTTP instead
+  of `internal`; `audience` (a `move`'s dry run, `audience_widens`) carries
+  `owner`, whose the note is before and after, as over HTTP; `daily_note`'s
+  `series` takes any series offered, a space's (`sp-…`) and your own
+  settings' (`me-…`) too.
+- **Sizes read as sizes**: «51 bytes», «1.2 KB», «3,4 MB» in Spanish, in the
+  trash and the retention settings (it said «51 byte»).
+- The comments of a paragraph are counted as threads everywhere: a comment
+  with its replies is one, on the phone as on the desktop.
+- The sidebar's section headings look alike: a pinned folder's and «Shared
+  with me» have the small capitals and an icon of the others.
+- On a phone, the format bar's hidden buttons are hinted by a fade and an
+  arrow at the edge that has more (tap it to scroll), instead of a button cut
+  in half; and a notice sits above the bar instead of covering it.
+- Spanish: «Ejecutar ahora» for the retention's «Run now».
+- The guides and the contract describe 0.1.0 as the first version, and say
+  what the code does where they didn't: what needs `edit` (a note's
+  history), the codes, fields and limits that were missing, the defaults of
+  `vihko.yaml`, and more. `ROADMAP.md` has what was set aside for later.
+
+### Fixed
+
+- **Links to files with a non-ASCII space in their name** (a macOS screenshot
+  has one before AM/PM) broke in silence when a note was moved, and when the
+  editor inserted the image: the space was written as `%202F` or `%A0`,
+  which doesn't read back. It's now written as its UTF-8 bytes
+  (`%E2%80%AF`).
+- **Restoring a version over a note without a `uid`** (made outside vihko)
+  overwrote it, although it is another note: `409 uid_mismatch`, as with two
+  different `uid`s, and it can be restored as a new note. A restore that
+  leaves the note hidden from the key that made it says `nowHidden`, as any
+  write.
+- **A `vihko.yaml` that is a symbolic link** was replaced by a plain file the
+  first time vihko wrote it (sharing, a format migration), and the file it
+  led to never got the change. vihko writes through the link now, to the
+  file it leads to, and the link stays.
+- **The start's migration of a retired settings key** read and wrote a
+  person's or a space's `.vihko/settings.yaml` through a symbolic link,
+  which could lead out of the notes folder. It never follows one now.
+- **Converting a deleted person's space into a shared one** removed their
+  `.vihko/` for good; it still doesn't come along, but goes to the trash.
+- **The log named a note of a personal space** that couldn't be read; at
+  `info` it says only that it is one.
+- **Deleting a shared space could be confirmed before the dialog listed
+  what goes with it**; «Delete» waits for the list now, and a list that
+  can't be made is said, with «Retry».
+- **Escape no longer closed «New shared space» after an error**: the focus
+  was lost from the dialog. Any dialog keeps it now.
+- The Privacy page, and the alerts of notes too large or unreadable, showed
+  places as their folders on the disk (`people/…`); they name them as the UI
+  does («My notes», a person, a space). The dialog of a folder to adopt says
+  its folder is on the disk.
+- «Move to a new space» said links keep working: links never cross spaces,
+  and the ones from the rest of the space break, as its preview lists.
+
+### Upgrade notes
+
+- `state.db` goes to version 13 (each device's last note); the copy before
+  is left next to it (`state.db.bak-v12`).
+- «On opening: Last note» starts empty on each device: it opens Home until
+  you open a note there again.
+- If you never chose a daily-note series and none of yours is in your own
+  space, «Today's note» asks once which one to use.
+- An HTTP client with a key no longer gets a 403 for its `Origin`; one that
+  relied on it to refuse writes from a browser page should check the page
+  instead.
+
 ## [0.1.0-rc.7] - 2026-10-03
 
 ### Added
