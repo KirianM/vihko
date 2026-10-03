@@ -10,6 +10,32 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.7] - unreleased
+
+### Changed
+
+- **Changing your password no longer revokes your keys and apps unless you
+  ask.** «Change password…» in Account opens a dialog with two boxes instead
+  of one: «Sign out my other sessions», ticked by default, and «Also revoke
+  my API keys and authorised apps (MCP)», not ticked, since whatever used
+  them has to be set up again. The current session always stays signed in,
+  and a confirmation at the moment ends whatever you choose, as before.
+  Revoking now also takes a member's keys that are suspended (they no longer
+  come back when the admin lets members have keys again) and OAuth codes not
+  yet exchanged for tokens. `POST /api/auth/password` takes `endSessions`
+  and `revokeKeys` instead of `revokeOthers`, each `false` when absent, and
+  answers `sessionsEnded` and `keysRevoked` as before.
+
+### Upgrade notes
+
+- `POST /api/auth/password` no longer takes `revokeOthers`: send
+  `endSessions: true` and `revokeKeys: true` for what it did by default. A
+  request with `revokeOthers`, or any other field it doesn't take, is
+  `400 invalid` and changes nothing. Without either field, a new password
+  ends nothing else; in 0.1.0-rc.6, an absent `revokeOthers` ended both.
+- Keys and authorised apps are only revoked by a password change when you
+  tick the second box.
+
 ## [0.1.0-rc.6] - 2026-10-03
 
 Fixes from two reviews before 0.1.0: security, and flows that a family or a
