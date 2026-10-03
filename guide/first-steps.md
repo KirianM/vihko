@@ -4,7 +4,8 @@ A short tour of vihko's web UI, task by task: enough to start writing and
 sharing. Every note you make is a Markdown file in the notes folder; what that
 file holds is in [Notes and Markdown](notes.md).
 
-The UI is in English or Spanish, following your browser's language.
+The UI is in English or Spanish, following your browser's language until you
+choose one ([Preferences](#preferences)).
 
 ## The screen
 
@@ -28,8 +29,9 @@ The UI is in English or Spanish, following your browser's language.
     are. Pin one and it gets a section of its own (a folder), next to your
     spaces, instead of being listed here.
 
-  At the bottom: «Recent changes», the workspace alerts when there are any,
-  your name (it opens «Preferences») and «Sign out». [Spaces, people and
+  At the bottom: «Recent changes», «Trash», «N alerts» when there are any
+  (notices to you, and for admins the workspace's alerts), your name (it
+  opens «Preferences») and the «Sign out» button. [Spaces, people and
   sharing](users-and-permissions.md) explains the spaces. The tree follows
   what other people create, rename, move or delete where you read, and what
   is shared with you, without reloading.
@@ -140,8 +142,9 @@ instead):
   Results come from every space you can read, each with its space; a `path:`
   is inside the space you're in.
 - **Create a note**: type a name that no note has and choose «Create».
-- **Commands**: type `>` for the list: new note, today's note, insert image,
-  dark or light theme.
+- **Commands**: type `>` for the list: new note, new folder, today's note
+  (with a daily series), insert image (with a note open), dark or light
+  theme, and the language.
 
 ## Rename or move a note
 
@@ -266,7 +269,8 @@ Your name, at the bottom of the sidebar, opens **Preferences**:
 - **Users and groups** and **Spaces** (admins): people, groups, the
   directory of shared spaces, and the settings.
 - **Agents and API**: keys for scripts and assistants ([Agents](agents.md)).
-- **Privacy**: what agents can see of your notes.
+- **Privacy**: what leaves vihko, and who can read your notes: the people
+  of this vihko, the admin, agents, and the sites of linked images.
 
 The sun or moon button, in the note's header, switches between the light and
 dark theme (so does `>` in the ⌘K box). The theme is kept on each device, not
@@ -296,9 +300,10 @@ different things:
 So to start a journal you go to «Your note settings» first, and then, if you
 have more than one series, you pick it in «Daily note series».
 
-«Your note settings» is also in the menu of «My notes» in the sidebar (its
-`⋯` button, or right-click it) → **Your note settings…**. Every path you type there is
-inside «My notes»: `Journal` means «My notes / Journal».
+«Your note settings» is also in the menu of «My notes» in the sidebar (the
+`⋯` button that shows when you point at its name) → **Your note
+settings…**. Every path you type there is inside «My notes»: `Journal`
+means «My notes / Journal».
 
 ### A daily journal
 
@@ -502,8 +507,9 @@ vihko works in the phone's browser, with the same features:
 - vihko opens at Home here too; the folder tree opens from the menu button in the header; «New note»
   and «Today's note» are there too.
 - The search button in the header opens the same box as ⌘K.
-- Under the note, a bar inserts a link (`[[`), a tag (`#`), a list item or a
-  comment, and shows whether the note is saved.
+- Under the note, the formatting bar a computer shows above it (styles, a
+  link, a link to a note with `[[`, a tag, lists, tasks, a table, an image,
+  a comment), which also shows whether the note is saved.
 - The phone's back button closes whatever is open on top.
 
 To add it to the home screen as an app, vihko needs HTTPS: see
