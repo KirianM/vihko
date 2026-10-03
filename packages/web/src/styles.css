@@ -96,7 +96,14 @@ html { -webkit-tap-highlight-color: transparent; }
 .brand span { font-family: var(--font-serif); font-size: 26px; font-weight: 600; }
 
 /* --- Main structure ---------------------------------------------- */
-.shell { display: flex; height: 100%; }
+/* The shell never scrolls as a whole: only the main area's content does. Text kept for screen
+   readers (`visually-hidden`, React Aria's hidden inputs) is positioned: placed against the
+   page, deep in a long list, it made the page itself scroll past the list, the sidebar with it.
+   Each view's scroller holds what is positioned in it (`position: relative`: .alerts-page,
+   .changes-page, .home-page; the editor's and a version's already do), so it scrolls with its
+   content and focus scrolls the view to it; the shell clips anything else (`clip`: unlike
+   `hidden`, nothing can scroll it). */
+.shell { display: flex; height: 100%; position: relative; overflow: clip; }
 .sidebar { width: 272px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--side); min-height: 0; }
 .sidebar-head { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
 .sidebar-head .brand span { font-size: 20px; }
@@ -345,7 +352,7 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .status-compact .status { padding: 0 var(--space-2); }
 /* Workspace alerts */
 .sidebar-alerts[aria-current] { outline: 1px solid var(--warn-line); }
-.alerts-page { flex-grow: 1; overflow: auto; padding: 40px var(--space-18) var(--space-12); display: flex; flex-direction: column; gap: 18px; }
+.alerts-page { position: relative; flex-grow: 1; overflow: auto; padding: 40px var(--space-18) var(--space-12); display: flex; flex-direction: column; gap: 18px; }
 .alerts-page h1 { margin: 0; font-family: var(--font-serif); font-size: 34px; line-height: 40px; font-weight: 600; }
 .alerts-intro { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; max-width: 760px; }
 .alerts-empty { margin: 0; color: var(--muted); }
