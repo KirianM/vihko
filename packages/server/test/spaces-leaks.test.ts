@@ -199,6 +199,9 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'GET /api/workspace', method: 'GET', path: '/api/workspace' },
         { route: 'GET /api/profile', method: 'GET', path: '/api/profile' },
         { route: 'PUT /api/profile', method: 'PUT', path: '/api/profile', body: {} },
+        // This device's last note: one the person reads, kept; one they don't, as missing, whether it exists or not.
+        { route: 'PUT /api/profile/last-note', method: 'PUT', path: '/api/profile/last-note', body: { path: mine } },
+        { route: 'PUT /api/profile/last-note', method: 'PUT', path: '/api/profile/last-note', body: { path: theirs }, expect: 404 },
         { route: 'GET /api/integrations', method: 'GET', path: '/api/integrations' },
         { route: 'PUT /api/admin/integrations', method: 'PUT', path: '/api/admin/integrations', body: { api: true }, expect: adminOnly(who) },
         { route: 'GET /api/keys', method: 'GET', path: '/api/keys' },

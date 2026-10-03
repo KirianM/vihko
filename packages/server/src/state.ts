@@ -201,6 +201,17 @@ const MIGRATIONS: string[] = [
      by_user    text not null,
      deleted_at text not null
    );`,
+  // «On opening: Last note (on this device)» (profiles.ts): the last note
+  // each person opened on each device (the random id of its device cookie),
+  // kept in their account so it outlives signing out, and nothing of it in
+  // the browser. A path, rewritten when vihko moves it (folderRefs.ts).
+  `create table last_notes (
+     user_id    text not null references users(id) on delete cascade,
+     device     text not null,
+     path       text not null,
+     opened_at  text not null,
+     primary key (user_id, device)
+   );`,
 ]
 
 export const STATE_VERSION = MIGRATIONS.length

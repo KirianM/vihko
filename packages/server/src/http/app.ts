@@ -54,7 +54,7 @@ import { OAuthServer } from '../oauth.ts'
 import type { ClientMetadataFetcher } from '../cimd.ts'
 import { oauthRoutes } from './oauth.ts'
 import type { BlockList } from 'node:net'
-import { LoginLimiter, SETUP_ACCOUNT, type AttemptResult } from '../loginLimit.ts'
+import { LoginLimiter, SETUP_ACCOUNT, deviceIdIn, type AttemptResult } from '../loginLimit.ts'
 import { clientIp, ipKey } from './clientIp.ts'
 import { written } from './written.ts'
 import { followable } from '../fsutil.ts'
@@ -549,15 +549,20 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     })
     // This browser is known for this account from now on: other people's failures don't hold it back,
     // at a sign-in or when confirming at the moment (keys, OAuth, the admin's actions: all under /api).
-    setCookie(c, DEVICE_COOKIE, limiter.deviceToken(username), {
+    // It keeps the id it had: the same device as before (its last note, «On opening»).
+    setDevice(c, limiter.deviceToken(username, getCookie(c, DEVICE_COOKIE)))
+    // The one an earlier version left under /api/auth would be sent first there, and outlive a restart's new key.
+    deleteCookie(c, DEVICE_COOKIE, { path: '/api/auth', secure: isHttps(c) })
+  }
+  /** The browser's device cookie (loginLimit.ts `deviceToken`): kept when the person signs out. */
+  function setDevice(c: Context, token: string) {
+    setCookie(c, DEVICE_COOKIE, token, {
       httpOnly: true,
       sameSite: 'Lax',
       path: '/api',
       secure: isHttps(c),
       maxAge: DEVICE_DAYS * 86_400,
     })
-    // The one an earlier version left under /api/auth would be sent first there, and outlive a restart's new key.
-    deleteCookie(c, DEVICE_COOKIE, { path: '/api/auth', secure: isHttps(c) })
   }
 
   // The second factor (http/twoFactor.ts): after the password, the session or the second step.
@@ -795,11 +800,41 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     }
   })
 
-  /** A profile as its person may see it: the note «On opening» names only while they can read it (otherwise, home). */
-  const shownProfile = (p: Profile, access: Access): Profile =>
-    p.onOpen === 'note' && (p.onOpenNote === null || !access.canRead(p.onOpenNote)) ? { ...p, onOpen: 'home', onOpenNote: null } : p
+  /**
+   * A profile as its person may see it: the note «On opening» names only
+   * while they can read it (otherwise, home); and `lastNote`, the last note
+   * they opened on this device (its device cookie), only while they can
+   * read it (otherwise null, and «Last note» opens Home).
+   */
+  const shownProfile = (c: Context<ApiEnv>, p: Profile): Profile & { lastNote: string | null } => {
+    const access = c.get('access')
+    const device = deviceIdIn(getCookie(c, DEVICE_COOKIE))
+    const last = device === null ? null : profiles.lastNote(c.get('user').id, device)
+    const shown = p.onOpen === 'note' && (p.onOpenNote === null || !access.canRead(p.onOpenNote)) ? { ...p, onOpen: 'home' as const, onOpenNote: null } : p
+    const there = (p: string) => { try { return notes.exists(p) } catch { return false } }
+    return { ...shown, lastNote: last !== null && access.canRead(last) && there(last) ? last : null }
+  }
 
-  app.get('/api/profile', (c) => c.json(shownProfile(profiles.get(c.get('user').id), c.get('access'))))
+  app.get('/api/profile', (c) => c.json(shownProfile(c, profiles.get(c.get('user').id))))
+
+  // The note the person opened, as this device's last («On opening: Last
+  // note»): kept in their account, by the id of the browser's device cookie
+  // (one is given to a browser that has none), never in the browser.
+  app.put('/api/profile/last-note', async (c) => {
+    const body = await jsonBody<{ path?: unknown }>(c)
+    const path = typeof body?.path === 'string' ? body.path.normalize('NFC') : null
+    if (!isNotePath(path)) return fail(c, 400, 'invalid', 'path must be a note\'s path')
+    if (!c.get('access').canRead(path)) return fail(c, 404, 'not_found', 'no such note')
+    const user = c.get('user')
+    let device = deviceIdIn(getCookie(c, DEVICE_COOKIE))
+    if (device === null) {
+      const token = limiter.deviceToken(user.username)
+      setDevice(c, token)
+      device = deviceIdIn(token)!
+    }
+    profiles.setLastNote(user.id, device, path, now())
+    return c.json({ lastNote: path })
+  })
 
   app.put('/api/profile', async (c) => {
     const body = await jsonBody<Record<string, unknown>>(c)
@@ -808,7 +843,7 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     for (const k of ['timezone', 'dailySeries', 'openDailyOnStart', 'onOpen', 'onOpenNote', 'language'] as const) if (k in body) (patch as Record<string, unknown>)[k] = body[k]
     // «On opening» a note: one the person reads now; any other is as missing.
     if (isNotePath(patch.onOpenNote) && !c.get('access').canRead(patch.onOpenNote.normalize('NFC'))) return fail(c, 404, 'not_found', 'no such note')
-    return c.json(shownProfile(profiles.update(c.get('user').id, patch), c.get('access')))
+    return c.json(shownProfile(c, profiles.update(c.get('user').id, patch)))
   })
 
   // The tree, live (liveTree.ts): a server-sent event stream that only ever

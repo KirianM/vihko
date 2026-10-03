@@ -57,6 +57,7 @@ export const ROUTES: Readonly<Record<string, RouteClass>> = {
   'GET /api/workspace': 'session',
   'GET /api/profile': 'session',
   'PUT /api/profile': 'session',
+  'PUT /api/profile/last-note': 'session',
   'GET /api/home': 'session',
   'GET /api/live': 'session',
   'GET /api/settings': 'session',
@@ -177,6 +178,8 @@ export const ROUTE_NEEDS: Readonly<Record<string, RouteNeeds>> = {
   'GET /api/workspace': 'none',
   'GET /api/profile': 'none',
   'PUT /api/profile': 'none',
+  // «On opening: Last note»: a note the person reads now.
+  'PUT /api/profile/last-note': 'read',
   // «Home»: only what the person reads now, note by note.
   'GET /api/home': 'filtered',
   // The tree, live: «read your tree again», only to whom a change concerns.

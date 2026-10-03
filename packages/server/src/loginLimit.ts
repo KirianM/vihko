@@ -133,6 +133,16 @@ export function accountKey(name: string): string {
   return name.normalize('NFC').trim().toLowerCase().slice(0, 128)
 }
 
+/**
+ * The random id of a device cookie as the browser sends it, signed or not:
+ * which browser this is, for what a person keeps per device (their last
+ * note). Never trusted for the limits, which check the signature
+ * (`deviceFor`); null if it isn't one.
+ */
+export function deviceIdIn(cookie: string | null | undefined): string | null {
+  return /^([A-Za-z0-9_-]{22})\.[A-Za-z0-9_-]{43}$/.exec(cookie ?? '')?.[1] ?? null
+}
+
 export class LoginLimiter {
   readonly rules: LimitRules
   private readonly now: () => number
@@ -201,9 +211,16 @@ export class LoginLimiter {
     }
   }
 
-  /** A device cookie for a browser that just signed in as `account`. */
-  deviceToken(account: string): string {
-    const id = randomBytes(16).toString('base64url')
+  /**
+   * A device cookie for a browser that just signed in as `account`. The
+   * browser keeps the id it had (`current`, its cookie as it is, whoever it
+   * was signed for, or by a server since restarted), signed now for this
+   * account: the same browser is the same device from one sign-in to the
+   * next (profiles.ts `lastNote`), and only a cookie signed here counts for
+   * the limits.
+   */
+  deviceToken(account: string, current?: string | null): string {
+    const id = deviceIdIn(current) ?? randomBytes(16).toString('base64url')
     return `${id}.${this.sign(id, account)}`
   }
 

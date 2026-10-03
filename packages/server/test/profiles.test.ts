@@ -13,7 +13,7 @@ const m = mother(import.meta.url)
 test('profiles: timezone and daily preferences, validated', async () => {
   const { admin, member } = await setup({ config: CONFIG })
   const zone = m.aTimeZone()
-  const none = { timezone: null, dailySeries: null, onOpen: 'home', onOpenNote: null, openDailyOnStart: false, language: null }
+  const none = { timezone: null, dailySeries: null, onOpen: 'home', onOpenNote: null, openDailyOnStart: false, language: null, lastNote: null }
   assert.deepEqual((await admin('GET', '/api/profile')).body, none)
   assert.deepEqual((await admin('PUT', '/api/profile', { timezone: zone })).body, { ...none, timezone: zone })
   assert.deepEqual((await admin('PUT', '/api/profile', { dailySeries: DAILY.team.id, openDailyOnStart: true, role: 'admin' })).body, { ...none, timezone: zone, dailySeries: DAILY.team.id, onOpen: 'daily', openDailyOnStart: true })
@@ -32,7 +32,7 @@ test('profiles: the language of the UI, one of its translations or automatic (nu
   const other = LANGUAGES.find((l) => l !== language)!
   const saved = await admin('PUT', '/api/profile', { language })
   assert.equal(saved.status, 200)
-  assert.deepEqual(saved.body, { timezone: zone, dailySeries: null, onOpen: 'home', onOpenNote: null, openDailyOnStart: false, language }, 'only the language changes')
+  assert.deepEqual(saved.body, { timezone: zone, dailySeries: null, onOpen: 'home', onOpenNote: null, openDailyOnStart: false, language, lastNote: null }, 'only the language changes')
   assert.equal((await admin('GET', '/api/profile')).body.language, language)
   assert.equal((await member('GET', '/api/profile')).body.language, null, 'each person has their own; nobody chose = automatic')
   // Changing something else keeps it.
@@ -103,4 +103,70 @@ test('profiles: «On opening»: home by default, the last note, today\'s, or a n
   // The switch it replaces still works: true is «daily», false turns «daily» back into home.
   assert.equal((await member('PUT', '/api/profile', { openDailyOnStart: true })).body.onOpen, 'daily')
   assert.equal((await member('PUT', '/api/profile', { openDailyOnStart: false })).body.onOpen, 'home')
+})
+
+/** A browser of one person: its cookies (the session and the device's), kept as a browser keeps them. */
+function browser(app: Awaited<ReturnType<typeof setup>>['app'], who: { username: string; password: string }) {
+  const jar = new Map<string, string>()
+  const keep = (res: Response) => {
+    for (const c of res.headers.getSetCookie()) {
+      // One under /api/auth (an earlier version's, removed) is another cookie: this jar keeps those of /api and above.
+      if (/path=\/api\/auth/i.test(c)) continue
+      const [pair] = c.split(';')
+      const at = pair!.indexOf('=')
+      const [name, value] = [pair!.slice(0, at), pair!.slice(at + 1)]
+      if (value === '' || /max-age=0/i.test(c)) jar.delete(name)
+      else jar.set(name, value)
+    }
+  }
+  const send = async (method: string, path: string, body?: unknown) => {
+    const res = await app.request(path, { method, headers: { 'content-type': 'application/json', cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; ') }, body: body === undefined ? undefined : JSON.stringify(body) })
+    keep(res)
+    return { status: res.status, body: await res.json().catch(() => null) as any }
+  }
+  return {
+    send,
+    signIn: async () => assert.equal((await send('POST', '/api/auth/login', { username: who.username, password: who.password })).status, 200),
+    signOut: async () => assert.equal((await send('POST', '/api/auth/logout', {})).status, 200),
+    cookies: () => new Map(jar),
+  }
+}
+
+test('profiles: «On opening: Last note (on this device)» is kept in the account, per device: it outlives signing out, follows the note, and is never one the person can\'t read', async () => {
+  const { app, users, member: asMember } = await setup({ config: CONFIG })
+  const [laptop, phone] = [browser(app, users.admin), browser(app, users.admin)]
+  await laptop.signIn()
+  await phone.signIn()
+  const [note, other] = [inShared('Plan.md'), `people/${users.admin.username}/${m.aTitle()}.md`]
+  assert.equal((await laptop.send('POST', '/api/note', { path: other, text: `# ${m.aHeading()}\n` })).status, 201)
+  assert.deepEqual((await laptop.send('PUT', '/api/profile/last-note', { path: note })).body, { lastNote: note })
+  assert.equal((await phone.send('PUT', '/api/profile/last-note', { path: other })).status, 200)
+  // Each device its own.
+  assert.equal((await laptop.send('GET', '/api/profile')).body.lastNote, note)
+  assert.equal((await phone.send('GET', '/api/profile')).body.lastNote, other)
+  // Signing out and in again on the laptop: still there (the device keeps its id), and nothing of it in the browser but that id.
+  const device = laptop.cookies().get('vihko_device')
+  assert.ok(device)
+  await laptop.signOut()
+  assert.equal((await laptop.send('GET', '/api/profile')).status, 401)
+  assert.ok([...laptop.cookies().values()].every((v) => !v.includes(note) && !v.includes(encodeURIComponent(note))))
+  await laptop.signIn()
+  assert.equal(laptop.cookies().get('vihko_device')!.split('.')[0], device.split('.')[0], 'the same device')
+  assert.equal((await laptop.send('GET', '/api/profile')).body.lastNote, note)
+  // Another browser, never used: none.
+  const fresh = browser(app, users.admin)
+  await fresh.signIn()
+  assert.equal((await fresh.send('GET', '/api/profile')).body.lastNote, null)
+  // The note moves: it follows.
+  const moved = inShared(`${m.aFolder()}/${m.aTitle()}.md`)
+  assert.equal((await asMember('POST', '/api/note/move', { from: note, to: moved })).status, 200)
+  assert.equal((await laptop.send('GET', '/api/profile')).body.lastNote, moved)
+  // One the person can't read: never recorded, and never given back (Home instead).
+  const theirs = `people/${users.member.username}/${m.aTitle()}.md`
+  assert.equal((await asMember('POST', '/api/note', { path: theirs, text: `# ${m.aHeading()}\n` })).status, 201)
+  assert.equal((await laptop.send('PUT', '/api/profile/last-note', { path: theirs })).status, 404)
+  for (const bad of [{ path: '../x.md' }, { path: m.aFolder() }, {}]) assert.equal((await laptop.send('PUT', '/api/profile/last-note', bad)).status, 400, JSON.stringify(bad))
+  assert.equal((await laptop.send('GET', '/api/profile')).body.lastNote, moved)
+  assert.equal((await laptop.send('DELETE', `/api/note?path=${encodeURIComponent(moved)}`)).status, 200)
+  assert.equal((await laptop.send('GET', '/api/profile')).body.lastNote, null, 'deleted: Home')
 })

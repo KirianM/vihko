@@ -24,8 +24,8 @@ async function newSpace(h: Spaces, who: Name, members?: Record<string, string>) 
   return { name, path: r.body.space.path as string }
 }
 
-test('state.db of 0.1.0 is version 12, with the pins, «On opening», when grants began and deleted spaces', () => {
-  assert.equal(STATE_VERSION, 12)
+test('state.db of 0.1.0 is version 13, with the pins, «On opening» (each device\'s last note too), when grants began and deleted spaces', () => {
+  assert.equal(STATE_VERSION, 13)
 })
 
 test('vihko.yaml as a symbolic link: sharing writes through it, to the file it leads to, and the link stays', async () => {

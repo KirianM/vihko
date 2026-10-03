@@ -291,6 +291,16 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       fail(err)
     }
   }
+  /**
+   * A note opened: the palette's recent notes (this browser's, gone on
+   * signing out), and this device's last note in the account («On opening:
+   * Last note», which outlives signing out). Saying it can fail quietly: it's
+   * only where vihko opens next time.
+   */
+  const remembered = (path: string) => {
+    rememberNote(path)
+    api.setLastNote(path).catch(() => {})
+  }
   const todayRef = useRef<(() => void) | null>(null)
   todayRef.current = dailyOn ? () => void openToday() : null
 
@@ -364,7 +374,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
     // Check that it exists before opening co-editing: the hub rejects notes that don't exist.
     setGoneAway(null)
     // One too large to edit live (vihko.yaml `notes.maxSize`) shows as plain text instead.
-    api.note(openPath).then((n) => { setReadyLevel(n.level ?? null); if (n.tooLarge) setLarge(n); else setReady(openPath); rememberNote(openPath) }).catch((err) => {
+    api.note(openPath).then((n) => { setReadyLevel(n.level ?? null); if (n.tooLarge) setLarge(n); else setReady(openPath); remembered(openPath) }).catch((err) => {
       // Moved again a moment ago, while its editor reopened it at the last place it heard of: follow it.
       if (err instanceof ApiError && err.code === 'not_found' && typeof err.data?.movedTo === 'string') return setOpenPathState(err.data.movedTo)
       if (versionRef.current && err instanceof ApiError && err.code === 'not_found') setMissing(openPath)
@@ -717,7 +727,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
             </header>
             <VersionView key={version} path={openPath} id={version} store={missingVersions} exists={false} closeLabel={t('version.close')}
               onClose={showChanges}
-              onRestored={(report) => { restoredDone(report); setMissing(null); setReady(openPath); rememberNote(openPath); void loadTree() }}
+              onRestored={(report) => { restoredDone(report); setMissing(null); setReady(openPath); remembered(openPath); void loadTree() }}
               onOpen={(p) => { setVersion(null); setOpenPath(p); void loadTree() }} />
           </>
         ) : openPath && large?.path === openPath ? (
