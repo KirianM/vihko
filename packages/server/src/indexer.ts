@@ -189,6 +189,11 @@ export class Indexer {
     return this.linkExt.aliases
   }
 
+  /** The frontmatter key that holds a note's aliases (`aliases`, unless configured otherwise). */
+  get aliasesKey(): string {
+    return this.keys.aliases
+  }
+
   /**
    * Turns alias resolution on or off (vihko.yaml changed) and resolves every
    * link again with the keys already indexed: no note is read or reindexed.

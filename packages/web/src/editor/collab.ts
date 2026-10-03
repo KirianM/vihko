@@ -32,6 +32,7 @@ const ACCESS = 'vihko:access'
 const STALE = 'vihko:stale-generation'
 const SAVE_FAILED = 'vihko:save-failed'
 const SAVE_RESUMED = 'vihko:save-resumed'
+const NAME_REFUSED = 'vihko:name-refused'
 
 /** What the hub says a person may do in the note now: `none` means it's gone for them. */
 export type HubAccess = 'none' | 'read' | 'comment' | 'edit'
@@ -41,7 +42,7 @@ export type ClaimedLevel = 'edit' | 'comment' | 'read'
 export type SaveFailure = 'disk_full' | 'write_denied' | 'write_failed'
 
 interface HubMessage {
-  type?: string; etag?: string; to?: string | null; text?: string; external?: boolean; id?: string; by?: string; action?: string; access?: string; reason?: string
+  type?: string; etag?: string; to?: string | null; text?: string; external?: boolean; id?: string; by?: string; action?: string; access?: string; reason?: string; aliases?: unknown
 }
 
 /** A single WebSocket for the whole application; each open note is a document over it. */
@@ -113,6 +114,8 @@ export interface CollabState {
   access: HubAccess | null
   /** vihko can't save the note right now: read-only for everyone, until it can. */
   cantSave: SaveFailure | null
+  /** Aliases this person typed that aren't available here: vihko took them out of the note (null: none). */
+  nameRefused: string[] | null
 }
 
 /** `sha256:<hex>`, same as the server's `contentHash`. */
@@ -130,7 +133,7 @@ const MAX_REFUSALS = 3
  */
 export function useCollab(path: string, claim: RefObject<ClaimedLevel | null>): CollabState {
   const [state, setState] = useState<CollabState>(() => ({
-    session: null, connection: 'connecting', save: 'saved', orphaned: false, moved: null, trashed: null, gone: null, access: null, cantSave: null,
+    session: null, connection: 'connecting', save: 'saved', orphaned: false, moved: null, trashed: null, gone: null, access: null, cantSave: null, nameRefused: null,
   }))
   // Each reopening after an access change is a new session.
   const [opening, setOpening] = useState(0)
@@ -147,7 +150,7 @@ export function useCollab(path: string, claim: RefObject<ClaimedLevel | null>): 
 
   useEffect(() => {
     const set = (patch: Partial<CollabState>) => setState((s) => ({ ...s, ...patch }))
-    set({ session: null, connection: 'connecting', save: 'saved', orphaned: false, moved: null, trashed: null, gone: null, cantSave: null })
+    set({ session: null, connection: 'connecting', save: 'saved', orphaned: false, moved: null, trashed: null, gone: null, cantSave: null, nameRefused: null })
     // The hub closed the document on its side (moved, trashed, copy discarded, refused).
     let closedByHub = false
     let live = true
@@ -227,6 +230,7 @@ export function useCollab(path: string, claim: RefObject<ClaimedLevel | null>): 
           set({ access })
           if (access !== 'none') setOpening((n) => n + 1)
         } else if (msg.type === SAVE_FAILED) set({ cantSave: (msg.reason as SaveFailure | undefined) ?? 'write_failed' })
+        else if (msg.type === NAME_REFUSED && Array.isArray(msg.aliases)) set({ nameRefused: msg.aliases.filter((a): a is string => typeof a === 'string') })
         else if (msg.type === SAVE_RESUMED) {
           set({ cantSave: null })
           // Something typed as it turned read-only was dropped: sent again.

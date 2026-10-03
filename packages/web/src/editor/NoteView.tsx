@@ -192,6 +192,22 @@ function CantSaveBanner({ reason }: { reason: NonNullable<CollabState['cantSave'
   )
 }
 
+/** Aliases the person typed that aren't available here: vihko took them out of the note. Shown until dismissed. */
+function NameRefusedBanner({ aliases }: { aliases: string[] }) {
+  const t = useT()
+  const [closed, setClosed] = useState<string[] | null>(null)
+  if (closed === aliases) return null
+  return (
+    <div className="banner" role="alert">
+      <div className="banner-text">
+        <b>{t('editor.aliasRefusedTitle', { names: aliases.map((a) => `«${a}»`).join(', ') })}</b>
+        <span>{t('editor.aliasRefusedBody')}</span>
+      </div>
+      <Button className="btn btn-icon btn-quiet" aria-label={t('common.dismiss')} onPress={() => setClosed(aliases)}>{Icon.close}</Button>
+    </div>
+  )
+}
+
 function OrphanBanner({ path }: { path: string }) {
   const t = useT()
   const [error, setError] = useState<string | null>(null)
@@ -393,6 +409,7 @@ export function NoteView({ path, user, daily, onNavigate, onMoved, onMovedOutsid
       </header>
       {c.orphaned && !gone && <OrphanBanner path={path} />}
       {c.cantSave && !gone && <CantSaveBanner reason={c.cantSave} />}
+      {c.nameRefused && !gone && <NameRefusedBanner aliases={c.nameRefused} />}
       {rescue}
       <CreateLinkUi state={createLink} />
       <div className="note-body">

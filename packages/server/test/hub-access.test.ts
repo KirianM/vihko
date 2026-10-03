@@ -13,6 +13,7 @@ import * as Y from 'yjs'
 import { openLineage } from '../../web/src/editor/lineage.ts'
 import { CLI, api, closeAll, connect, login, makeDirs, sleep, socket, startServer, typeLine, waitFor, open, type Srv } from './_collab.ts'
 import { yamlKey } from './_permissions.ts'
+import { readFrontmatter } from '@vihko/core'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
@@ -140,5 +141,44 @@ test('an editor that reconnects showing the note at a level the person no longer
     await waitFor(() => reading.provider.isSynced, 'opened read-only')
     await sleep(500)
     assert.ok(!readFileSync(join(notes, list), 'utf8').includes(typed))
+  } finally { closeAll(); await srv.stop() }
+})
+
+test('an alias typed in the editor goes through the name guard: one that would change where a link in a note the typist reads leads, to a note they can\'t read, is taken out and they are told', async () => {
+  const { notes, env, admin } = makeDirs()
+  const member = m.aUser()
+  spawnSync(process.execPath, [CLI, 'user', 'create', member.username], { env: { ...process.env, ...env }, input: member.password })
+  // The member shares a folder of their own space with the admin, to edit; another folder of theirs, the admin can't read.
+  const own = `people/${member.username}`
+  const [trip, hidden] = [`${own}/${m.aUniqueWord()}`, `${own}/${m.aUniqueWord()}`]
+  const [alias, free] = [m.aUniqueWord(), m.aUniqueWord()]
+  const secret = m.aNotePath(hidden)
+  const plan = m.aNotePath(trip)
+  const mine = m.aNotePath(trip)
+  for (const dir of [trip, hidden]) mkdirSync(join(notes, dir), { recursive: true })
+  writeFileSync(join(notes, secret), `---\naliases: [${JSON.stringify(alias)}]\n---\n${note()}`)
+  // A link the admin reads that leads, by that alias, to the note they can't read.
+  const linking = `[[${alias}]]\n`
+  writeFileSync(join(notes, plan), linking)
+  writeFileSync(join(notes, mine), note())
+  writeFileSync(join(notes, 'vihko.yaml'), `permissions:\n  ${yamlKey(trip)}:\n    grants: { ${yamlKey(admin.username)}: edit }\n`)
+  const srv = await startServer({ ...env, VIHKO_HISTORY_QUIET_SECONDS: '0.4' })
+  try {
+    const k = await login(srv)
+    const c = await connect(srv, k, mine)
+    const told: { type: string; path?: string; aliases?: string[] }[] = []
+    c.provider.on('stateless', ({ payload }: { payload: string }) => { const msg = JSON.parse(payload); if (msg.type === 'vihko:name-refused') told.push(msg) })
+    // The admin types both aliases: the one that would take the link, and one nobody uses.
+    c.doc.getText('md').insert(0, `---\naliases: [${JSON.stringify(alias)}, ${JSON.stringify(free)}]\n---\n`)
+    await waitFor(() => told.length > 0, 'the typist told')
+    assert.deepEqual(told, [{ type: 'vihko:name-refused', path: mine, aliases: [alias] }])
+    await waitFor(() => readFileSync(join(notes, mine), 'utf8').includes(free), 'the note written')
+    assert.deepEqual(readFrontmatter(readFileSync(join(notes, mine), 'utf8')).data.aliases, [free])
+    // Taken out of the document too, for everyone editing it; the link still leads where it did.
+    await waitFor(() => !c.text().includes(alias), 'the alias gone from the editor')
+    assert.equal(readFileSync(join(notes, plan), 'utf8'), linking)
+    const r = await api(srv, k, 'GET', `/api/note/links?path=${encodeURIComponent(plan)}`)
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.ok(!JSON.stringify(r.body).includes(mine), 'the link doesn\'t lead to the admin\'s note')
   } finally { closeAll(); await srv.stop() }
 })

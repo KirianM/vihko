@@ -86,8 +86,20 @@ export interface HotDocuments {
   move<T>(from: string, to: string, run: () => Promise<{ result: T; written: string | null }>): Promise<T>
   /** Notes moved (one, or every note of a folder): what the editor keeps of each one under its path follows it. */
   carrySaved?(moves: readonly { from: string; to: string }[]): void
+  /** The name guard for aliases typed in an open note (NoteService.typedAliases), checked on each flush. */
+  guardNames?(guard: (path: string, was: string, next: string, typist: { actor: Actor; mayName: (path: string) => boolean }) => TypedAliases | null): void
   /** A note deleted: what the editor keeps of it under its path goes. */
   forgetSaved?(path: string): void
+}
+
+/** Aliases typed in an open note, judged by the name guard (NoteService.typedAliases). */
+export interface TypedAliases {
+  /** The aliases added that can't be taken. */
+  refused: string[]
+  /** What to write instead: the typed text without the refused aliases. Null: as typed. */
+  text: string | null
+  /** Once it is written: the links the system keeps leading where they did. */
+  after: () => Promise<void>
 }
 
 export interface NoteServiceOptions {
@@ -402,6 +414,8 @@ export class NoteService {
     this.uidKey = opts.uidKey ?? 'uid'
     this.maxImageBytes = opts.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES
     this.history = opts.history ?? NO_HISTORY
+    // Aliases typed in the editor go through the same name guard as the API's and MCP's.
+    opts.hot?.guardNames?.((path, was, next, typist) => this.typedAliases(path, was, next, typist))
   }
 
   /** The state volume: the trash is its `trash/` (folderRefs.ts rewrites its entries' paths when a folder moves). */
@@ -544,6 +558,32 @@ export class NoteService {
     const aliases = this.opts.indexer.aliasesIn(next)
     const added = aliases.map(normKey).filter((k) => !had.has(k))
     return added.length ? this.linksTaken(path, aliases, added, mayName) : null
+  }
+
+  /**
+   * The name guard for aliases typed in an open note (the hub's flush, which
+   * writes what its editors typed): what `edit` does for an alias added
+   * through the API or MCP, for whoever typed (`typist`). An alias that would
+   * change where a link in a note they read leads, to what they can't read,
+   * is refused: `text` is what to write instead, `next` without it. The
+   * others are taken, and `after` (once written) has the system keep the
+   * links of the notes they can't read leading where they did. Null when
+   * the text adds no alias.
+   */
+  typedAliases(path: string, was: string, next: string, typist: { actor: Actor; mayName: (path: string) => boolean }): TypedAliases | null {
+    if (!this.opts.indexer.linkAliases) return null
+    const had = new Set(this.opts.indexer.aliasesIn(was).map(normKey))
+    const aliases = this.opts.indexer.aliasesIn(next)
+    const added = aliases.filter((a) => !had.has(normKey(a)))
+    if (added.length === 0) return null
+    const kept = aliases.filter((a) => had.has(normKey(a)))
+    const refused = added.filter((a) => this.linksTaken(path, [...kept, a], [normKey(a)], typist.mayName).refuse)
+    const taken = aliases.filter((a) => !refused.includes(a))
+    // Its aliases were just read from it, so its frontmatter can be patched (setFrontmatterKey checks it).
+    const text = refused.length ? setFrontmatterKey(next, this.opts.indexer.aliasesKey, taken) : null
+    const fresh = taken.filter((a) => !had.has(normKey(a)))
+    const keep = fresh.length ? this.linksTaken(path, taken, fresh.map(normKey), typist.mayName) : null
+    return { refused, text, after: () => this.keepLinks(keep, path, typist.actor) }
   }
 
   /**

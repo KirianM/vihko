@@ -102,6 +102,8 @@ interface Hot {
    */
   announced: boolean
   orphanTimer: NodeJS.Timeout | null
+  /** Who typed in it since its last flush: the aliases they add are theirs (`flushNow`, the name guard). */
+  typists: Map<string, User>
 }
 
 /**
@@ -214,6 +216,12 @@ export const SAVE_RESUMED_MESSAGE = 'vihko:save-resumed'
 /** An orphan's copy was kept (`restore`) or discarded. */
 export const ORPHAN_RESOLVED_MESSAGE = 'vihko:orphan-resolved'
 /**
+ * To whoever typed an alias in a note that isn't available there (it would
+ * change where a link to a note they can't read leads): it was taken out of
+ * the note before it was written. `aliases`: the ones taken out.
+ */
+export const NAME_REFUSED_MESSAGE = 'vihko:name-refused'
+/**
  * To the editors of a session that just ended (the user was disabled or
  * deleted, the admin closed their sessions, another session changed the
  * password): the connection closes next, and the UI goes to sign in.
@@ -257,6 +265,7 @@ export const HUB_MESSAGES = {
     [ACCESS_MESSAGE]: 'one editor whose access changed: its own path and level',
     [SAVE_FAILED_MESSAGE]: 'the note\'s editors: its own path and why it can\'t be saved (a code)',
     [SAVE_RESUMED_MESSAGE]: 'the note\'s editors: its own path',
+    [NAME_REFUSED_MESSAGE]: 'the editors of whoever typed it: its own path and the aliases taken out',
     [SESSION_ENDED_MESSAGE]: 'the editors of a session that ended: nothing but the type',
   },
 } as const
@@ -543,6 +552,43 @@ function withLock<T>(name: string, fn: () => Promise<T> | T): Promise<T> {
 export class CollabHub implements HotDocuments {
   readonly hocuspocus: Hocuspocus<Ctx>
   private hot = new Map<string, Hot>()
+  /** The name guard for aliases typed in a note (NoteService.typedAliases); none until the note service is there. */
+  private nameGuard: Parameters<NonNullable<HotDocuments['guardNames']>>[0] | null = null
+
+  guardNames(guard: Parameters<NonNullable<HotDocuments['guardNames']>>[0]) {
+    this.nameGuard = guard
+  }
+
+  /**
+   * What the name guard says of the aliases `text` adds over what is on
+   * disk, for each person who typed since the last flush (their access now):
+   * the text to write (without the aliases refused to any of them, who are
+   * told), and what to do once it's written (the links kept for them).
+   */
+  private judgeNames(path: string, h: Hot, text: string): { text: string; after: (() => Promise<void>)[] } {
+    const guard = this.nameGuard
+    const policy = this.opts.policy
+    if (!guard || !policy || h.typists.size === 0) return { text, after: [] }
+    const after: (() => Promise<void>)[] = []
+    const refused = new Map<string, string[]>()
+    let out = text
+    for (const user of h.typists.values()) {
+      const access = policy.for({ kind: 'user', user })
+      const r = guard(path, h.flushedText, out, { actor: { kind: 'user', id: user.id }, mayName: (p) => access.canRead(p) })
+      if (!r) continue
+      if (r.text !== null) { out = r.text; refused.set(user.id, r.refused) }
+      after.push(r.after)
+    }
+    if (refused.size) {
+      const doc = this.hocuspocus.documents.get(path)
+      for (const conn of doc?.getConnections() ?? []) {
+        const aliases = refused.get((conn.context as Ctx).user?.id ?? '')
+        if (aliases) conn.sendStateless(JSON.stringify({ type: NAME_REFUSED_MESSAGE, path, aliases }))
+      }
+      this.log(`${shownPath(path)}: an alias typed in it isn't available there; taken out`)
+    }
+    return { text: out, after }
+  }
   private expected = new Map<string, Set<string>>()
   /**
    * Saved states (`.ystate`) this run trusts, by note, with the hash of the
@@ -1363,12 +1409,12 @@ export class CollabHub implements HotDocuments {
         doc, file, logFile, logFd, snapshot, flushedText, flushedHash,
         history: [...history.filter((b) => b.hash !== flushedHash), { snapshot, text: flushedText, hash: flushedHash }].slice(-HISTORY),
         uid: this.uidIn(flushedText), discarded: false, orphaned: false, agents: new Map(), announced: false, orphanTimer: null,
-        failing: null, recent: new Map(),
+        failing: null, recent: new Map(), typists: new Map(),
       }
       this.hot.set(path, h)
       if (failed) this.saveFailed(path, h, failed, 'state')
       doc.on('update', (update: Uint8Array) => { this.logWrite(path, h, record('U', update)) })
-      this.watchTyping(path, doc)
+      this.watchTyping(path, doc, h)
       // A missing file isn't "empty": it was deleted (server down, or before
       // reopening). Announced at once: a move made meanwhile was already seen
       // by the scan, and is followed when it's reported (`followMoves`).
@@ -1384,13 +1430,18 @@ export class CollabHub implements HotDocuments {
    * the text from right before their change: it's read before the change
    * is applied, only for them (`startsVersion`).
    */
-  private watchTyping(path: string, doc: Y.Doc) {
-    const history = this.opts.history
-    if (!history) return
+  private watchTyping(path: string, doc: Y.Doc, h: Hot) {
     const userOf = (origin: unknown) => {
       const o = origin as { source?: string; connection?: { context?: Ctx } } | null
       return o?.source === 'connection' ? o.connection?.context?.user : undefined
     }
+    // Whoever types is who the name guard judges what they add by (`flushNow`).
+    doc.on('afterTransaction', (tr: Y.Transaction) => {
+      const user = userOf(tr.origin)
+      if (user && tr.changed.size > 0) h.typists.set(user.id, user)
+    })
+    const history = this.opts.history
+    if (!history) return
     let before: { transaction: Y.Transaction; text: string } | null = null
     doc.on('beforeTransaction', (tr: Y.Transaction) => {
       const user = userOf(tr.origin)
@@ -1549,8 +1600,15 @@ export class CollabHub implements HotDocuments {
       if (attempt > 5) throw new Error(`too many races in a row on ${path}`)
       this.ensureUid(h)
       // Text and snapshot together, before any await.
-      const text = h.doc.getText(TEXT).toString()
+      let text = h.doc.getText(TEXT).toString()
       if (text === h.flushedText && readText(h.file) !== null) return true
+      // An alias typed goes through the name guard, as one added through the API: one that isn't available is taken out.
+      const judged = this.judgeNames(path, h, text)
+      if (judged.text !== text) {
+        const ytext = h.doc.getText(TEXT)
+        h.doc.transact(() => applyTextDiff(ytext, text, judged.text), 'guard')
+        text = ytext.toString()
+      }
       const snap = Y.encodeStateAsUpdate(h.doc)
       const hash = contentHash(text)
       let set = this.expected.get(path)
@@ -1576,6 +1634,10 @@ export class CollabHub implements HotDocuments {
       h.snapshot = snap
       h.flushedText = text
       h.flushedHash = hash
+      // Nobody typed meanwhile: whoever typed is written. Otherwise they all stay, to be judged at the next flush.
+      if (h.doc.getText(TEXT).toString() === text) h.typists.clear()
+      // The links the guard keeps for the notes they can't read: after the lock, as any other write to those notes.
+      if (judged.after.length) setImmediate(() => { for (const a of judged.after) a().catch((e: unknown) => this.log(`keeping links after an alias in ${shownPath(path)}: ${e}`)) })
       this.remember(path, h)
       // The log starts again from what the file now holds, followed by what
       // arrived while it was being written.
