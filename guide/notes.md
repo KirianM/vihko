@@ -18,7 +18,7 @@ what it never touches.
 | Any other file (images, PDFs…), inside a space | A file: images are shown in notes, and a link to one (`[[invoice.pdf]]`) opens it in a new tab, to whoever can read its folder. The tree doesn't list files yet |
 | Anything at the root other than `people/`, `spaces/` and `vihko.yaml` | Seen by nobody in vihko; the admins get an alert |
 | A name starting with `.` (`.git/`, `.obsidian/`, `.trash/`) or ending in `~` | Ignored, with everything under it |
-| A symbolic link, to a file or a folder | Ignored: vihko never reads, serves, indexes or writes through one |
+| A symbolic link, to a file or a folder | Ignored: vihko never reads, serves, indexes or writes through one. The one exception is `vihko.yaml`, which may be a link: vihko reads it and writes the file it points to |
 | A Syncthing conflict copy (`Plan.sync-conflict-20260928-101200-ABCDEFG.md`) | Not indexed; an alert points to it next to the original |
 | `vihko.yaml` at the root | The [workspace configuration](configuration.md), hidden from everyone |
 
@@ -368,8 +368,8 @@ own: the note shows «External image from example.com» with **Show**, which
 loads it for you on this page, and **Save a copy**, which has vihko's server
 download it into the notes folder and points the note to the copy (its text
 kept). `VIHKO_EXTERNAL_IMAGES` decides it for the whole installation: `allow`
-loads them as the note opens (an installation from before 0.1.0-rc.6 keeps
-doing so), `block` never loads them (see [Install](install.md)).
+loads them as the note opens, `block` never loads them (see
+[Install](install.md)).
 
 An image can be seen by whoever can read the folder it's in: a person who
 can't read that folder can't see the image, even in a note they can read. New
