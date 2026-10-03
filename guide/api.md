@@ -44,7 +44,8 @@ A request with a key is judged by the key alone, never by a session cookie.
 | Answer | When |
 |---|---|
 | `401 unauthorized` | The key is wrong, revoked or expired, or its person is disabled |
-| `403 forbidden` | A read-only key on a route that writes |
+| `403 key_suspended` | A member's key while the admin has **Members can create keys** off; it works again once it's back on |
+| `403 forbidden` | A read-only key on a route that writes, or a request that writes with an `Origin` header that isn't vihko's own (a page on another site) |
 | `404 not_found` | The API is off, or the route isn't open to keys |
 
 The key acts for its person, within its folders, and never sees notes or
@@ -82,6 +83,7 @@ The codes you can meet with a key:
 | Code | Status | Meaning |
 |---|---|---|
 | `unauthorized` | 401 | Not a valid key (see above) |
+| `key_suspended` | 403 | A member's key while members may not have keys (see above) |
 | `forbidden` | 403 | A read-only key on a route that writes, or something the key's person may not do there: writing where they only read, a note's history where they can't edit |
 | `agent_denied` | 403 | The note exists but is not for agents; `reason` says why. Don't delete or replace links to it |
 | `not_found` | 404 | No such note, version or route, or one the key can't see |
@@ -90,17 +92,22 @@ The codes you can meet with a key:
 | `control_characters` | 400 | A path with a control character (a tab, a line break) |
 | `outside_space` | 400 | Creating or moving a note where no space is: the notes root, `people/` or `spaces/` themselves, or anywhere outside them |
 | `space_root` | 400 | A space's root named as a folder to create, move or delete |
+| `query_too_complex` | 400 | A search over the [limits](#limits) of a query |
 | `exists` | 409 | Creating or moving a note to a name that is taken, or that isn't available there because it would change where someone else's link leads (see [Known limits](compatibility.md#known-limits)) |
 | `edit_mismatch` | 409 | An edit operation doesn't fit the text: `find` not found the expected number of times (or empty), a heading that isn't there, a frontmatter that can't be written |
-| `not_configured` | 409 | The daily note, with no series in `vihko.yaml` |
+| `not_configured` | 409 | The daily note, when the key's person has no daily-note series (none in `vihko.yaml`, in their own settings or in their spaces') |
+| `series_gone` | 409 | The daily note without `series`, when the series the person chose no longer exists for them: they choose another in Preferences |
 | `audience_widens` | 409 | A move would show the note to people who can't see it now; `audience` says who. Repeat with `confirmAudience: true` only if its person agrees |
+| `permissions_invalid` | 409 | Moving a note whose folder of images has sharing rules of its own in `vihko.yaml`, while a mistake in that file keeps vihko from changing it |
 | `not_revertible` | 409 | Reverting a version that creates or deletes the note |
+| `uid_mismatch` | 409 | Restoring, over the note at a path, a version of another note that had that path before: restore it with `to` instead |
 | `history_off` | 409 | `vihko.yaml` turns the history off |
 | `too_large` | 413 | An image over the size limit |
+| `note_too_large` | 413 | A write that would make a note larger than `notes.maxSize` in `vihko.yaml` (5 MB by default) |
 | `unsupported_type` | 415 | An upload that isn't a PNG, JPEG, GIF, WebP or AVIF image |
 | `busy` | 429 | Too many images being uploaded at once; `Retry-After` says when to try again |
 | `precondition_required` | 428 | A write that needs `If-Match` (or `ifMatch`) and has none |
-| `precondition_failed` | 412 | The note changed since that ETag; `etag` is the current one |
+| `precondition_failed` | 412 | The note changed since that ETag (`etag` is the current one), or `If-None-Match: *` over a name that is taken |
 | `history_unavailable` | 503 | The history can't be read right now |
 | `internal` | 500 | Something went wrong in vihko; its log says what |
 
@@ -151,6 +158,7 @@ their editor live.
 | Image upload | `VIHKO_MAX_IMAGE_MB`, 20 MB by default (`413 too_large`) |
 | Images received at once | 2 per person, 8 in all, uploads and copies from a URL together (`429 busy`) |
 | Search results | 50 with words, 500 with filters alone |
+| A search query | 1,000 characters, 20 filters and 32 words (`400 query_too_complex`) |
 | History pages | 50 versions or changes at most |
 
 These are 0.1.0's. Limits can change, and new ones can appear, rate limits
@@ -194,7 +202,9 @@ among them (`429` with `Retry-After`), announced in the changelog: see
 and `edit` for its person where the note is. Everything else in `/api` is for
 the web UI only and answers `404` to a key: folders (creating, moving and
 deleting them), creating, renaming, leaving and deleting spaces, sharing, the
-trash, comments, alerts, users, keys and settings.
+trash, comments, alerts, users, keys, settings (the note settings of a person
+or a space included), and marking notes as templates (a key writes
+`template: true` with `set_frontmatter` instead).
 
 ### Spaces
 
@@ -216,17 +226,22 @@ key's folders:
 
 - `personal` is the person's own space, or `null` when the key doesn't reach
   it.
-- `spaces` are the shared spaces they belong to: `name` is what people see
-  (it can change), `path` and `id` never change.
+- `spaces` are the shared spaces they belong to, with their level there, who
+  manages them and whether they are closed to agents (`aiClosed`). A shared
+  space's `name` is its folder's: `path` is `spaces/<name>`, so renaming the
+  space changes both.
 - `shared` are folders shared with them without being members: from someone's
-  own space (`owner`), or from a shared space (`space`, with its `path`, `id`
-  and `name`).
+  own space (`owner`), or from a shared space (`space`, with its `path` and
+  `name`).
+- `canCreate` is always `false` for a key: keys don't create spaces.
 
 `GET /api/spaces/members?path=<folder>` lists who has access to a folder the
-key's person reads: `members`, each with `username`, `level` and `via` (the
-grants that give it: `subject`, `level`, and `from`, the folder where it's
-written, `null` when the person doesn't read that folder). A folder the person
-doesn't read is `404`.
+key's person reads: its `space` (`path` and `name`, or `null` in someone's own
+space), its `owner` (in someone's own space, or `null`), and `members`, each
+with `username`, `level` and `via` (the grants that give it: `subject`,
+`level`, and `from`, the folder where it's written, `null` when the person
+doesn't read that folder; `owner: true` for the owner of a personal space). A
+folder the person doesn't read is `404`.
 
 ### List notes and folders
 
@@ -272,7 +287,9 @@ curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/note" \
 
 `meta` is what the index knows of the note (`null` for a moment after it's
 written from outside): its `title`, `uid`, and `fmError`, why its frontmatter
-can't be read, or `null`.
+can't be read, or `null`. A note larger than `notes.maxSize` in `vihko.yaml`
+(5 MB by default) adds `"tooLarge": true`: it is indexed by its name alone,
+and no write may make it larger (`413 note_too_large`).
 
 To see what's around a note:
 
@@ -474,10 +491,14 @@ its folders and out of folders closed to agents; the rest stay.
 ### Today's note
 
 `GET /api/daily` says where the key's person's note for today is (in their
-time zone, from the series in `vihko.yaml`) and whether it `exists`. `POST
-/api/daily` opens it, or creates it from its template (`201`). Both take a
-`series` (in the query for `GET`, in the body for `POST`) to use another
-series than the person's own.
+time zone, from the series they choose in Preferences, or the first they
+have) and whether it `exists`. A person's series are their own (in «Your
+note settings»), their shared spaces' and those of `vihko.yaml`: see
+[Configuration](configuration.md). `POST /api/daily` opens it, or creates it
+from its template (`201`). Both take a `series` (in the query for `GET`, in
+the body for `POST`) to use another series than the person's own: an id from
+`vihko.yaml`, `me-<id>` for one of their own settings, or the id a shared
+space's series is offered with (the `series` these routes answer).
 
 ```sh
 curl -X POST -H "Authorization: Bearer $VIHKO_KEY" -H "Content-Type: application/json" \
@@ -505,8 +526,9 @@ break a Markdown link escaped:
 { "path": "spaces/Home/projects/my plan-2026-09-28-1201.png", "src": "my plan-2026-09-28-1201.png", "markdown": "![](my%20plan-2026-09-28-1201.png)" }
 ```
 
-vihko stores it where `vihko.yaml` says (next to the note by default), but
-doesn't add the link: do that with an edit, for example an `append` of the
+vihko stores it where the settings of the note's space say, or else
+`vihko.yaml` (next to the note by default; see
+[Configuration](configuration.md)), but doesn't add the link: do that with an edit, for example an `append` of the
 `markdown` it returned. Don't write `src` into the note as it is: a space in
 it would break the link, and the image would count as unused.
 
@@ -534,7 +556,7 @@ is only for whoever can edit the note: a key whose person only reads it gets
 | `GET /api/history/diff?path=&id=&against=` | What the version changed against `previous` (default), `current` or another version id: `ops`, pairs of `-1` (removed), `0` (kept) or `1` (added) and a piece of text, which turn the older text into the version's, and the words `added` and `removed` |
 | `GET /api/history/changes?limit=&cursor=&author=` | Recent changes across the notes the key can see, newest first: `changes`, each with its `id`, `at`, `authors`, `reason`, `foundAtStartup` and `files` (each with its `path`, `change`, `from`, `added` and `removed`, as in `versions`); `next`; and the `authors` to filter by (`author` takes an author's `key`) |
 | `GET /api/history/resolved?path=` | Comment threads that left the note in the last 30 days |
-| `POST /api/history/restore` `{ path, id, ifMatch? }` | Writes that version's text back, as a new version |
+| `POST /api/history/restore` `{ path, id, ifMatch?, to? }` | Writes that version's text back, as a new version: `etag`, and `images` (`restored`, `missing`). If the note at `path` now is another one (another `uid`) than the version's, `409 uid_mismatch`: with `to`, a free path where the key may write, the version comes back there as a new note (the answer adds its `path`) |
 | `POST /api/history/revert` `{ path, id, ifMatch?, dryRun? }` | Undoes only what that version changed, keeping later changes; what clashes is left and listed in `skipped` |
 
 An author has a `kind`, a `name` and a `key` (the value for the `author`
