@@ -41,7 +41,8 @@ that network is an alternative to a public address.
 - **Long enough timeouts**: more than 60 seconds for a request. `/mcp` may
   wait up to 30 seconds for a change before it answers.
 - **Request bodies up to 20 MB**: images (up to `VIHKO_MAX_IMAGE_MB`, 20 by
-  default) and API requests.
+  default: if you raise it, raise the proxy's limit with it) and API
+  requests.
 
 Caddy does all of this on its own. nginx needs it spelled out.
 
@@ -106,8 +107,11 @@ Under `environment:` in `compose.yaml`:
 ```yaml
     environment:
       VIHKO_PUBLIC_URL: https://notes.example.com
-      # A proxy on this machine or in this compose file. On another machine:
-      # that machine's address alone, such as 10.0.0.50 (see below).
+      # A proxy on this machine with the 127.0.0.1 port line, or in this
+      # compose file without publishing the port. Otherwise (the port
+      # published on every address, a Docker network shared with other
+      # containers, a proxy on another machine): the proxy's address alone,
+      # such as 10.0.0.50 (see below).
       VIHKO_TRUSTED_PROXIES: 172.16.0.0/12
 ```
 

@@ -29,6 +29,13 @@ every API route and MCP tool, every `vihko.yaml` key, the environment
 variables, the commands, and what vihko writes into the notes folder. Once the
 model has settled through real use, 1.0 will freeze it.
 
+Some things are outside the promise ([What isn't covered](compatibility.md#what-isnt-covered)
+lists them all), among them:
+
+- **The web UI** can change in any release.
+- **The inside of `state.db`**: vihko migrates it on its own when it starts
+  (see [What happens at start](#what-happens-at-start)).
+
 Two rules hold in every release, announced in the changelog:
 
 - **Security comes first.** If keeping something as it is would leave
@@ -50,13 +57,6 @@ space, `people/<you>/`, or into a shared space's folder (see
 Pointed at a 1.0.x notes folder, 0.1.0 starts, but nobody sees the notes
 (they're outside every space), the old `permissions` section is rejected, and
 the admins get alerts saying so.
-
-Some things are outside the promise ([What isn't covered](compatibility.md#what-isnt-covered)
-lists them all), among them:
-
-- **The web UI** can change in any release.
-- **The inside of `state.db`**: vihko migrates it on its own when it starts
-  (see [What happens at start](#what-happens-at-start)).
 
 ## Which image tag to use
 
@@ -154,10 +154,10 @@ authorizations, second factors set up, settings changed and sessions started
 back. Versions saved in the history since the update stay.
 
 An older vihko refuses to start with a newer `state.db`, and restarts in a
-loop with:
+loop; its log says, followed by a stack trace:
 
 ```text
-Error: state.db is at version 11, newer than this install (10). Did you roll back to an older version of vihko?
+[vihko] vihko couldn't start: state.db is at version 13, newer than this install (12). Did you roll back to an older version of vihko?
 ```
 
 To go back:
@@ -185,7 +185,7 @@ To go back:
    ```sh
    mv state/state.db state/state.db.newer
    rm -f state/state.db-wal state/state.db-shm
-   cp -p state/state.db.bak-v10 state/state.db
+   cp -p state/state.db.bak-v12 state/state.db
    ```
 
    (Use the copy you found in step 2; `-p` keeps its owner.)

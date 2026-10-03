@@ -8,9 +8,11 @@ vihko (0.1): the guides in a release describe that release.
 - [Installation](install.md): requirements, the compose file line by line,
   the notes folder with `people/` and `spaces/`, the first start and every
   environment variable.
-- [Configuration](configuration.md): `vihko.yaml`, the workspace settings
-  that live with your notes (shared spaces and sharing, daily notes, images,
-  links, history).
+- [Configuration](configuration.md): where every setting lives (a variable,
+  the UI, `vihko.yaml` or a space's settings file) and when a change applies;
+  `vihko.yaml`, the workspace settings that live with your notes (shared
+  spaces and sharing, daily notes, images, links, history); and the settings
+  files of a person or a shared space.
 - [Spaces, people and sharing](users-and-permissions.md): your own space,
   shared spaces and their settings, folders shared with you, inviting
   people, groups, what the admin can and can't see, sign-in limits and

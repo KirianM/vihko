@@ -96,8 +96,8 @@ The log of the first start prints a one-time token:
 ```
 
 Open `http://<your-server>:8080`, paste the token, and choose the admin's name
-and password (10 characters or more). That's it: you're in «My notes», your
-own space. Create notes in the UI, or drop `.md` files into
+and password (10 characters or more). That's it: you're in, and «My notes»,
+in the sidebar, is your own space. Create notes in the UI, or drop `.md` files into
 `notes/people/<your name>/`. Then: [First steps in the app](guide/first-steps.md)
 shows notes, spaces, links, search and sharing in a few minutes.
 
