@@ -4,17 +4,12 @@ import { Button } from 'react-aria-components'
 import { useLang, useT } from './i18n.tsx'
 import { usePathLabels, useSpaces } from './spaces.tsx'
 import { useTheme } from './theme.ts'
+import { formatBytes } from './bytes.ts'
 
-/** A size in bytes as the person reads it, in their language («12 kB», «1,5 MB»). */
+/** A size in bytes as the person reads it, in their language («51 bytes», «12 KB», «1,5 MB»). */
 export function useBytes() {
   const lang = useLang()
-  return (bytes: number) => {
-    const units = ['byte', 'kilobyte', 'megabyte', 'gigabyte'] as const
-    let i = 0
-    let n = bytes
-    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
-    return new Intl.NumberFormat(lang, { style: 'unit', unit: units[i], unitDisplay: 'short', maximumFractionDigits: i === 0 ? 0 : 1 }).format(n)
-  }
+  return (bytes: number) => formatBytes(bytes, lang)
 }
 
 export function Mark({ size = 22 }: { size?: number }) {
