@@ -130,6 +130,16 @@ test('limits: a device cookie from an earlier sign-in is held back by its own fa
   assert.equal(l.deviceFor(cookie.slice(0, -2) + (cookie.endsWith('AA') ? 'BB' : 'AA'), account), null, 'not if tampered with')
   assert.equal(l.deviceFor(new LoginLimiter().deviceToken(account), account), null, 'not one made by another process (a restart)')
   assert.equal(l.deviceFor(undefined, account), null)
+  // Signing in again from that browser keeps its id (the same device), signed now for whoever signs in:
+  // from a cookie of another account's or from before a restart too; never made valid by being kept.
+  const other = m.aUsername()
+  for (const old of [cookie, new LoginLimiter().deviceToken(other)]) {
+    const again = l.deviceToken(other, old)
+    assert.equal(again.split('.')[0], old.split('.')[0])
+    assert.equal(l.deviceFor(again, other), old.split('.')[0])
+    assert.equal(l.deviceFor(again, account), null)
+  }
+  assert.notEqual(l.deviceToken(account, 'not.a-cookie').split('.')[0], 'not')
 
   // Someone guesses from many addresses, and from the owner's own address too.
   for (let i = 0; i < 30; i++) fail(`10.0.0.${i}`, account)
