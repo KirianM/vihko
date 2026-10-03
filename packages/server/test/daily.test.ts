@@ -24,7 +24,7 @@ tags: [${TEMPLATE_TAG}]
 `
 const templateFile = (notesDir: string) => join(notesDir, DAILY.templates, `${DAILY.own.template}.md`)
 /** Paths of the own series (a folder per person) and of the shared one. */
-const own = (username: string, day: string) => `${DAILY.own.folder}/${username}/${day}.md`
+const own = (username: string, day: string) => `people/${username}/${DAILY.own.folder}/${day}.md`
 const team = (day: string) => `${DAILY.team.folder}/${day}.md`
 
 /** The civil day of an instant in a timezone, `YYYY-MM-DD`. */
@@ -101,9 +101,10 @@ test('daily note: the day changes at the person\'s midnight', async () => {
 
 test('daily note: two at once create one note and both open it', async () => {
   const shared = inShared(m.aFolder())
-  const { notesDir, admin } = await setup({ config: CONFIG.replace(JSON.stringify(`${DAILY.own.folder}/{user}`), JSON.stringify(shared)) })
+  const { notesDir, admin } = await setup({ config: CONFIG.replace(JSON.stringify(`people/{user}/${DAILY.own.folder}`), JSON.stringify(shared)) })
   writeFileSync(templateFile(notesDir), TEMPLATE)
-  const results = await Promise.all(Array.from({ length: 6 }, () => admin('POST', '/api/daily')))
+  // A series in a shared space: asked for by its id (vihko never picks one there by itself).
+  const results = await Promise.all(Array.from({ length: 6 }, () => admin('POST', '/api/daily', { series: DAILY.own.id })))
   assert.deepEqual(new Set(results.map((r) => r.body.path)), new Set([`${shared}/2026-09-24.md`]))
   assert.equal(results.filter((r) => r.body.created).length, 1, 'only one creates it')
   assert.ok(results.every((r) => r.status === 200 || r.status === 201))

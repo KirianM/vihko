@@ -1,6 +1,7 @@
 // «Today's note» when the series the person chose no longer exists for them
 // (`series_gone`: a space renamed or left, a series removed, edit taken
-// away): vihko never moves on to another series by itself, which could write
+// away), or when they never chose one and none offered is in their own
+// space: vihko never moves on to another series by itself, which could write
 // tomorrow's note into a shared space. This asks which one to use, saves the
 // answer as their choice (as Preferences does) and opens it.
 import { useState, type FormEvent } from 'react'
@@ -11,9 +12,11 @@ import { errorText, useT } from './i18n.tsx'
 import { usePathLabels, useSpaces } from './spaces.tsx'
 import './agents.css'
 
-export function ChooseSeriesDialog({ series, onClose, onChosen }: {
+export function ChooseSeriesDialog({ series, first = false, onClose, onChosen }: {
   /** The series offered to the person now. */
   series: Series[]
+  /** They never chose one (and none is in their own space), rather than one they chose being gone. */
+  first?: boolean
   onClose: () => void
   /** Saved as their choice: the profile as it is now. */
   onChosen: (p: Profile) => void
@@ -45,7 +48,7 @@ export function ChooseSeriesDialog({ series, onClose, onChosen }: {
           <form onSubmit={submit}>
             <div className="dialog-fields">
               <Heading slot="title" className="dialog-title">{t('series.goneTitle')}</Heading>
-              <p className="dialog-text">{t('series.goneText')}</p>
+              <p className="dialog-text">{t(first ? 'series.firstText' : 'series.goneText')}</p>
               <fieldset className="key-fieldset">
                 <legend>{t('prefs.series')}</legend>
                 {series.map((s) => (

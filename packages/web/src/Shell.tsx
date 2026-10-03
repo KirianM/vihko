@@ -967,6 +967,7 @@ export function Shell({ user, onLogout, onUnauthorized }: { user: User; onLogout
       {choosingSeries && workspace && (
         <ChooseSeriesDialog
           series={workspace.daily}
+          first={profile?.dailySeries == null}
           onClose={() => setChoosingSeries(false)}
           onChosen={(p) => { setProfile(p); setChoosingSeries(false); void openToday() }}
         />

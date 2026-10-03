@@ -2,7 +2,7 @@
 // timezone, so the UI and, later, the agents acting on their behalf (M3) get
 // the same note. Created from the series template through the normal create:
 // never overwriting.
-import { seriesPath, type Series } from '@vihko/core'
+import { PEOPLE, seriesPath, type Series } from '@vihko/core'
 import type { User } from './auth.ts'
 import { NoteError, type Actor, type NoteService } from './notes.ts'
 import { createFromTemplate } from './templates.ts'
@@ -47,12 +47,13 @@ export class DailyNotes {
 
   /**
    * The series a person's «Today» uses: the one asked for, their own choice
-   * or, with no choice yet, the first offered (`seriesOf` lists their own
-   * first, then their spaces', then vihko.yaml's). A series left out for a
-   * closer one with the same notes is that one. A choice that no longer
-   * exists, or is no longer offered, never falls back to another series
-   * (which could be another space's): `series_gone`, so the person chooses
-   * again. With no series, daily notes are off.
+   * or, with no choice yet, the first offered in their own space (`seriesOf`
+   * lists their own first, then their spaces', then vihko.yaml's). A series
+   * left out for a closer one with the same notes is that one. vihko never
+   * writes into a shared space by itself: with no choice and no series in
+   * their own space, and with a choice that no longer exists or is no longer
+   * offered, it's `series_gone`, so the person chooses. With no series,
+   * daily notes are off.
    */
   seriesFor(user: User, requested?: string | null): Series {
     const all = (this.opts.seriesOf?.(user) ?? this.opts.workspace.config.daily).filter((s) => this.opts.offered?.(user, s) ?? true)
@@ -67,7 +68,13 @@ export class DailyNotes {
     }
     if (all.length === 0) throw new NoteError('not_configured', 'no daily-note series for this person')
     const chosen = this.opts.profiles.get(user.id).dailySeries
-    if (chosen === null) return all[0]!
+    if (chosen === null) {
+      // Never into another space by itself: the first series in the person's own space, or they choose.
+      const own = `${PEOPLE}/${user.username}`
+      const mine = all.find((s) => { const f = s.folder.replaceAll('{user}', user.username); return f === own || f.startsWith(`${own}/`) })
+      if (mine) return mine
+      throw new NoteError('series_gone', 'this person hasn\'t chosen a daily-note series and none offered is in their own space: vihko never picks one in a shared space by itself; they choose (dailySeries in the profile)')
+    }
     const s = find(chosen)
     if (!s) throw new NoteError('series_gone', `the daily-note series ${chosen} this person chose no longer exists for them: they choose another (dailySeries in the profile)`)
     return s

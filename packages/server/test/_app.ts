@@ -21,7 +21,7 @@ const m = mother(import.meta.url)
  */
 export const DAILY = {
   templates: inShared(m.aFolder()),
-  own: { id: m.anId(), label: m.aHeading(), folder: inShared(m.aFolder()), template: m.aTitle() },
+  own: { id: m.anId(), label: m.aHeading(), folder: m.aFolder(), template: m.aTitle() },
   team: { id: m.anId(), folder: inShared(m.aFolder()) },
   attachments: m.aFolder(),
 }
@@ -30,7 +30,7 @@ export const CONFIG = `# Workspace settings
 daily:
   ${DAILY.own.id}:
     label: ${JSON.stringify(DAILY.own.label)}
-    folder: ${JSON.stringify(`${DAILY.own.folder}/{user}`)}
+    folder: ${JSON.stringify(`people/{user}/${DAILY.own.folder}`)}
     template: ${JSON.stringify(`${DAILY.templates}/${DAILY.own.template}`)}
   ${DAILY.team.id}:
     folder: ${JSON.stringify(DAILY.team.folder)}

@@ -37,6 +37,8 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
     const { secret: secretIds, revealed, visible: visibleIds } = await historyToHide(h)
 
     await h.enableApi()
+    // The series is in a shared space: the person chose it (vihko never picks one there by itself).
+    await h.admin('PUT', '/api/profile', { dailySeries: SERIES.own })
     const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true, folders: [DIR.key] })
     const key = h.withKey(token)
     const q = (path: string, params: Record<string, string>) => h.url(path, params)

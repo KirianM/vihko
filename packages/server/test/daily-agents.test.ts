@@ -46,6 +46,8 @@ test('today\'s note hidden from the agent: agent_denied with the reason, over HT
   try {
     await h.enableApi()
     await h.enableMcp()
+    // The person chose their series (it is in a shared space: vihko never picks one there by itself).
+    await h.admin('PUT', '/api/profile', { dailySeries: SERIES.own })
     const clean = (what: string, body: string) => { for (const s of SECRETS) assert.ok(!body.includes(s), `${what} gives away «${s}»: ${body}`) }
     for (const canWrite of [false, true]) {
       const { token } = await h.newKey({ name: m.aKeyName(), canWrite, folders: [INSIDE] })

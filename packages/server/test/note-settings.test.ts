@@ -118,6 +118,9 @@ test('«Today\'s note» never falls back to another series when the one chosen i
     const opened = await h.member('POST', '/api/daily', {})
     assert.deepEqual([opened.status, opened.body.series], [201, offered[0]], opened.text)
     // Leaving the space takes its series away: asked again.
+    // The other member never chose, and the space's is the only one: asked, they choose it too.
+    assert.equal((await h.other('POST', '/api/daily', {})).body.error, 'series_gone')
+    assert.equal((await h.other('PUT', '/api/profile', { dailySeries: offered[0] })).status, 200)
     const left = await h.other('POST', '/api/daily', {})
     assert.equal(left.body.series, offered[0], 'the other member uses the space\'s too')
     assert.equal((await h.other('POST', '/api/spaces/leave', { path: space })).status, 200)
@@ -162,7 +165,32 @@ test('renaming a shared space changes its series\' ids, and the series its membe
   }
 })
 
-test('«Today\'s note» with no choice: one\'s own series first, then a space\'s, then the installation\'s; the one it opens stays', async () => {
+test('«Today\'s note» with no choice never lands in a shared space by itself: with no series in one\'s own space it asks (series_gone), and creates nothing', async () => {
+  const h = await setup()
+  try {
+    h.clock.now = today()
+    const space = (await h.member('POST', '/api/spaces', { name: m.aSpaceName(), members: { [h.names.other]: 'edit' } })).body.space.path as string
+    const folder = m.aFolder()
+    assert.equal((await put(h, 'member', (s) => { s.daily.push({ id: m.anId(), label: null, folder, name: '{YYYY}-{MM}-{DD}', template: null }) }, space)).status, 200)
+    const [series] = (await h.other('GET', '/api/workspace')).body.daily.map((s: any) => s.id) as string[]
+    assert.ok(series)
+    for (const [method, body] of [['GET', undefined], ['POST', {}]] as const) {
+      const r = await h.other(method, '/api/daily', body)
+      assert.deepEqual([r.status, r.body.error], [409, 'series_gone'], `${method}: ${r.text}`)
+    }
+    assert.ok(!existsSync(join(h.notesDir, space, folder)), 'nothing created in the space')
+    assert.equal((await h.other('GET', '/api/profile')).body.dailySeries, null)
+    // Chosen, it opens there.
+    assert.equal((await h.other('PUT', '/api/profile', { dailySeries: series })).status, 200)
+    const opened = await h.other('POST', '/api/daily', {})
+    assert.deepEqual([opened.status, opened.body.series], [201, series], opened.text)
+    assert.ok(opened.body.path.startsWith(`${space}/${folder}/`), opened.body.path)
+  } finally {
+    h.close()
+  }
+})
+
+test('«Today\'s note» with no choice: the first series in one\'s own space (one\'s own settings\', then the installation\'s), never a shared space\'s; the one it opens stays', async () => {
   const installation = m.anId()
   const h = await setup({ config: `daily:\n  ${installation}:\n    folder: ${JSON.stringify(`people/{user}/${m.aFolder()}`)}\n` })
   try {
@@ -181,8 +209,8 @@ test('«Today\'s note» with no choice: one\'s own series first, then a space\'s
     assert.equal(listed[1], installation)
     assert.equal((await h.member('GET', '/api/daily')).body.series, installation)
     assert.equal((await h.member('POST', '/api/daily', {})).body.series, installation)
-    // Someone who never chose: the space's before the installation's, and their own before both.
-    assert.equal((await h.other('GET', '/api/daily')).body.series, listed[0])
+    // Someone who never chose: the installation's (in their own space), never the shared space's listed before it; their own before both.
+    assert.equal((await h.other('GET', '/api/daily')).body.series, installation)
     const own = m.anId()
     assert.equal((await put(h, 'other', (s) => { s.daily.push({ id: own, label: null, folder: m.aFolder(), name: '{YYYY}-{MM}-{DD}', template: null }) })).status, 200)
     assert.equal((await h.other('GET', '/api/daily')).body.series, `me-${own}`)

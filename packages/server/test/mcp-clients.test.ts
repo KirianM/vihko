@@ -104,6 +104,8 @@ async function server() {
   }
   const mcp = async (on: boolean) => assert.equal((await api(srv, cookie, 'PUT', '/api/admin/integrations', { mcp: on })).status, 200)
   await mcp(true)
+  // The series is in a shared space: the admin chose it (vihko never picks one there by itself).
+  assert.equal((await api(srv, cookie, 'PUT', '/api/profile', { dailySeries: 'diario' })).status, 200)
   /** Stops the server and removes its folders (a test run leaves nothing in /tmp). */
   const stop = async () => {
     await srv.stop()
