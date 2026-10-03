@@ -6,7 +6,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { ADMIN, E2E_DIR, MEMBER, NOTES, inVault, personal, specMother } from './env.ts'
-import { signIn, usePermissions } from './helpers.ts'
+import { dismissNoticesOf, signIn, usePermissions } from './helpers.ts'
 
 const m = specMother(import.meta.url)
 const DIR = inVault(m.aFolder())
@@ -393,9 +393,15 @@ test('on a phone: at the bottom, in one row that scrolls sideways, and the keybo
       expect((await status.locator('.status-label').boundingBox())!.width).toBeLessThanOrEqual(1)
       expect((await status.boundingBox())!.width).toBeLessThanOrEqual(44)
       await expect(p.getByRole('toolbar')).toHaveCount(1)
-      // Only the edge with more buttons beyond it fades.
+      // Only the edge with more buttons beyond it shows it: an arrow over a fade, never a button merely cut off.
       await expect(row).toHaveAttribute('data-more-end', '')
       await expect(row).not.toHaveAttribute('data-more-start')
+      const more = { start: bar(p).locator('.fmt-more-start'), end: bar(p).locator('.fmt-more-end') }
+      await expect(more.end).toBeVisible()
+      await expect(more.start).toBeHidden()
+      const rowBox = (await row.boundingBox())!
+      const endBox = (await more.end.boundingBox())!
+      expect(Math.round(endBox.x + endBox.width)).toBe(Math.round(rowBox.x + rowBox.width))
       await p.screenshot({ path: `${SHOTS}/format-mobile-start-${scheme}.png`, animations: 'disabled' })
       if (scheme === 'light') {
         await p.locator('.cm-line', { hasText: words[2] }).tap()
@@ -410,20 +416,58 @@ test('on a phone: at the bottom, in one row that scrolls sideways, and the keybo
         await expect.poll(n.body).toContain(`> ${words[0]} ${words[1]} **${words[2]}**\n`)
         expect(await row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
         await expect(p.locator('.cm-content')).toBeFocused()
+        // The arrow scrolls the row on, and the keyboard (the editor's focus) stays too.
+        await row.evaluate((el) => { el.scrollLeft = 0 })
+        await expect(more.end).toBeVisible()
+        await more.end.tap()
+        await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+        await expect(p.locator('.cm-content')).toBeFocused()
       }
-      // Scrolled part of the way both edges fade; at the end, only the start.
+      // Scrolled part of the way both edges show it; at the end, only the start.
       await row.evaluate((el) => { el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2 })
       await expect(row).toHaveAttribute('data-more-start', '')
       await expect(row).toHaveAttribute('data-more-end', '')
+      await expect(more.start).toBeVisible()
+      await expect(more.end).toBeVisible()
       await p.screenshot({ path: `${SHOTS}/format-mobile-middle-${scheme}.png`, animations: 'disabled' })
       await row.evaluate((el) => { el.scrollLeft = el.scrollWidth })
       await expect(row).not.toHaveAttribute('data-more-end')
       await expect(row).toHaveAttribute('data-more-start', '')
+      await expect(more.end).toBeHidden()
+      await expect(more.start).toBeVisible()
       expect(await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
       await p.screenshot({ path: `${SHOTS}/format-mobile-${scheme}.png`, animations: 'disabled' })
     } finally {
       await ctx.close()
     }
+  }
+})
+
+test('on a phone, a notice\'s toast sits above the bar, never over its buttons', async ({ browser }: { browser: Browser }) => {
+  // Something to be told on coming in: the member shares a folder of her own space with the admin.
+  const member = await signIn(browser, MEMBER)
+  const folder = `${personal(MEMBER)}/${m.aFolder()}`
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: 'es-ES', storageState: await k.context().storageState() })
+  const p = await ctx.newPage()
+  try {
+    expect((await member.request.post('/api/folder', { data: { path: folder } })).status()).toBe(201)
+    const perms = await (await member.request.get(`/api/permissions?folder=${q(folder)}`)).json() as { etag: string }
+    expect((await member.request.put('/api/permissions', { data: { folder, grants: { [ADMIN.username]: 'read' }, ifMatch: perms.etag } })).status()).toBe(200)
+    const n = note(DIR, `${text(line())}\n`)
+    await open(p, n.path)
+    const toast = p.locator('.toast').first()
+    await expect(toast).toBeVisible()
+    await expect(bar(p)).toBeVisible()
+    const t = (await toast.boundingBox())!
+    const b = (await bar(p).boundingBox())!
+    expect(t.y + t.height).toBeLessThanOrEqual(b.y)
+    await p.screenshot({ path: `${SHOTS}/format-mobile-toast.png`, animations: 'disabled' })
+  } finally {
+    // Nothing left for other specs: the folder goes, and the notice with it.
+    await member.request.delete(`/api/folder?path=${q(folder)}`)
+    await member.context().close()
+    await ctx.close()
+    await dismissNoticesOf(ADMIN)
   }
 })
 

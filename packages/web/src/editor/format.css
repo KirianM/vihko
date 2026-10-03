@@ -34,10 +34,14 @@
 .fmt-style-3 { font-size: 16px; line-height: 24px; }
 
 /* On a phone: at the bottom, over the keyboard; the buttons scroll sideways, the arrows and the save state stay. */
-/* An edge with more buttons beyond it fades (FormatBar.tsx sets which), so the row reads as one that goes on. A mask: only its opacity counts. */
-.editor-bar .fmt-scroll { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; --fade-start: var(--ink); --fade-end: var(--ink); mask-image: linear-gradient(to right, var(--fade-start), var(--ink) var(--space-12), var(--ink) calc(100% - var(--space-12)), var(--fade-end)); }
-.editor-bar .fmt-scroll[data-more-start] { --fade-start: transparent; }
-.editor-bar .fmt-scroll[data-more-end] { --fade-end: transparent; }
+/* An edge with more buttons beyond it (FormatBar.tsx sets which) shows an arrow over a fade into the bar, so the row reads as one that goes on, not as a button cut off. */
+.editor-bar .fmt-scroll-wrap { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+.editor-bar .fmt-scroll { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.editor-bar .fmt-more { position: absolute; top: 0; bottom: 0; width: var(--space-12); display: none; align-items: center; color: var(--muted); cursor: pointer; }
+.editor-bar .fmt-more-end { right: 0; justify-content: flex-end; background: linear-gradient(to right, transparent, var(--side) 60%); }
+.editor-bar .fmt-more-start { left: 0; justify-content: flex-start; background: linear-gradient(to left, transparent, var(--side) 60%); }
+.editor-bar .fmt-more-start svg { transform: rotate(180deg); }
+.editor-bar .fmt-scroll[data-more-end] ~ .fmt-more-end, .editor-bar .fmt-scroll[data-more-start] ~ .fmt-more-start { display: flex; }
 .editor-bar .fmt-scroll::-webkit-scrollbar { display: none; }
 .editor-bar .fmt-btn { width: var(--touch); height: var(--touch); border-radius: var(--radius-md); }
 .editor-bar .fmt-heading { width: auto; padding: 0 var(--space-2); }
