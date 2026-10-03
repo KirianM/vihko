@@ -257,6 +257,18 @@ test('the same path with another uid has a history of its own; restoring a versi
     // Never over a note, nor where the person can't write.
     assert.equal((await h.member('POST', '/api/history/restore', { path, id: old.id, to: path })).body.error, 'exists')
     assert.equal((await h.member('POST', '/api/history/restore', { path, id: old.id, to: `${h.home('other')}/${m.aTitle()}.md` })).status, 404)
+
+    // A note there now without a uid (made outside vihko) is another note too: never overwritten by one that had one.
+    later(h)
+    assert.equal((await h.member('DELETE', `/api/note?path=${q(path)}`)).status, 200)
+    await h.settle()
+    later(h)
+    const plain = `# ${m.aHeading()}\n\n${m.aSentence()}\n`
+    h.write(path, plain)
+    await h.settle()
+    const overPlain = await h.member('POST', '/api/history/restore', { path, id: old.id })
+    assert.deepEqual([overPlain.status, overPlain.body.error], [409, 'uid_mismatch'])
+    assert.equal(readFileSync(join(h.notesDir, path), 'utf8'), plain)
   } finally {
     await h.close()
   }

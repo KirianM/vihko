@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { contentHash, readFrontmatter } from '@vihko/core'
+import { spliceOf } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -171,6 +172,30 @@ test('HTTP with a key: an edit, a creation or a whole text that hides the note s
     const mine = await h.admin('GET', h.url('/api/note', { path: OTHER }))
     const person = await h.admin('POST', '/api/note/edit', { path: OTHER, ops: [{ op: 'set_frontmatter', key: 'ai', value: false }], ifMatch: mine.body.etag })
     assert.deepEqual(Object.keys(person.body), ['etag'])
+  } finally { await h.close() }
+})
+
+test('HTTP with a key: a restore that leaves the note hidden from it (someone set ai: false at that moment) answers nowHidden, as any write', async () => {
+  const h = await setup({ files: { [FREE]: FILES[FREE]! } })
+  try {
+    await h.enableApi()
+    await h.settle()
+    const cur = await h.admin('GET', h.url('/api/note', { path: FREE }))
+    assert.equal((await h.admin('PUT', h.url('/api/note', { path: FREE }), { text: `${cur.body.text}${m.aSentence()}\n` }, { 'if-match': `"${cur.body.etag}"` })).status, 200)
+    await h.settle()
+    const key = h.withKey((await h.newKey({ name: m.aKeyName(), canWrite: true })).token)
+    const versions = (await key('GET', h.url('/api/history/versions', { path: FREE }))).body.versions as { id: string }[]
+    // A person sets `ai: false` right as the restore lands: the restore stands, and says the note is now hidden from the key.
+    const restore = h.notes.restoreVersion.bind(h.notes)
+    h.notes.restoreVersion = async (...args) => {
+      const r = await restore(...args)
+      await h.notes.edit(args[0], (t) => [spliceOf(t, 0, 0, '---\nai: false\n---\n')], { actor: { kind: 'user', id: h.users.admin.id } })
+      return r
+    }
+    const r = await key('POST', '/api/history/restore', { path: FREE, id: versions.at(-1)!.id })
+    assert.equal(r.status, 200, r.text)
+    assert.deepEqual([r.body.nowHidden, r.body.reason], [true, 'ai_false'])
+    assert.equal(typeof r.body.message, 'string')
   } finally { await h.close() }
 })
 
