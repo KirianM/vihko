@@ -264,7 +264,7 @@ These are the codes a key can meet, with their status:
 | `config_invalid` | 409 | A note created, moved or restored into a folder that doesn't exist yet but kept grants in `vihko.yaml` from before, which vihko clears first, while the file can't be changed as it is |
 | `edit_mismatch` | 409 | An edit operation doesn't fit the text |
 | `not_configured` | 409 | The daily note, with no series for the person |
-| `series_gone` | 409 | The daily note without `series`, when the series the person chose (`dailySeries`) no longer exists for them, or when they never chose one and a series offered to them is outside their own space: they choose one |
+| `series_gone` | 409 | The daily note without `series`, when the series the person chose (`dailySeries`) no longer exists for them, or when they never chose one and no series offered to them is in their own space: they choose one |
 | `audience_widens` | 409 | A move would show the note to someone who can't see it now |
 | `not_revertible` | 409 | Reverting a version that creates or deletes the note |
 | `uid_mismatch` | 409 | Restoring, over the note at a path, a version of another note that had that path before (the version has a `uid`, and the note another one or none): restore it with `to` instead |
@@ -339,7 +339,8 @@ asked for (`GET /api/account/2fa`).
 | `GET /api/live` | Anyone | — | A server-sent event stream: `ready` when it opens, then `tree` (data `{}`) whenever a change concerns what the person sees: a note made, renamed, moved or deleted where they read, a folder made or gone there, or what they reach (their spaces, what is shared with them, their levels) changed. It never says what changed. Also `notices` (data `{}`) when a notice arrives for them. A comment keeps it open every 25 s |
 | `POST /api/auth/password` | Anyone, their own | `current`, `password`, `endSessions`? and `revokeKeys`? (each `false` when absent; any other field is `400 invalid`) | `ok`, `sessionsEnded`, `keysRevoked`. `sessionsEnded`: with `endSessions`, how many other sessions of theirs were signed out (never the one that asks); `0` without it. `keysRevoked`: with `revokeKeys`, how many keys and authorised apps of theirs were revoked (those that worked, and members' suspended ones, which never come back), their OAuth access and refresh tokens and the codes not yet exchanged going with them; `0` without it. Whatever is chosen, a confirmation at the moment of any session of theirs ends. `403 wrong_password`, `400 weak_password` |
 | `GET /api/account/2fa` | Anyone, their own | — | `policy`, `enabled`, `enabledAt`, `recoveryCodesLeft`, `confirmWith` (`code` or `password`), `confirmNeeded` and `confirmedUntil`: what is «confirmed at the moment» doesn't ask while a confirmation of this browser session lasts (15 minutes from it), and `confirm` is then ignored. Never for a key or an OAuth token |
-| `GET/PUT /api/profile` | Anyone, their own | `timezone`?, `dailySeries`?, `onOpen`? (`home`, `last`, `note` or `daily`), `onOpenNote`? (a note's path, with `note`), `language`?; `openDailyOnStart`? (deprecated: `true` is `onOpen: daily`) | `timezone`, `dailySeries`, `onOpen`, `onOpenNote`, `openDailyOnStart` (deprecated: `onOpen` is `daily`), `language`. `onOpen: note` names only a note the person reads: `404 not_found` otherwise, and one they no longer read comes back as `home`. `onOpenNote` follows its note when vihko moves or renames it, or its folder. `onOpen: last` opens the note this device had open last, which vihko keeps in the person's account for each device: it follows moves and renames, outlives signing out, and gives Home when the person can't read it any more |
+| `GET/PUT /api/profile` | Anyone, their own | `timezone`?, `dailySeries`?, `onOpen`? (`home`, `last`, `note` or `daily`), `onOpenNote`? (a note's path, with `note`), `language`?; `openDailyOnStart`? (deprecated: `true` is `onOpen: daily`) | `timezone`, `dailySeries`, `onOpen`, `onOpenNote`, `openDailyOnStart` (deprecated: `onOpen` is `daily`), `language`, `lastNote` (this device's last note: null when there is none, it is gone, or the person can't read it). `onOpen: note` names only a note the person reads: `404 not_found` otherwise, and one they no longer read comes back as `home`. `onOpenNote` follows its note when vihko moves or renames it, or its folder. `onOpen: last` opens the note this device had open last, which vihko keeps in the person's account for each device: it follows moves and renames, outlives signing out, and gives Home when the person can't read it any more. A device is a browser, by its device cookie (`vihko_device`), which it keeps from one sign-in to the next |
+| `PUT /api/profile/last-note` | Anyone, their own | `path` (a note the person reads) | `lastNote`: kept as this device's last note (the UI says it each time it opens a note). `400 invalid` for what isn't a note's path; `404 not_found` for a note the person can't read, whether it exists or not. A browser without a device cookie gets one |
 | `GET /api/trash` | Anyone | — | `entries`, each with `space` (its space's root, or null), and `bytes` (its note and the files of it the person sees, never the rest), `deletedBy` (`kind` `user`, `agent` or `system`, `name`, and `id` and `onBehalfOf` (`id`, `name`) as they apply), `canRestore`, `canDelete` (whoever manages where it was in a shared space, the owner of a personal space, who managed a deleted space, and only when the person sees all of it), `expiresAt` (when the trash's retention takes it, null while it's off) and `deletedSpace` (the id of the deleted space it belongs to, for whoever sees that space whole); and the answer has `spaces` (the deleted spaces the person may restore whole, as `GET /api/spaces/deleted`, with `bytes` (null but for who managed it), `canRestore`, `canDelete` and `expiresAt`), `bytes` (the sum of the entries') and `retentionDays` (null: off) |
 | `POST /api/trash/:id/restore` | Where the entry was | `to`? | `path`, `etag`, `files`, `left`: what stayed in the trash, only where the person reads. `409 exists` when a note has its name: `to` restores it under another name or in another place where the person may write. A `to` that isn't a string is `400 invalid` |
 | `DELETE /api/trash/:id` | As `canDelete` says, confirmed at the moment | `confirm` | `entries`, `bytes`. The entry goes from the trash for good (with the history's retention on, its notes' history goes at the next run, as for an entry the retention empties). `403 forbidden` for one the person sees but may only restore, `404 not_found` for one they don't see, both before anything is asked |
@@ -686,12 +687,11 @@ explains it.
   order (`GET /api/workspace`'s `daily`). The id of a series left out that
   way still works, as the one kept: as `series`, and as `dailySeries`, which
   the next `POST /api/daily` without `series` rewrites to the kept id. With
-  no `dailySeries` in the profile, today's note is the first listed when
-  every series offered is in the person's own space, and the first `POST
-  /api/daily` (or `daily_note` that opens or creates it) without a `series`
-  writes that series' id as the profile's `dailySeries`; when a series
-  offered is in a shared space, it never lands there by itself: `409
-  series_gone`, so the person chooses. A `dailySeries` that no longer exists
+  no `dailySeries` in the profile, today's note is the first listed in the
+  person's own space, and the first `POST /api/daily` (or `daily_note` that
+  opens or creates it) without a `series` writes that series' id as the
+  profile's `dailySeries`; with none in their own space, it never lands in
+  a shared space by itself: `409 series_gone`, so the person chooses. A `dailySeries` that no longer exists
   for the person is `409 series_gone` too, and in both cases nothing is
   created. Templates aren't a setting: every note marked `template: true`
   the person reads is one. New images of a note follow
@@ -863,7 +863,8 @@ is on. Tokens are opaque: read `expires_in`. A `resource` (RFC 8707), on
   client can only tell a refusal from a taken name by reading the path
   afterwards: a taken name has a note there that the person can read; a
   refused one has none. An alias typed in the editor goes through the
-  same check.
+  same check when the note is saved: one refused is taken out of the note
+  before it is written, and whoever typed it is told.
 - **Editing a folder shared from someone's space lets you work out names in
   the rest of it.** A link by name resolves among all the notes of its space,
   and one to a note you can't read looks broken. So whoever edits a folder

@@ -100,7 +100,7 @@ The codes you can meet with a key:
 | `exists` | 409 | Creating or moving a note to a name that is taken, or that isn't available there because it would change where someone else's link leads (see [Known limits](compatibility.md#known-limits)) |
 | `edit_mismatch` | 409 | An edit operation doesn't fit the text: `find` not found the expected number of times (or empty), a heading that isn't there, a frontmatter that can't be written |
 | `not_configured` | 409 | The daily note, when the key's person has no daily-note series (none in `vihko.yaml`, in their own settings or in their spaces') |
-| `series_gone` | 409 | The daily note without `series`, when the series the person chose no longer exists for them, or when they never chose one and one of the series offered to them is in a shared space: they choose one in vihko |
+| `series_gone` | 409 | The daily note without `series`, when the series the person chose no longer exists for them, or when they never chose one and none of the series offered to them is in their own space: they choose one in vihko |
 | `audience_widens` | 409 | A move would show the note to people who can't see it now; `audience` says who. Repeat with `confirmAudience: true` only if its person agrees |
 | `permissions_invalid` | 409 | Moving a note whose folder of images has sharing rules of its own in `vihko.yaml`, while a mistake in that file keeps vihko from changing it |
 | `not_revertible` | 409 | Reverting a version that creates or deletes the note |

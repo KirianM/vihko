@@ -369,11 +369,10 @@ rules are in [Configuration](configuration.md#daily-daily-notes).
 
 **If you have more than one series** (yours, and one of a space you're in,
 say): Preferences → **Daily note series** → pick the one «Today's note»
-should open → **Save**. Until you pick one, when every series you have is in
-your own space, it opens the first in that list (your own series come first,
-then the installation's); when one of them is a shared space's, the first
-time «Today's note» asks which one to use, so your notes never land in a
-shared space by themselves. The
+should open → **Save**. Until you pick one, it opens the first one in your
+own space (your own series come first, then the installation's); if none of
+yours is there, the first time «Today's note» asks which one to use, so your
+notes never land in a shared space by themselves. The
 first time you open «Today's note», the series it opened becomes your choice,
 so a series a space adds later never takes its place: you change it only in
 Preferences. If the series you chose goes away (it was removed or renamed,

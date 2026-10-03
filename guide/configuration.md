@@ -198,10 +198,9 @@ Each entry is a **series**: a folder and a name pattern that give one note per
 day, week, month or year. Each person picks theirs in Preferences («Daily
 note series»), with the option to open today's note when vihko opens (it only
 opens a note that exists; it never creates one). Until they pick one, the
-default is their own first series when every series they're offered is in
-their own space; when one of them is in a shared space, «Today's note» asks
-them which one the first time, so their notes never land in another space by
-themselves. The first time «Today's note» opens a note, that series becomes
+default is the first series in their own space; with none there, «Today's
+note» asks them which one the first time, so their notes never land in
+another space by themselves. The first time «Today's note» opens a note, that series becomes
 their choice, so a series added later never takes its place. A person
 can also make series of their own without this file: see
 [A daily journal](first-steps.md#a-daily-journal).
@@ -612,7 +611,7 @@ A person's file names a note of theirs instead: `agents: For agents`.
 
 | Setting | What a person gets |
 |---|---|
-| Daily-note series | Their own, those of the shared spaces they belong to, and `vihko.yaml`'s: those where they can write today's note. Two series that give the same note are one, the closest to the person (their own, then a space's, then `vihko.yaml`'s), with its name and template, so a personal series that repeats one of the installation's is offered once, as theirs. Listed in that order. Until a person chooses, the first is the default when every series offered is in their own space; when one is in a shared space, «Today's note» asks them which one the first time, so it never lands in another space by itself. If the series they chose goes away, it asks them to choose again; it never moves to another series by itself |
+| Daily-note series | Their own, those of the shared spaces they belong to, and `vihko.yaml`'s: those where they can write today's note. Two series that give the same note are one, the closest to the person (their own, then a space's, then `vihko.yaml`'s), with its name and template, so a personal series that repeats one of the installation's is offered once, as theirs. Listed in that order. Until a person chooses, the default is the first one in their own space; with none there, «Today's note» asks them which one the first time, so it never lands in another space by itself. If the series they chose goes away, it asks them to choose again; it never moves to another series by itself |
 | Templates | Not a setting: every note marked `template: true` they can read, wherever it is ([Templates](notes.md#templates)) |
 | Where new images go | For a note of a space, that space's setting if it has one; otherwise `vihko.yaml`'s |
 | Guide for agents | `vihko.yaml`'s, then that of each shared space the agent's key reaches, then the person's own, in that order. `vihko.yaml`'s and the person's are notes the agent must be able to read; a space's is text in its settings |
