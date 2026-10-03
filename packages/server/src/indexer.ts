@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { classifyPath, contentHash, extract, isIgnoredDir, normKey, readFrontmatter, type Extracted, type LinkIndex } from '@vihko/core'
 import type { Db } from './db.ts'
 import { followable, isPlainFile } from './fsutil.ts'
+import { shownPath } from './logging.ts'
 import { ExtensionHost, type Extension, type NoteSnapshot } from './extension.ts'
 import { builtinExtensions, type LinksExtension } from './extensions/index.ts'
 import { templateSql } from './extensions/fields.ts'
@@ -481,7 +482,7 @@ export class Indexer {
 
   private cantRead(rel: string, err: unknown) {
     const code = (err as NodeJS.ErrnoException | null)?.code ?? String(err)
-    if (this.unreadable.get(rel) !== code) console.warn(`index: can't read ${rel} (${code}): it is left out until it can be read`)
+    if (this.unreadable.get(rel) !== code) console.warn(`index: can't read ${shownPath(rel)} (${code}): it is left out until it can be read`)
     this.unreadable.set(rel, code)
   }
 
