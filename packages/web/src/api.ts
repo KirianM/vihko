@@ -207,6 +207,32 @@ export interface TagCount { tag: string; count: number; total: number }
  * images only it used), or files alone (`kind: 'files'`, `path` their folder).
  */
 export interface TrashEntry { id: string; path: string; deletedAt: string; kind?: 'files'; files?: { path: string }[]; space?: string | null }
+/** Who deleted a trash entry, by their name now. */
+export type DeletedBy =
+  | { kind: 'user'; id: string; name: string }
+  | { kind: 'agent'; id: string; name: string; onBehalfOf: { id: string; name: string } }
+  | { kind: 'system'; name: string }
+/**
+ * A trash entry as the trash screen lists it: what it takes (`bytes`, of
+ * what the person sees of it), who deleted it, whether they may restore it
+ * and delete it for good, when the retention takes it (null: never), and
+ * the deleted space it belongs to, when it's shown as part of that.
+ */
+export interface TrashListed extends TrashEntry {
+  space: string | null
+  deletedBy: DeletedBy
+  bytes: number
+  canRestore: boolean
+  canDelete: boolean
+  expiresAt: string | null
+  deletedSpace?: string
+}
+/** A deleted shared space in the trash, restored (or deleted for good) whole; `bytes` only for who managed it. */
+export interface TrashSpace extends DeletedSpace { bytes: number | null; canRestore: boolean; canDelete: boolean; expiresAt: string | null }
+/** GET /api/trash: what this person sees in the trash, and what it takes; `retentionDays`: the admin's retention (null: off). */
+export interface TrashView { entries: TrashListed[]; spaces: TrashSpace[]; bytes: number; retentionDays: number | null }
+/** What emptying the trash deletes (or would): entries and deleted spaces, their size, and how many this person may only restore (`kept`). */
+export interface TrashEmptied { entries: number; spaces: number; bytes: number; kept: number }
 /**
  * What a folder holds, as `not_empty` says when it can't just be deleted
  * (paths relative to it, each list capped: `total` says how many). `hidden`:
@@ -587,8 +613,20 @@ export const api = {
   uploadImage: (note: string, file: Blob) =>
     request<Attachment>('POST', `/api/attachments?note=${encodeURIComponent(note)}`, file, { 'content-type': file.type || 'application/octet-stream' }),
   fetchImage: (note: string, url: string) => request<Attachment>('POST', '/api/attachments/fetch', { note, url }),
-  /** A trash entry back: `files` where each landed (another name if its own was taken), `left` those that stay in the trash. */
-  restore: (id: string) => request<{ path: string; etag: string | null; files: { from: string; to: string }[]; left: string[] }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`),
+  /**
+   * A trash entry back (to `to`, another name or place, when given): `files`
+   * where each landed (another name if its own was taken), `left` those that
+   * stay in the trash. A note whose name is taken is `exists`.
+   */
+  restore: (id: string, to?: string) => request<{ path: string; etag: string | null; files: { from: string; to: string }[]; left: string[] }>('POST', `/api/trash/${encodeURIComponent(id)}/restore`, to === undefined ? undefined : { to }),
+  /** The trash screen: entries, deleted spaces, sizes and the retention. */
+  trashView: () => request<TrashView>('GET', '/api/trash'),
+  /** One entry deleted for good; `confirm`: the code or password, unless a confirmation lasts. */
+  discardTrash: (id: string, confirm?: string) => request<{ entries: number; bytes: number }>('DELETE', `/api/trash/${encodeURIComponent(id)}`, { confirm }),
+  /** A deleted space deleted for good, by who managed it. */
+  discardSpace: (id: string, confirm?: string) => request<{ entries: number; bytes: number }>('DELETE', `/api/spaces/deleted/${encodeURIComponent(id)}`, { confirm }),
+  /** Everything this person may delete for good (in one space, with `space`); `dryRun`: what it would. */
+  emptyTrash: (opts: { space?: string; dryRun?: boolean; confirm?: string }) => request<TrashEmptied>('POST', '/api/trash/empty', opts),
   integrations: () => request<Integrations>('GET', '/api/integrations'),
   /** The vihko admin only; turning the API or MCP on while the server locks them gives `integrations_locked`. */
   setIntegrations: (patch: Partial<Pick<Integrations, 'api' | 'mcp' | 'membersCanCreateKeys' | 'oauthRegistration'>>) => request<Integrations>('PUT', '/api/admin/integrations', patch),
