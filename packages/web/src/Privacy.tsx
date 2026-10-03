@@ -22,6 +22,7 @@ import { ApiError, api, type Integrations, type KeyInfo, type KeyWithUser, type 
 import { errorText, useT } from './i18n.tsx'
 import { useDates } from './history/ui.tsx'
 import { SearchButton } from './Palette.tsx'
+import { usePathLabels } from './spaces.tsx'
 import { BackButton, Diamond, MenuButton, ThemeToggle } from './ui.tsx'
 import './agents.css'
 import './privacy.css'
@@ -34,6 +35,7 @@ function withCode(text: string, parts: Record<string, string>): ReactNode[] {
 export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; onUnauthorized: () => void; onAgents: () => void }) {
   const t = useT()
   const dates = useDates()
+  const labels = usePathLabels()
   const admin = user.role === 'admin'
   const [integ, setInteg] = useState<Integrations | null>(null)
   const [keys, setKeys] = useState<(KeyInfo | KeyWithUser)[] | null>(null)
@@ -53,12 +55,14 @@ export function PrivacyPage({ user, onUnauthorized, onAgents }: { user: User; on
 
   const on = integ && !integ.locked ? [integ.api && 'API', integ.mcp && 'MCP'].filter(Boolean).join(' · ') : ''
   const via = (k: KeyInfo) => (k.lastVia === 'mcp' ? t('keys.viaMcp') : k.lastVia === 'oauth' ? t('keys.viaOauth') : t('keys.viaApi'))
+  // A key's folders as the UI names them («My notes / diary», «Home / recipes», «ana / trips»), never their folder on disk.
+  const folders = (k: KeyInfo) => k.folders.map((f) => `${labels.label(f)} /`).join(', ')
   const reach = (k: KeyInfo) => [
     ...(k.client ? [t('privacy.keyOauth')] : []),
     t(k.canWrite ? 'privacy.keyWrites' : 'privacy.keyReads'),
     'foldersHidden' in k && k.foldersHidden
-      ? (k.folders.length ? t('privacy.keyFoldersHidden', { folders: k.folders.map((f) => `${f}/`).join(', ') }) : t('privacy.keyOnlyHidden'))
-      : k.folders.length ? t('privacy.keyFolders', { folders: k.folders.map((f) => `${f}/`).join(', ') }) : t('privacy.keyAll'),
+      ? (k.folders.length ? t('privacy.keyFoldersHidden', { folders: folders(k) }) : t('privacy.keyOnlyHidden'))
+      : k.folders.length ? t('privacy.keyFolders', { folders: folders(k) }) : t('privacy.keyAll'),
     k.lastUsedAt ? t('privacy.keyUsed', { date: dates.dateTime(k.lastUsedAt), via: via(k) }) : t('privacy.keyUnused'),
   ].join(' · ')
 

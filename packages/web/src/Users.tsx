@@ -115,7 +115,7 @@ function NewUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
           {taken !== null && taken === name.trim() && (
             <div className="adopt" role="alert">
               <p className="dialog-text"><b>{t('users.adoptTitle', { name: taken })}</b></p>
-              <p className="dialog-text">{t('users.adoptBody', { name: taken })}</p>
+              <p className="dialog-text">{t('users.adoptBody', { name: taken, where: t('alerts.onDisk', { path: `people/${taken}` }) })}</p>
               <Button className="btn" isDisabled={busy || needsSecret} onPress={() => void create(true)}>{t('users.adopt')}</Button>
             </div>
           )}

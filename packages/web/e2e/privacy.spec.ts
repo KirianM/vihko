@@ -5,12 +5,12 @@
 // can't have the server download an image.
 import { expect, test, type Browser } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
-import { ADMIN, BASE_URL, E2E_DIR, MEMBER, inVault, specMother } from './env.ts'
+import { ADMIN, BASE_URL, E2E_DIR, MEMBER, SPACE_NAME, inVault, personal, specMother } from './env.ts'
 import { dismissNoticesOf, signIn } from './helpers.ts'
 
 const SHOTS = `${E2E_DIR}/shots`
 const m = specMother(import.meta.url)
-/** The keys this spec makes: the admin's (reads `proyectos/` of the test vault) and the member's. */
+/** The keys this spec makes: the admin's (reads `proyectos/` of the test vault and their own space) and the member's. */
 const KEY = { admins: m.aKeyName(), members: m.aKeyName() }
 
 test.describe.configure({ mode: 'serial' })
@@ -66,7 +66,7 @@ test('with them, the keys that can read and how; a key can’t download images',
   const k = await admin(browser)
   // The member makes a key of her own: the admin lets members (off by default).
   await k.request.put('/api/admin/integrations', { data: { api: true, mcp: true, membersCanCreateKeys: true } })
-  const mine = await (await k.request.post('/api/keys', { data: { confirm: ADMIN.password, name: KEY.admins, folders: ['proyectos'] } })).json() as { token: string }
+  const mine = await (await k.request.post('/api/keys', { data: { confirm: ADMIN.password, name: KEY.admins, folders: [inVault('proyectos'), personal(ADMIN)] } })).json() as { token: string }
   const member = await signIn(browser, MEMBER)
   const hers = await (await member.request.post('/api/keys', { data: { confirm: MEMBER.password, name: KEY.members, canWrite: true } })).json() as { token: string }
   expect((await request.get(`${BASE_URL}/api/tree`, { headers: { Authorization: `Bearer ${mine.token}` } })).status()).toBe(200)
@@ -80,7 +80,14 @@ test('with them, the keys that can read and how; a key can’t download images',
   await expect(k.page).toHaveURL(/\?view=privacy$/)
   const now = k.page.locator('section', { has: k.page.getByRole('heading', { name: 'Ahora mismo, en este servidor' }) })
   await expect(now).toContainText('Integraciones activas: API · MCP. Estas claves pueden leer notas ahora mismo:')
-  await expect(now.getByRole('listitem').filter({ hasText: KEY.admins })).toContainText('solo lee · en proyectos/ · último uso el')
+  // Its folders as the UI names them, never their folders on disk.
+  const admins = now.getByRole('listitem').filter({ hasText: KEY.admins })
+  await expect(admins).toContainText('solo lee · en ')
+  await expect(admins).toContainText(`${SPACE_NAME} / proyectos /`)
+  await expect(admins).toContainText('Mis notas /')
+  await expect(admins).toContainText(' · último uso el')
+  await expect(now).not.toContainText('people/')
+  await expect(now).not.toContainText('spaces/')
   await expect(now.getByRole('listitem').filter({ hasText: KEY.admins })).toContainText('por la API')
   await expect(now.getByRole('listitem').filter({ hasText: KEY.members })).toContainText(`(de ${MEMBER.username}): lee y escribe · en todas las carpetas de su usuario · sin usar todavía`)
   await k.page.screenshot({ path: `${SHOTS}/privacy-light.png`, fullPage: true, animations: 'disabled' })

@@ -254,7 +254,7 @@ export function AlertsPage({ onOpen, onSpaces, onSettings, onChanged, onUnauthor
   const t = useT()
   const dates = useDates()
   // Paths as the person sees them: the space, its folders and the name.
-  const { label } = usePathLabels()
+  const { label, place } = usePathLabels()
   const noteName = label
   const [alerts, setAlerts] = useState<Alert[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -454,9 +454,10 @@ export function AlertsPage({ onOpen, onSpaces, onSettings, onChanged, onUnauthor
           icon: icons.config,
           title: t('alerts.settingsMigrated'),
           body: rich(t(a.file === null ? 'alerts.settingsMigratedBodyHidden' : a.marked === 1 ? 'alerts.settingsMigratedBodyOne' : 'alerts.settingsMigratedBody', { when: dates.dateTime(a.at), n: a.marked }), { file: a.file === null ? null : <span className="mono">{settingsFileName(a.file)}</span> }),
-          extra: a.missing.length > 0 && (<>
+          // The folders as they were written in that file (a value of the file, marked as such), never where they are on disk.
+          extra: a.missing.length > 0 && a.file !== null && (<>
             <p className="alert-hint">{t('alerts.settingsMigratedMissing')}</p>
-            <ul className="alert-paths">{a.missing.map((f) => <li key={f} className="mono">{f}</li>)}</ul>
+            <ul className="alert-paths">{a.missing.map((f) => <li key={f}><span className="mono">{t('alerts.inConfig', { file: settingsFileName(a.file!), at: `${a.key}: ${f}` })}</span></li>)}</ul>
           </>),
           actions: <Button className="btn" isDisabled={busy} onPress={() => act(() => api.dismissNotice(a.id))}>{t('alerts.dismiss')}</Button>,
         })
@@ -656,7 +657,7 @@ export function AlertsPage({ onOpen, onSpaces, onSettings, onChanged, onUnauthor
             <ul className="alert-paths">
               {a.paths.slice(0, 10).map((p) => <li key={p}>{noteLink(p)}</li>)}
               {a.paths.length > 10 && <li>{t('alerts.movedMore', { n: a.paths.length - 10 })}</li>}
-              {a.elsewhere.map((p) => <li key={`in:${p}`}>{rich(t('alerts.notesTooLargeIn'), { path: <span className="mono">{p}</span> })}</li>)}
+              {a.elsewhere.map((p) => <li key={`in:${p}`}>{rich(t('alerts.notesTooLargeIn'), { path: <b>{place(p)}</b> })}</li>)}
             </ul>
           ),
           actions: null,
@@ -699,7 +700,7 @@ export function AlertsPage({ onOpen, onSpaces, onSettings, onChanged, onUnauthor
             <ul className="alert-paths">
               {a.paths.slice(0, 10).map((p) => <li key={p}><span className="mono">{t('alerts.onDisk', { path: p })}</span></li>)}
               {a.paths.length > 10 && <li>{t('alerts.movedMore', { n: a.paths.length - 10 })}</li>}
-              {a.elsewhere.map((p) => <li key={`in:${p}`}>{rich(t('alerts.unreadableNotesIn'), { path: <span className="mono">{p}</span> })}</li>)}
+              {a.elsewhere.map((p) => <li key={`in:${p}`}>{rich(t('alerts.unreadableNotesIn'), { path: <b>{place(p)}</b> })}</li>)}
             </ul>
           ),
           actions: null,
