@@ -560,12 +560,13 @@ the files aren't yours.)
 ### Notes copied into the folder don't show up
 
 Every note vihko shows lives in a space: `people/<username>/` or
-`spaces/<name>-<id>/`. Files put anywhere else, at the root of the notes
+`spaces/<name>/`. Files put anywhere else, at the root of the notes
 folder say, are seen by nobody, and the admins get an alert («outside the
 spaces») listing them; Preferences → Spaces lists them too. Move them into
 someone's folder or a shared space's folder. A folder in `people/` named after
-no user, or one in `spaces/` without the id at the end of its name, isn't a
-space either.
+no user isn't a space either, nor is one in `spaces/` whose name starts with
+`.` or `~` or ends with `.`, `~` or `.md` (see
+[What 0.x tries to keep](compatibility.md#paths-and-spaces)).
 
 ### Changes made elsewhere don't show up
 

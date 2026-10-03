@@ -47,7 +47,7 @@ server**, giving up full offline mode.
   belongs to several, folders shared one by one, real-time co-editing between
   people and the agents they allow in, comments, and a history of every note.
 - **Spaces on disk, too.** Each person's notes are in `people/<name>/`, each
-  shared space's in `spaces/<name>-<id>/`: the same paths for everyone, for
+  shared space's in `spaces/<name>/`: the same paths for everyone, for
   agents and for any other editor. The admin manages people and spaces but
   doesn't read other people's notes in vihko; whoever runs the server can
   read the files, so one installation is for one group that trusts them.

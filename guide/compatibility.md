@@ -134,7 +134,7 @@ The [API guide](api.md) explains how to use it.
 | A read-only key on a route that writes | `403 forbidden` |
 | Bodies | JSON, except image uploads (raw bytes) and file downloads |
 | Field names | `camelCase`, in requests and answers |
-| Note paths | From the notes root, with `.md`, inside a space: `spaces/home-7k2q9x/plan.md` |
+| Note paths | From the notes root, with `.md`, inside a space: `spaces/Home/plan.md` |
 | Dates | ISO 8601, UTC |
 | A note's ETag | `sha256:<hex>` of its text, in the body and in the `ETag` header (quoted) |
 | Cursors | `next`, passed back as `cursor`: opaque (encrypted), valid until vihko restarts |
