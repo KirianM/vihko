@@ -11,7 +11,7 @@ import { mother } from '../../../test/mother.ts'
 const m = mother(import.meta.url)
 
 /** File names a Markdown destination must encode: they are the case under test. */
-const TRICKY = ['a (1).md', 'x#y.md', 'ñ [b].md', 'q?.md', '100% <c>.md', 'd\\e.md']
+const TRICKY = ['a (1).md', 'x#y.md', 'ñ [b].md', 'q?.md', '100% <c>.md', 'd\\e.md', 'at 10.12 AM.md', 'a b　c.md']
 
 /** Where a link written in `src` leads, by `index`. */
 function leads(index: LinkIndex, src: string, text: string): string | null {

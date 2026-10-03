@@ -52,13 +52,18 @@ export function resolveImageRef(notePath: string, ref: string, opts: { embed?: b
   return parts.length ? parts.join('/') : null
 }
 
+const utf8 = new TextEncoder()
+
 /**
  * A relative path written as a Markdown link destination: only what would
- * break the link is escaped (spaces, brackets, `%`, `#`, `?`, `<`, `>`, `\`),
- * so accents and other letters stay readable.
+ * break the link is escaped (white space of any kind, brackets, `%`, `#`,
+ * `?`, `<`, `>`, `\`), so accents and other letters stay readable. Each
+ * escaped character is written as its UTF-8 bytes, which is how
+ * `decodeURIComponent` reads it back: the narrow no-break space of macOS
+ * screenshot names (U+202F) is `%E2%80%AF`.
  */
 export function markdownDest(path: string): string {
-  return path.replace(/[\s()[\]%#?<>\\]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))
+  return path.replace(/[\s()[\]%#?<>\\]/g, (c) => Array.from(utf8.encode(c), (b) => '%' + b.toString(16).toUpperCase().padStart(2, '0')).join(''))
 }
 
 /**

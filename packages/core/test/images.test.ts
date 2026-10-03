@@ -26,6 +26,18 @@ test('Markdown destinations escape only what breaks the link', () => {
   assert.equal(resolveImageRef('n.md', markdownDest('Mi plan (v2)%.png')), 'Mi plan (v2)%.png', 'round trip')
 })
 
+test('Markdown destinations: white space beyond ASCII is escaped as its UTF-8 bytes, and reads back', () => {
+  // The literal names are the case under test: a macOS screenshot has a narrow
+  // no-break space (U+202F) before AM/PM; others have a no-break space or an ideographic one.
+  assert.equal(markdownDest('Screenshot 10.12.15 AM.png'), 'Screenshot%2010.12.15%E2%80%AFAM.png')
+  assert.equal(markdownDest('a b.png'), 'a%C2%A0b.png')
+  for (const name of ['Screenshot 2026-10-03 at 10.12.15 AM.png', 'Captura 10.12 p. m.png', 'a　b c.png', 'tab\there.png']) {
+    assert.equal(resolveImageRef('a/n.md', markdownDest(name)), `a/${name}`, name)
+    const x = extract(`![](${markdownDest(name)})\n`)
+    assert.deepEqual(x.images.map((i) => resolveImageRef('a/n.md', i.dest)), [`a/${name}`], name)
+  }
+})
+
 test('an image written for its note: the destination escaped, the alt text on one line with what would end it escaped', () => {
   assert.equal(imageMarkdown('Mi plan-2026.png'), '![](Mi%20plan-2026.png)')
   assert.equal(imageMarkdown('a.png', 'A [draft]\\ of\r\n  the\nplan '), '![A \\[draft\\]\\\\ of the plan](a.png)')
