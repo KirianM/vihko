@@ -17,7 +17,7 @@
 //   because a note it can't see was moved says so, without saying which).
 // - A file's bytes (the images a restore brings back) only from folders it
 //   can read now.
-import { classifyPath, folderOf } from '@vihko/core'
+import { atLeast, classifyPath, folderOf } from '@vihko/core'
 import type { Access } from './access.ts'
 import { wordStats } from './history/diff.ts'
 import type { HistoryReader, RawChange, RawVersion, VersionText } from './history/reader.ts'
@@ -148,10 +148,17 @@ function unjudged<T extends { judgedPath?: string; fromJudgedPath?: string }>(v:
 /**
  * A reason with only the paths the principal can read: `from`/`to` of a
  * move it can't see become null, and the moves of `links_after_external_move`
- * are those it can see whole.
+ * are those it can see whole. `space_renamed` names a space, not a note: its
+ * `to` (the space's root) is judged as a folder the principal reads in, and
+ * its `from` (the space's folder before, which no longer exists) goes with it.
  */
 function maskedReason(r: Record<string, unknown> | null, access: Access): Record<string, unknown> | null {
   if (!r) return r
+  if (r.code === 'space_renamed') {
+    const space = typeof r.to === 'string' ? r.to : null
+    const reads = space !== null && atLeast(access.level(space), 'read') && access.folderInScope(space)
+    return { ...r, from: reads ? r.from : null, to: reads ? space : null }
+  }
   const sees = (p: unknown) => typeof p === 'string' && access.canRead(p)
   const out: Record<string, unknown> = { ...r }
   for (const k of ['from', 'to']) if (k in out && !sees(out[k])) out[k] = null

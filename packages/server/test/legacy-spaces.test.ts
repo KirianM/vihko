@@ -65,6 +65,44 @@ test('a space of rc.1 or rc.2 takes its name as its folder, with its notes, rule
   }
 })
 
+test('the history says which name the space took to whoever reads the space, and nothing to whoever reads only a folder inside it', async () => {
+  const name = m.aSpaceName()
+  const legacy = `spaces/${m.aLegacySpaceFolder(name)}`
+  const sub = `${legacy}/${m.aFolder()}`
+  const [a, b] = [`${legacy}/${m.aTitle()}.md`, `${sub}/${m.aTitle()}.md`]
+  const h = await setup({
+    history: true,
+    files: { [a]: `# ${m.aHeading()}\n`, [b]: `# ${m.aHeading()}\n` },
+    // The member manages the space; the other member edits only a folder inside it.
+    config: (n) => `permissions:\n  ${legacy}:\n    name: ${JSON.stringify(name)}\n    grants: { ${n.member}: manage }\n  ${sub}:\n    grants: { ${n.other}: edit }\n`,
+  })
+  try {
+    const to = `spaces/${name}`
+    const moved = (p: string) => to + p.slice(legacy.length)
+    assert.deepEqual(await run(h), { renamed: [{ from: legacy, to }], left: [] })
+    await h.settle()
+    const renamedIn = async (who: 'member' | 'other') => {
+      const r = await h[who]('GET', '/api/history/changes')
+      assert.equal(r.status, 200, r.text)
+      return (r.body.changes as { reason: Record<string, unknown> | null }[]).filter((c) => c.reason?.code === 'space_renamed').map((c) => c.reason)
+    }
+    // Whoever reads the space: its name now, and the folder it had.
+    const member = await renamedIn('member')
+    assert.ok(member.length > 0, 'the member sees the rename')
+    for (const r of member) assert.deepEqual(r, { code: 'space_renamed', from: legacy, to })
+    const versions = await h.member('GET', `/api/history/versions?path=${encodeURIComponent(moved(a))}`)
+    assert.deepEqual(versions.body.versions.map((v: any) => v.reason).filter((r: any) => r?.code === 'space_renamed'), [{ code: 'space_renamed', from: legacy, to }])
+    // Whoever reads only a folder inside it sees the change to their note, and no space named.
+    const other = await renamedIn('other')
+    assert.ok(other.length > 0, 'the other member sees the change to their note')
+    for (const r of other) assert.deepEqual(r, { code: 'space_renamed', from: null, to: null })
+    const theirs = await h.other('GET', `/api/history/versions?path=${encodeURIComponent(moved(b))}`)
+    assert.deepEqual(theirs.body.versions.map((v: any) => v.reason).filter((r: any) => r?.code === 'space_renamed'), [{ code: 'space_renamed', from: null, to: null }])
+  } finally {
+    await h.close()
+  }
+})
+
 test('a name another space or folder has, in any case, leaves the space as it is, with an alert, until a later start can', async () => {
   const name = m.aSpaceName()
   const [first, second] = [`spaces/${m.aLegacySpaceFolder(name)}`, `spaces/${m.aLegacySpaceFolder(name)}`]

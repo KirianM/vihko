@@ -81,6 +81,13 @@ test('what the system did, and for whom', () => {
   assert.equal(reasonText(t, null), null)
 })
 
+test('a space renamed at the upgrade is said by its name; without one (a reader outside the space), with no empty name', () => {
+  const name = m.aSpaceName()
+  const from = `spaces/${m.aLegacySpaceFolder(name)}`
+  assert.equal(reasonText(t, { code: 'space_renamed', from, to: `spaces/${name}` }), `history.reason.spaceRenamed${JSON.stringify({ name })}`)
+  assert.equal(reasonText(t, { code: 'space_renamed', from: null, to: null }), 'history.reason.spaceRenamedPlain')
+})
+
 test('what happened to the file: created, renamed or moved, deleted, restored (from which version, or from the trash)', () => {
   const date = (at: string) => `<${at}>`
   assert.equal(changeText(t, { change: 'modified', path: 'a.md', reason: null }, date), null)

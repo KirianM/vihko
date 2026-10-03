@@ -26,6 +26,16 @@ its entries are kept at the end of this file.
   and `revokeKeys` instead of `revokeOthers`, each `false` when absent, and
   answers `sessionsEnded` and `keysRevoked` as before.
 
+### Fixed
+
+- **«Recent changes» and «Users and groups» no longer drag the whole page
+  up** once their content has scrolled to the end: the app's frame never
+  scrolls, in any view; only the main area's content does, as in a note.
+- **A space renamed when vihko was upgraded is named in the history again**
+  («Space renamed to its name, “…”»): the name came out empty for everyone.
+  Whoever reads the space gets its name, in the API and over MCP; whoever
+  doesn't, `from` and `to` as `null`, as before.
+
 ### Upgrade notes
 
 - `POST /api/auth/password` no longer takes `revokeOthers`: send
@@ -35,6 +45,7 @@ its entries are kept at the end of this file.
   ends nothing else; in 0.1.0-rc.6, an absent `revokeOthers` ended both.
 - Keys and authorised apps are only revoked by a password change when you
   tick the second box.
+
 
 ## [0.1.0-rc.6] - 2026-10-03
 
