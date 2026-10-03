@@ -1,7 +1,7 @@
 /* «Trash» (Trash.tsx): a page of the main area, laid out as «Recent changes».
    Only the page's own content scrolls, never the shell. Design system tokens only. */
 
-.trash-page { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 40px var(--space-18) var(--space-12); display: flex; flex-direction: column; gap: 18px; }
+.trash-page { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 40px var(--space-18) var(--space-12); display: flex; flex-direction: column; gap: 18px; }
 .trash-page > * { flex: none; }
 .trash-page h1 { margin: 0; font-family: var(--font-serif); font-size: 34px; line-height: 40px; font-weight: 600; }
 .trash-intro { margin: 0; max-width: 760px; font-size: 15px; line-height: 1.5; color: var(--muted); }

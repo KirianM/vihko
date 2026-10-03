@@ -74,6 +74,7 @@ const VIEWS: { name: string; url: () => string; ready: (page: Page) => Promise<v
   { name: 'Spaces', url: () => '/?view=spaces', ready: (p) => expect(p.getByRole('heading', { level: 1 })).toBeVisible() },
   { name: 'Account', url: () => '/?view=account', ready: (p) => expect(p.getByRole('heading', { level: 1 })).toBeVisible() },
   { name: 'Agents', url: () => '/?view=agents', ready: (p) => expect(p.getByRole('heading', { level: 1 })).toBeVisible() },
+  { name: 'Trash', url: () => '/?view=trash', ready: (p) => expect(p.getByRole('heading', { level: 1 })).toBeVisible() },
   { name: 'Privacy', url: () => '/?view=privacy', ready: (p) => expect(p.getByRole('heading', { level: 1 })).toBeVisible() },
   { name: 'a note', url: () => `/?note=${address(LONG)}`, ready: (p) => expect(p.locator('.cm-content')).toBeVisible(), long: true },
   { name: 'a version', url: () => `/?note=${address(LONG)}&version=${encodeURIComponent(version)}`, ready: (p) => expect(p.locator('.version')).toBeVisible(), long: true },

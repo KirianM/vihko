@@ -100,7 +100,7 @@ html { -webkit-tap-highlight-color: transparent; }
    readers (`visually-hidden`, React Aria's hidden inputs) is positioned: placed against the
    page, deep in a long list, it made the page itself scroll past the list, the sidebar with it.
    Each view's scroller holds what is positioned in it (`position: relative`: .alerts-page,
-   .changes-page, .home-page; the editor's and a version's already do), so it scrolls with its
+   .changes-page, .home-page, .trash-page; the editor's and a version's already do), so it scrolls with its
    content and focus scrolls the view to it; the shell clips anything else (`clip`: unlike
    `hidden`, nothing can scroll it). */
 .shell { display: flex; height: 100%; position: relative; overflow: clip; }
