@@ -7,7 +7,8 @@
 // removes a key vihko doesn't know when asked.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFrontmatter } from '@vihko/core'
 import { Notices, migrateRetiredKeys } from '@vihko/server'
@@ -102,6 +103,37 @@ test('templates in vihko.yaml: {user} is each person\'s folder, the admins are t
     for (const who of ['member', 'other'] as Name[]) assert.deepEqual(await migratedAlerts(h, who), [], who)
   } finally {
     h.close()
+  }
+})
+
+test('a retired key is never migrated through a symbolic link: a space\'s .vihko/ or a person\'s settings.yaml leading elsewhere is neither read nor written', async () => {
+  const h = await setup()
+  const outside = mkdtempSync(join(tmpdir(), 'vihko-outside-'))
+  try {
+    const space = (await h.member('POST', '/api/spaces', { name: m.aSpaceName() })).body.space.path as string
+    const home = h.home('other')
+    const folder = m.aFolder()
+    const notes = [`${space}/${folder}/${m.aTitle()}.md`, `${home}/${folder}/${m.aTitle()}.md`]
+    for (const p of notes) h.write(p, `# ${m.aHeading()}\n`)
+    // Behind the links, settings with the retired key: as if they were the space's and the person's.
+    const settings = `templates: ${folder}\n`
+    mkdirSync(join(outside, 'dir'))
+    writeFileSync(join(outside, 'dir', 'settings.yaml'), settings)
+    writeFileSync(join(outside, 'file.yaml'), settings)
+    symlinkSync(join(outside, 'dir'), join(h.notesDir, space, '.vihko'))
+    mkdirSync(join(h.notesDir, home, '.vihko'), { recursive: true })
+    symlinkSync(join(outside, 'file.yaml'), join(h.notesDir, home, '.vihko', 'settings.yaml'))
+
+    const r = await migrate(h)
+    assert.deepEqual([r.migrated, r.failed], [[], []])
+    for (const p of notes) assert.ok(!marked(h, p), p)
+    assert.equal(readFileSync(join(outside, 'dir', 'settings.yaml'), 'utf8'), settings, 'nothing written there')
+    assert.equal(readFileSync(join(outside, 'file.yaml'), 'utf8'), settings, 'nothing written there')
+    assert.ok(lstatSync(join(h.notesDir, home, '.vihko', 'settings.yaml')).isSymbolicLink())
+    for (const who of ['member', 'other', 'admin'] as Name[]) assert.deepEqual(await migratedAlerts(h, who), [], who)
+  } finally {
+    h.close()
+    rmSync(outside, { recursive: true, force: true })
   }
 })
 
