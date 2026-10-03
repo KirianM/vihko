@@ -625,7 +625,10 @@ test('a space\'s folder is its name: renaming it moves the open note\'s address,
     await fresh.getByRole('button', { name: 'Crear espacio' }).click()
     await expect(fresh.getByRole('alert')).toContainText(said)
   }
-  await fresh.getByRole('button', { name: 'Cancelar' }).click()
+  // After an error the focus stays in the dialog (its button was off while it asked), so Escape still closes it.
+  await expect.poll(() => o.evaluate(() => document.activeElement?.closest('[role="dialog"]') !== null && document.activeElement !== document.body)).toBe(true)
+  await o.keyboard.press('Escape')
+  await expect(fresh).toHaveCount(0)
 
   // An address of the folder rc.1 or rc.2 would have made for it leads to the space it is now.
   const legacy = `${readablePart(after)}-${m.pick(['k3v9q2', '7k2q9x', 'qa23l6'])}`
