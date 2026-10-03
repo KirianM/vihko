@@ -31,7 +31,7 @@ import type { GrantStarts } from './grantStarts.ts'
 import { tidyBelow } from './spaceGrants.ts'
 import { followable } from './fsutil.ts'
 import type { Indexer } from './indexer.ts'
-import { NoteError, NoteService } from './notes.ts'
+import { NoteError, NoteService, type TrashEntry } from './notes.ts'
 import { RequestError, type ScopedFolderMove } from './scoped.ts'
 import type { Notices } from './notices.ts'
 import type { PermissionsEngine, SharedEntry, SharedSpaceInfo, SpaceEntry } from './permissions.ts'
@@ -169,6 +169,8 @@ export interface SpaceServiceOptions {
   pastPaths?: () => Promise<string[]>
   /** When grants began (grantStarts.ts): a deleted person's space moved keeps its grants' starts. */
   starts?: Pick<GrantStarts, 'moving' | 'under' | 'restore'>
+  /** Removes trash entries for good (retention.ts `discard`): a deleted space deleted for good. */
+  discardTrash?: (entries: readonly TrashEntry[]) => void
   log?: (msg: string) => void
   now?: () => Date
 }
@@ -343,6 +345,43 @@ export class SpaceService {
       id: r.id, path: r.root, name: this.engine.spaceName(r.root) ?? '', by: this.opts.users.get(r.by_user)?.username ?? this.nameOf(r.by_user), deletedAt: r.deleted_at,
       entries: (JSON.parse(r.entries) as string[]).filter((e) => inTrash.has(e)).length,
     }))
+  }
+
+  /**
+   * The deleted spaces as the trash screen shows them (those `deletedSpaces`
+   * gives): each with the ids of its trash entries still there (`entryIds`,
+   * only to who managed it then, who sees them all; none to the admin, who
+   * restores it without reading it) and whether this person may delete it
+   * for good (`canDelete`: who managed it then, never the admin as such).
+   */
+  trashSpaces(access: Access): (DeletedSpaceInfo & { entryIds: string[]; canDelete: boolean })[] {
+    const user = this.person(access)
+    const inTrash = new Set(this.opts.notes.trash().map((e) => e.id))
+    const rows = this.opts.state.prepare('select id, entries, managers from deleted_spaces').all() as Pick<DeletedSpaceRow, 'id' | 'entries' | 'managers'>[]
+    const byId = new Map(rows.map((r) => [r.id, r]))
+    return this.deletedSpaces(access).map((d) => {
+      const row = byId.get(d.id)!
+      const managed = (JSON.parse(row.managers) as string[]).includes(user.id)
+      return { ...d, entryIds: managed ? (JSON.parse(row.entries) as string[]).filter((e) => inTrash.has(e)) : [], canDelete: managed }
+    })
+  }
+
+  /**
+   * Deletes a deleted space for good (who managed it then): every one of its
+   * trash entries still there, and what restoring it whole needed. Anyone
+   * else, the admin included, `not_found` if they don't see it, `forbidden`
+   * if they may only restore it. With `dryRun`, only the check. Its name
+   * stays taken while its history is there.
+   */
+  discardSpace(access: Access, id: unknown, opts: { dryRun?: boolean } = {}): { id: string; entries: string[] } {
+    const space = typeof id === 'string' && !access.isAgent ? this.trashSpaces(access).find((s) => s.id === id) : undefined
+    if (!space) throw new NoteError('not_found', 'no such deleted space')
+    if (!space.canDelete) throw new AccessError('deleting a deleted space for good is for who managed it')
+    if (opts.dryRun) return { id: space.id, entries: space.entryIds }
+    const entries = this.opts.notes.trash().filter((e) => space.entryIds.includes(e.id))
+    this.opts.discardTrash?.(entries)
+    this.opts.state.prepare('delete from deleted_spaces where id = ?').run(space.id)
+    return { id: space.id, entries: space.entryIds }
   }
 
   /** Whether a person may restore a deleted space whole: they managed it then, or they're the admin. */

@@ -10,6 +10,64 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0-rc.7] - 2026-10-03
+
+### Added
+
+- **The Trash screen**, «Trash» in the sidebar under «Recent changes»
+  (`?view=trash`). It lists what was deleted where you can edit, since you
+  could read there, and the shared spaces deleted whole that you may bring
+  back, one line each: its name, where it was, who deleted it and when, how
+  much it takes (and, at the top, all of it), and when the admin's retention
+  takes it, if it's on. A search box, and a choice of space, narrow it.
+  Anyone who sees a line may restore it; a note whose name was taken
+  meanwhile comes back under another name, or in another place, instead of
+  failing. **Delete forever** and **Empty the trash…** are for a shared
+  space's managers (its members restore, but never destroy), a personal
+  space's owner, and who managed a deleted space; they ask first and are
+  confirmed at the moment. A deleted space comes back whole from there too.
+  `GET /api/trash` now says each entry's size, who deleted it, what the person
+  may do with it and when it expires, with the deleted spaces and the total;
+  `DELETE /api/trash/:id`, `POST /api/trash/empty` and `DELETE
+  /api/spaces/deleted/:id` are new. They're for the web UI: a key gets 404,
+  and MCP has no tools for them (an agent restores a deleted note from its
+  history).
+
+### Changed
+
+- **Changing your password no longer revokes your keys and apps unless you
+  ask.** «Change password…» in Account opens a dialog with two boxes instead
+  of one: «Sign out my other sessions», ticked by default, and «Also revoke
+  my API keys and authorised apps (MCP)», not ticked, since whatever used
+  them has to be set up again. The current session always stays signed in,
+  and a confirmation at the moment ends whatever you choose, as before.
+  Revoking now also takes a member's keys that are suspended (they no longer
+  come back when the admin lets members have keys again) and OAuth codes not
+  yet exchanged for tokens. `POST /api/auth/password` takes `endSessions`
+  and `revokeKeys` instead of `revokeOthers`, each `false` when absent, and
+  answers `sessionsEnded` and `keysRevoked` as before.
+
+### Fixed
+
+- **«Recent changes» and «Users and groups» no longer drag the whole page
+  up** once their content has scrolled to the end: the app's frame never
+  scrolls, in any view; only the main area's content does, as in a note.
+- **A space renamed when vihko was upgraded is named in the history again**
+  («Space renamed to its name, “…”»): the name came out empty for everyone.
+  Whoever reads the space gets its name, in the API and over MCP; whoever
+  doesn't, `from` and `to` as `null`, as before.
+
+### Upgrade notes
+
+- `POST /api/auth/password` no longer takes `revokeOthers`: send
+  `endSessions: true` and `revokeKeys: true` for what it did by default. A
+  request with `revokeOthers`, or any other field it doesn't take, is
+  `400 invalid` and changes nothing. Without either field, a new password
+  ends nothing else; in 0.1.0-rc.6, an absent `revokeOthers` ended both.
+- Keys and authorised apps are only revoked by a password change when you
+  tick the second box.
+
+
 ## [0.1.0-rc.6] - 2026-10-03
 
 Fixes from two reviews before 0.1.0: security, and flows that a family or a

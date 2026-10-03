@@ -253,12 +253,17 @@ test('one\'s account: sessions with this one marked, signing out another, and a 
   expect((await other.request.get('/api/auth/me')).status()).toBe(401)
   expect((await page.request.get('/api/auth/me')).status()).toBe(200)
 
+  // A wrong current password, in «Change password…»: the dialog says so and stays open.
   const unchanged = m.aPassword()
-  await page.getByLabel('Contraseña actual').fill(m.aPassword())
-  await page.getByLabel('Contraseña nueva').fill(unchanged)
-  await page.getByLabel('Repite la contraseña').fill(unchanged)
-  await page.getByRole('button', { name: 'Cambiar la contraseña' }).click()
-  await expect(page.getByRole('alert')).toHaveText('La contraseña actual no es correcta.')
+  await page.getByRole('button', { name: 'Cambiar la contraseña…', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Contraseña actual').fill(m.aPassword())
+  await dialog.getByLabel('Contraseña nueva').fill(unchanged)
+  await dialog.getByLabel('Repite la contraseña').fill(unchanged)
+  await dialog.getByRole('button', { name: 'Cambiar la contraseña', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('La contraseña actual no es correcta.')
+  await dialog.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(dialog).toHaveCount(0)
 
   // On a phone, dark: the users page fits (the table scrolls within its box).
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', isMobile: true, hasTouch: true })

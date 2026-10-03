@@ -10,7 +10,7 @@ import type { ChangeKind, DiffOp, HistoryAuthor, Reason } from './api.ts'
 export type HistoryText =
   | 'history.today' | 'history.yesterday' | 'history.agent' | 'history.agentPlain' | 'history.external' | 'history.system' | 'history.by'
   | 'history.reason.linksUpdated' | 'history.reason.renamed' | 'history.reason.moved' | 'history.reason.folderMoved'
-  | 'history.reason.externalMoveOne' | 'history.reason.externalMoveMany' | 'history.reason.alias' | 'history.reason.linksKept' | 'history.reason.linksKeptPlain' | 'history.reason.spaceRenamed' | 'history.reason.templatesMarked'
+  | 'history.reason.externalMoveOne' | 'history.reason.externalMoveMany' | 'history.reason.alias' | 'history.reason.linksKept' | 'history.reason.linksKeptPlain' | 'history.reason.spaceRenamed' | 'history.reason.spaceRenamedPlain' | 'history.reason.templatesMarked'
   | 'history.reason.historyEnabled' | 'history.reason.historyResumed' | 'history.reason.recovered'
   | 'history.change.created' | 'history.change.modified' | 'history.change.deleted' | 'history.change.movedPlain'
   | 'history.change.renamed' | 'history.change.moved' | 'history.change.restored' | 'history.change.restoredFrom' | 'history.change.trashRestored'
@@ -152,7 +152,8 @@ export function reasonText(t: T, r: Reason | null): string | null {
     case 'history_enabled': return t('history.reason.historyEnabled')
     case 'history_resumed': return t('history.reason.historyResumed')
     case 'recovered': return t('history.reason.recovered')
-    case 'space_renamed': return t('history.reason.spaceRenamed', { name: r.to ? r.to.slice(r.to.indexOf('/') + 1) : '' })
+    // `to` is the space's root (`spaces/<name>`); null for whoever can't read the space.
+    case 'space_renamed': return r.to ? t('history.reason.spaceRenamed', { name: r.to.slice(r.to.indexOf('/') + 1) }) : t('history.reason.spaceRenamedPlain')
     case 'templates_marked': return t('history.reason.templatesMarked')
     default: return null
   }

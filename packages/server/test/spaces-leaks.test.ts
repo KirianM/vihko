@@ -255,6 +255,11 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'POST /api/note/orphan', method: 'POST', path: '/api/note/orphan', body: { path: theirs, action: 'discard' } },
         { route: 'POST /api/external-moves/:id/relink', method: 'POST', path: '/api/external-moves/nope/relink', body: { dryRun: true } },
         { route: 'POST /api/trash/:id/restore', method: 'POST', path: `/api/trash/${adminTrash}/restore`, body: {} },
+        // Deleting for good: someone else's entry is as one that isn't there; without the confirmation, nothing goes.
+        { route: 'DELETE /api/trash/:id', method: 'DELETE', path: `/api/trash/${adminTrash}`, body: {}, expect: who === 'admin' ? undefined : 404 },
+        { route: 'POST /api/trash/empty', method: 'POST', path: '/api/trash/empty', body: { dryRun: true } },
+        { route: 'POST /api/trash/empty', method: 'POST', path: '/api/trash/empty', body: { space: folder } },
+        { route: 'DELETE /api/spaces/deleted/:id', method: 'DELETE', path: `/api/spaces/deleted/${m.anId()}`, body: {}, expect: 404 },
         { route: 'POST /api/folder', method: 'POST', path: '/api/folder', body: { path: `${folder}/${m.aFolder()}` } },
         { route: 'DELETE /api/folder', method: 'DELETE', path: q('/api/folder', { path: folder }) },
         { route: 'DELETE /api/folder', method: 'DELETE', path: q('/api/folder', { path: folder, dryRun: 'true' }) },

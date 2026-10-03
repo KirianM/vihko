@@ -262,6 +262,26 @@ export class ApiKeys {
   }
 
   /**
+   * Revokes every key of a user that works, or could work again (a member's
+   * suspended key comes back when the admin lets members have keys), with
+   * their OAuth authorizations' tokens and the codes not yet exchanged for
+   * tokens (which would make a new authorization). Returns how many keys it
+   * revoked.
+   */
+  revokeAllOf(userId: string): number {
+    let revoked = 0
+    this.db.transaction(() => {
+      for (const k of this.list(userId)) {
+        if (k.status !== 'active' && k.status !== 'suspended') continue
+        this.revoke(k.id)
+        revoked++
+      }
+      this.db.prepare('delete from oauth_codes where user_id = ? and used_family is null').run(userId)
+    })()
+    return revoked
+  }
+
+  /**
    * A new secret for a key (not an OAuth authorization, which is revoked
    * instead), shown this once, as when it was created: same id, name,
    * permissions, folders and history. The secret it replaces keeps working

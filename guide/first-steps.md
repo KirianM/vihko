@@ -86,8 +86,9 @@ selected (Ctrl+Alt+K anywhere). Pressed again, a format comes off.
   link must be removed with another tool.
 
 To delete a note: **More actions** (`⋯`) → **Move to trash**. It goes there
-with the images only it uses; **Restore**, in the notice that follows (or its
-history), brings both back.
+with the images only it uses; **Restore**, in the notice that follows, brings
+both back, and so does **Trash** in the sidebar later on (see
+[The Trash screen](notes.md#the-trash-screen)).
 
 ## Link notes
 

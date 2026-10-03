@@ -645,6 +645,45 @@ test('an Origin at /mcp: no credential always gets the challenge; a key only fro
   } finally { await h.close() }
 })
 
+test('a new password: without revokeKeys an authorized app goes on; with it, its tokens, its refresh token and a code not yet exchanged stop working', async () => {
+  const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
+  try {
+    await h.enableMcp()
+    await openRegistration(h)
+    const client = await register(h)
+    const refresh = (token: string) => form(h, '/oauth/token', { grant_type: 'refresh_token', refresh_token: token, client_id: client.client_id })
+    const change = (current: string, password: string, also: Record<string, boolean>) => h.admin('POST', '/api/auth/password', { current, password, ...also })
+    const first = await authorize(h, client.client_id)
+
+    // Only the other sessions: the app is left alone, and its refresh token still gives tokens.
+    const password = m.aPassword()
+    const kept = await change(h.users.admin.password, password, { endSessions: true, revokeKeys: false })
+    assert.deepEqual([kept.status, kept.body.keysRevoked], [200, 0])
+    assert.equal((await mcpPost(h, first.access_token)).status, 200)
+    const next = await refresh(first.refresh_token)
+    assert.equal(next.status, 200, next.text)
+
+    // A code the app hasn't exchanged yet, then a change with revokeKeys (the consent confirms with the password in force).
+    h.users.admin.password = password
+    const { verifier, challenge } = pkce()
+    const pending = await consent(h, authorizeQuery(client.client_id, challenge))
+    assert.equal(pending.status, 200, pending.text)
+    const code = new URL(pending.body.redirect).searchParams.get('code')!
+    const renewed = m.aPassword()
+    const revoked = await change(password, renewed, { revokeKeys: true })
+    assert.deepEqual([revoked.status, revoked.body.sessionsEnded, revoked.body.keysRevoked], [200, 0, 1])
+    h.users.admin.password = renewed
+    assert.equal((await mcpPost(h, next.body.access_token)).status, 401, 'its access token')
+    assert.equal((await refresh(next.body.refresh_token)).body.error, 'invalid_grant', 'its refresh token')
+    const exchanged = await form(h, '/oauth/token', { grant_type: 'authorization_code', code, redirect_uri: REDIRECT, client_id: client.client_id, code_verifier: verifier, resource: RESOURCE })
+    assert.equal(exchanged.body.error, 'invalid_grant', 'the code not yet exchanged')
+    assert.deepEqual((await h.admin('GET', '/api/keys')).body.keys.map((k: { status: string }) => k.status), ['revoked'])
+
+    // Authorizing it again works: a new authorization.
+    assert.equal((await mcpPost(h, (await authorize(h, client.client_id)).access_token)).status, 200)
+  } finally { await h.close() }
+})
+
 test('revocation by the client (RFC 7009): a refresh token takes its chain; another client\'s tokens are left alone', async () => {
   const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
   try {

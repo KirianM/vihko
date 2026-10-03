@@ -185,7 +185,11 @@ test('suggestions are only of the note’s own space; in a folder seen in part, 
   const theirs = `people/${m.aUsername()}`
   const home = `spaces/${m.aSpaceFolder()}`
   const [shared, other] = [`${theirs}/${m.aFolder()}`, `${theirs}/${m.aFolder()}`]
-  const [a, b, c, list, own] = [m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
+  const [a, c, list, own] = [m.aTitle(), m.aTitle(), m.aTitle(), m.aTitle()]
+  // Typing `a` from `b` offers `a` alone: `b`'s own title mustn't match it («Ferrocarril» in «Salida ferrocarril»).
+  const matches = (title: string, query: string) => new NoteCatalog([{ path: 'x.md', title }]).rank(query, 'y.md').length > 0
+  let b = m.aTitle()
+  while (matches(b, a)) b = m.aTitle()
   const notes: NoteEntry[] = [
     { path: `${mine}/${own}.md`, title: own },
     { path: `${home}/${list}.md`, title: list },

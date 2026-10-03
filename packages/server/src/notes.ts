@@ -1775,6 +1775,25 @@ export class NoteService {
   }
 
   /**
+   * What a trash entry holds on the disk, in bytes: its note's text (none
+   * for files alone) and those of its files named by where they're stored
+   * (`stored`), never the rest: whoever asks counts only what they may see.
+   */
+  trashBytes(id: string, stored: readonly string[]): number {
+    const dir = this.trashDir(id)
+    if (dir === null) return 0
+    const size = (rel: string) => {
+      try {
+        const st = statSync(join(dir, rel))
+        return st.isFile() ? st.size : 0
+      } catch {
+        return 0
+      }
+    }
+    return size('note.md') + stored.reduce((n, s) => n + size(s), 0)
+  }
+
+  /**
    * Restores from the trash to its original path (or to `to`), with its
    * files. Never overwrites: a note whose name is taken isn't restored
    * (`exists`); a file whose name is taken comes back with a suffix, and the
