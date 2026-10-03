@@ -616,7 +616,12 @@ history, and a few rules:
 - Replacing text needs the ETag of the text the agent read.
 - `delete` moves the note to the trash, where a person can restore it, with
   the images next to it that no other note uses (only those in the key's
-  folders and out of folders closed to agents).
+  folders and out of folders closed to agents). The trash itself is for
+  people, on the Trash screen: no key or tool lists it, empties it or
+  deletes from it for good. An agent brings a deleted note back from its
+  history: `POST /api/history/restore` with the version before the deletion
+  or, through MCP, by reading that version (`history`) and creating the note
+  again.
 - A move that would show the note to anyone who can't see it now fails with
   `audience_widens` and who would gain access. The server tells the agent to
   ask you first, and to confirm only after you agree.

@@ -350,8 +350,9 @@ write to the notes, and each keep its own history of them.
   their own: see [Retention](#retention).
 - The trash keeps deleted notes (with their images) and the files of deleted
   folders until they're removed: by [Retention](#retention) if the admin
-  turned it on, or by hand (each entry is a folder in `state/trash/`; with
-  vihko stopped, delete the ones you don't need).
+  turned it on, or from the [Trash screen](notes.md#the-trash-screen) by
+  whoever manages where they were (each entry is a folder in `state/trash/`;
+  by hand, only with vihko stopped).
 - Every `state.db` migration leaves a `state.db.bak-v<N>` copy; remove old
   ones once you're happy with an update.
 
