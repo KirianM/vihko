@@ -5,8 +5,9 @@
 // folder moved from vihko; and state.db's version for 0.1.0.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { STATE_VERSION, attachmentPath, movedPath } from '@vihko/server'
 import { setup, type Name, type Spaces } from './_spacesApp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -25,6 +26,27 @@ async function newSpace(h: Spaces, who: Name, members?: Record<string, string>) 
 
 test('state.db of 0.1.0 is version 12, with the pins, «On opening», when grants began and deleted spaces', () => {
   assert.equal(STATE_VERSION, 12)
+})
+
+test('vihko.yaml as a symbolic link: sharing writes through it, to the file it leads to, and the link stays', async () => {
+  const comment = `# ${m.aSentence()}\n`
+  const h = await setup({ config: `${comment}version: 1\n` })
+  const elsewhere = join(mkdtempSync(join(tmpdir(), 'vihko-yaml-elsewhere-')), 'vihko.yaml')
+  try {
+    const file = join(h.notesDir, 'vihko.yaml')
+    renameSync(file, elsewhere)
+    symlinkSync(elsewhere, file)
+    const space = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    assert.ok(lstatSync(file).isSymbolicLink(), 'still a link')
+    assert.equal(readlinkSync(file), elsewhere)
+    const text = readFileSync(elsewhere, 'utf8')
+    assert.ok(text.startsWith(comment) && text.includes(space.name) && text.includes(h.names.other), text)
+    // And what it says is in force: the other member reads the space.
+    assert.equal((await h.other('GET', '/api/spaces')).body.spaces.some((s: { path: string }) => s.path === space.path), true)
+  } finally {
+    h.close()
+    rmSync(dirname(elsewhere), { recursive: true, force: true })
+  }
 })
 
 test('vihko.yaml without its permissions: nothing is shared, the admin is told, and «Restore previous permissions» writes them back', async () => {

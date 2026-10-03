@@ -185,6 +185,23 @@ export function isPlainFile(root: string, rel: string): boolean {
   }
 }
 
+/**
+ * Where a write to `file` goes: `file`, or, when it is a symbolic link, the
+ * file it leads to (to the end of the chain), so that the atomic rename
+ * replaces the target and the link stays. Only for vihko.yaml, which the
+ * admin may keep elsewhere on purpose: notes and settings files are never
+ * written through a link (followable). A link that leads nowhere is left as
+ * it is (a write over it finds it «changed» and writes nothing).
+ */
+export function writeTarget(file: string): string {
+  try {
+    if (lstatSync(file).isSymbolicLink()) return realpathSync(file)
+  } catch {
+    // Not there, or a link to nothing: as it is.
+  }
+  return file
+}
+
 /** File contents, or null if it doesn't exist. */
 export function readText(file: string): string | null {
   try {

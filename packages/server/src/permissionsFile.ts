@@ -14,7 +14,7 @@
 import { join } from 'node:path'
 import { WORKSPACE_FILE, contentHash, moveRules, removeRules, rewriteSubject, rulesOf, setRule, type RuleValue } from '@vihko/core'
 import type { Actor } from './actor.ts'
-import { readText, replaceText } from './fsutil.ts'
+import { readText, replaceText, writeTarget } from './fsutil.ts'
 import type { NoteHistory } from './notes.ts'
 import { NoteError } from './notes.ts'
 import type { PermissionsEngine } from './permissions.ts'
@@ -85,7 +85,8 @@ export class PermissionsFile {
       const w = this.opts.history?.prepare([{ path: WORKSPACE_FILE, before: text, after: next }], { actor: opts.actor, immediate: true })
       let r: Awaited<ReturnType<typeof replaceText>>
       try {
-        r = await replaceText(this.file, next, text === null ? null : contentHash(text))
+        // Through a symbolic link: to the file it leads to, which stays a link (fsutil.ts writeTarget).
+        r = await replaceText(writeTarget(this.file), next, text === null ? null : contentHash(text))
       } catch (err) {
         w?.abort()
         throw err
