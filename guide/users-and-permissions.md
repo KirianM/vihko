@@ -487,11 +487,20 @@ both password and phone. `reset-link` prints the full link when
   search (⌘K / Ctrl+K). vihko speaks English and Spanish; «Automatic», the
   default, uses your browser's language. Your choice is saved in your
   account.
-- **Changing your password:** Preferences → Account → Password. It asks for the
-  current one and ends any reset link made for you. Unless you untick «Also
-  sign out other sessions and revoke keys and authorised apps», it signs out
-  your other sessions and revokes your agent keys and the apps you authorised:
-  whatever got in with the old password is out.
+- **Changing your password:** Preferences → Account → «Change password…».
+  The dialog asks for the current one and the new one twice, and ends any
+  reset link made for you. Two boxes say what else ends with the old
+  password:
+  - «Sign out my other sessions», ticked by default: every other browser
+    you're signed in from. The one you're using stays signed in.
+  - «Also revoke my API keys and authorised apps (MCP)», not ticked by
+    default: your agent keys and the apps you authorised stop working at
+    once, including keys suspended while members may not have keys. Whatever
+    used them needs a new key, or authorising again.
+
+  If someone else may know your password, tick both: whatever got in with
+  it is out. Either way, a confirmation you gave a moment ago ends, so the
+  next action that asks for one asks again.
 - **Keys and apps:** every key made, or app authorised, on your account
   leaves you a notice, even when you did it yourself.
 - **Sessions:** Account lists the browsers you're signed in from. A session

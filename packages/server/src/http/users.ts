@@ -10,8 +10,8 @@
 //   GET    /api/account/sessions               own sessions, `current` marked
 //   DELETE /api/account/sessions               ends every other session of one's own
 //   DELETE /api/account/sessions/:id           ends one
-//   POST   /api/auth/password                  { current, password, revokeOthers? } → { ok, sessionsEnded, keysRevoked }:
-//                                               with revokeOthers (true by default), other sessions end and keys and apps are revoked
+//   POST   /api/auth/password                  { current, password, endSessions?, revokeKeys? } → { ok, sessionsEnded, keysRevoked }:
+//                                               endSessions ends the other sessions, revokeKeys the keys and apps (both off by default)
 //   DELETE /api/account/notices/:id            one of one's own notices (notices.ts), dismissed
 // The vihko admin:
 //   GET    /api/admin/users                    everyone (state, role, groups, pending link, sessions)
@@ -86,11 +86,14 @@ export interface UserRoutesDeps {
   managedHistory?: () => boolean
   /** The server's log: what the admins do to accounts stays on record there too. */
   log?: (msg: string) => void
-  /** Agent keys and authorized apps: a new password revokes them (with `revokeOthers`). */
+  /** Agent keys and authorized apps: a new password revokes them (with `revokeKeys`). */
   keys?: ApiKeys
 }
 
 const fail = (c: Context, status: 400 | 403 | 404, error: string, message: string) => c.json({ error, message }, status)
+
+/** What `POST /api/auth/password` takes. */
+const PASSWORD_FIELDS = new Set(['current', 'password', 'endSessions', 'revokeKeys'])
 
 /** The routes a one-time link is used through: before the session middleware. */
 export function inviteRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
@@ -172,10 +175,12 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
   })
 
   // A new password: the current one is asked for (a session left open is not
-  // enough). With `revokeOthers` (the default), every other session ends and
-  // every key and authorized app of theirs is revoked: a new password after a
-  // stolen one shuts out whatever was got in with it. Wrong guesses count as
-  // failed logins.
+  // enough). What else goes with the old one is the person's choice, each
+  // off unless asked for: `endSessions` signs out every other session of
+  // theirs (never this one); `revokeKeys` revokes every key and authorized
+  // app of theirs, whose scripts and apps then need setting up again. After a
+  // stolen password, both shut out whatever got in with it. Wrong guesses
+  // count as failed logins.
   app.post('/api/auth/password', async (c) => {
     const b = await body(c)
     const user = c.get('user')
@@ -187,18 +192,18 @@ export function userRoutes(app: Hono<Env>, deps: UserRoutesDeps) {
     }
     a.passed()
     if (typeof b.password !== 'string') throw new AuthError('weak_password', 'password must be text')
-    if (b.revokeOthers !== undefined && typeof b.revokeOthers !== 'boolean') throw new UsersError('invalid', 'revokeOthers must be true or false')
-    await auth.setPassword(user.id, b.password)
-    let sessions = 0
-    let keys = 0
-    if (b.revokeOthers !== false) {
-      sessions = auth.endSessions(user.id, current(c))
-      for (const k of deps.keys?.list(user.id) ?? []) {
-        if (k.status !== 'active') continue
-        deps.keys!.revoke(k.id)
-        keys++
-      }
+    // An unknown field is refused, not ignored: a client that still sends what
+    // another version took (`revokeOthers`, until 0.1.0-rc.6) would otherwise
+    // believe it ended what it didn't.
+    for (const field of Object.keys(b)) {
+      if (!PASSWORD_FIELDS.has(field)) throw new UsersError('invalid', `unknown field ${field} (endSessions and revokeKeys say what else ends)`)
     }
+    for (const field of ['endSessions', 'revokeKeys']) {
+      if (b[field] !== undefined && typeof b[field] !== 'boolean') throw new UsersError('invalid', `${field} must be true or false`)
+    }
+    await auth.setPassword(user.id, b.password)
+    const sessions = b.endSessions === true ? auth.endSessions(user.id, current(c)) : 0
+    const keys = b.revokeKeys === true ? deps.keys?.revokeAllOf(user.id) ?? 0 : 0
     // A confirmation of before doesn't outlive the old password, whatever else stays.
     users.hooks.onSessionsEnded?.(user.id)
     return c.json({ ok: true, sessionsEnded: sessions, keysRevoked: keys })

@@ -6,9 +6,8 @@
 // the admin joining only a space nobody manages; a version of a note that
 // had the same name before, restored as a new note; vihko.yaml losing its
 // permissions and getting them back; a note too large to edit live; and the
-// admin's people: a folder adopted, an unused invitation renamed, who has
-// access to what a deleted person shared, and a new password that shuts out
-// the other sessions.
+// admin's people: a folder adopted, an unused invitation renamed, and who has
+// access to what a deleted person shared. (A new password: password.spec.ts.)
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -19,10 +18,9 @@ const m = specMother(import.meta.url)
 const SHOTS = `${E2E_DIR}/shots`
 const SLOW = { timeout: 20_000 }
 const q = encodeURIComponent
-/** Another member, in the spaces the member makes; someone the admin deletes; someone who changes their password. */
+/** Another member, in the spaces the member makes; someone the admin deletes. */
 const OTHER = m.aUser({ role: 'member' })
 const GONE = m.aUser({ role: 'member' })
-const PERSON = m.aUser({ role: 'member' })
 const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1).replace(/\.md$/, '')
 
 /** A request as `page`'s person; expects `status`. */
@@ -61,7 +59,7 @@ let o: Page
 test.beforeAll(async ({ browser }) => {
   mkdirSync(SHOTS, { recursive: true })
   k = await signIn(browser, ADMIN)
-  for (const u of [OTHER, GONE, PERSON]) await newUser(k, u)
+  for (const u of [OTHER, GONE]) await newUser(k, u)
   await dismissNotices(k.request)
   a = await signIn(browser, MEMBER)
   await dismissNotices(a.request)
@@ -365,33 +363,4 @@ test('deleting someone who shared a folder: the dialog says who has access to wh
   await call(a, 'get', `/api/note?path=${q(shared)}`)
   await call(k, 'post', `/api/admin/users/${id}/space`, { action: 'delete', confirm: ADMIN.password })
   await expect.poll(async () => (await a.request.get(`/api/note?path=${q(shared)}`)).status()).toBe(404)
-})
-
-test('a new password signs out the other sessions and revokes keys unless unticked', async ({ browser }) => {
-  const other = await signIn(browser, PERSON)
-  const page = await signIn(browser, PERSON)
-  await page.goto('/?view=account')
-  const box = page.getByRole('checkbox', { name: 'Cerrar también las otras sesiones y revocar las claves y las aplicaciones autorizadas' })
-  await expect(box).toBeChecked()
-  const password = m.aPassword()
-  await page.getByLabel('Contraseña actual').fill(PERSON.password)
-  await page.getByLabel('Contraseña nueva').fill(password)
-  await page.getByLabel('Repite la contraseña').fill(password)
-  await page.getByRole('button', { name: 'Cambiar la contraseña' }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Contraseña cambiada.' })).toContainText(/Sesiones cerradas: [1-9]\d*\. Claves y aplicaciones revocadas: 0\./)
-  await page.screenshot({ path: `${SHOTS}/account-password-revoke.png`, animations: 'disabled' })
-  expect((await other.request.get('/api/auth/me')).status()).toBe(401)
-  expect((await page.request.get('/api/auth/me')).status()).toBe(200)
-
-  // Unticked: the other sessions stay.
-  const third = await signIn(browser, { username: PERSON.username, password })
-  const again = m.aPassword()
-  await page.getByLabel('Contraseña actual').fill(password)
-  await page.getByLabel('Contraseña nueva').fill(again)
-  await page.getByLabel('Repite la contraseña').fill(again)
-  await box.uncheck()
-  await page.getByRole('button', { name: 'Cambiar la contraseña' }).click()
-  await expect(page.getByRole('status')).toHaveText('Contraseña cambiada.')
-  expect((await third.request.get('/api/auth/me')).status()).toBe(200)
-  for (const p of [other, page, third]) await p.context().close()
 })

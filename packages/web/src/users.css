@@ -50,7 +50,6 @@
 /* --- Account ------------------------------------------------------------------- */
 .account-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
 .account-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
-.account-done { margin: 0; font-size: 13px; color: var(--ok); }
 .sessions { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .session { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 20px; border-bottom: 1px solid var(--line); }
 .session:last-child { border-bottom: none; }

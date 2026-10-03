@@ -624,9 +624,13 @@ export const api = {
   /** The alert of a migration of state.db at start, dismissed (the admin, for every admin). */
   dismissStateMigration: (id: string) => request<{ ok: true }>('DELETE', `/api/admin/state-migrations/${encodeURIComponent(id)}`),
   endOtherSessions: () => request<{ ended: number }>('DELETE', '/api/account/sessions'),
-  /** With `revokeOthers` (the default), other sessions end and keys and apps are revoked; `wrong_password` if `current` isn't right. */
-  changePassword: (current: string, password: string, revokeOthers = true) =>
-    request<{ ok: true; sessionsEnded: number; keysRevoked: number }>('POST', '/api/auth/password', { current, password, revokeOthers }),
+  /**
+   * A new password. `endSessions` signs out one's other sessions (never this
+   * one); `revokeKeys` revokes one's keys and authorised apps. `wrong_password`
+   * if `current` isn't right.
+   */
+  changePassword: (current: string, password: string, also: { endSessions: boolean; revokeKeys: boolean }) =>
+    request<{ ok: true; sessionsEnded: number; keysRevoked: number }>('POST', '/api/auth/password', { current, password, endSessions: also.endSessions, revokeKeys: also.revokeKeys }),
   users: () => request<{ users: UserInfo[] }>('GET', '/api/admin/users').then((r) => r.users),
   /**
    * A new admin, with `confirm`: the admin's current code, or their password without a second factor.

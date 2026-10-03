@@ -1,6 +1,7 @@
 // Settings → «Account»: the UI's language (saved in the account), one's own
-// password (the current one is asked for, and
-// every other session ends), the second factor (set it up, change the
+// password (in a dialog: the current one is asked for, and the person
+// chooses whether their other sessions, and their keys and apps, end with
+// the old one), the second factor (set it up, change the
 // app, new recovery codes, turn it off while the admin doesn't require it;
 // with the policy `disabled`, only whoever already has one sees it)
 // and sessions (which browser, when it was last used; close one, or all the
@@ -30,63 +31,124 @@ export function browserOf(ua: string | null): string | null {
   return [browser, os].filter(Boolean).join(' · ') || null
 }
 
-function PasswordForm({ onUnauthorized }: { onUnauthorized: () => void }) {
+/** What a new password ended, as the server counted it; null for what was left alone. */
+interface PasswordChanged { sessionsEnded: number | null; keysRevoked: number | null }
+
+/**
+ * «Change password…»: the current password, the new one twice, and what else
+ * goes with the old one. Signing out the other sessions is ticked by default;
+ * revoking keys and apps isn't, since whatever used them has to be set up
+ * again. Once changed, it says what ended and what stayed.
+ */
+function PasswordDialog({ onClose, onChanged, onUnauthorized }: { onClose: () => void; onChanged: () => void; onUnauthorized: () => void }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
-  // Ticked by default: a new password after a stolen one shuts out whatever got in with it.
-  const [revokeOthers, setRevokeOthers] = useState(true)
+  const [done, setDone] = useState<PasswordChanged | null>(null)
+  const [endSessions, setEndSessions] = useState(true)
+  const [revokeKeys, setRevokeKeys] = useState(false)
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const form = e.currentTarget
-    const f = new FormData(form)
+    const f = new FormData(e.currentTarget)
     const password = String(f.get('password'))
-    setDone(null)
     if (password !== String(f.get('repeat'))) return setError(t('invite.mismatch'))
     setBusy(true)
     setError(null)
     try {
-      const r = await api.changePassword(String(f.get('current')), password, revokeOthers)
-      form.reset()
-      setDone(revokeOthers ? t('account.changedRevoked', { sessions: r.sessionsEnded, keys: r.keysRevoked }) : t('account.changed'))
+      const r = await api.changePassword(String(f.get('current')), password, { endSessions, revokeKeys })
+      setDone({ sessionsEnded: endSessions ? r.sessionsEnded : null, keysRevoked: revokeKeys ? r.keysRevoked : null })
+      onChanged()
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return onUnauthorized()
       setError(errorText(t, err))
-    } finally {
       setBusy(false)
     }
   }
 
+  if (done) {
+    return (
+      <Dialog className="dialog dialog-narrow">
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('account.changedTitle')}</Heading>
+          <ul className="consequences" role="status">
+            <li>{done.sessionsEnded === null ? t('account.sessionsKept') : t('account.sessionsEnded', { n: done.sessionsEnded })}</li>
+            <li>{done.keysRevoked === null ? t('account.keysKept') : t('account.keysRevoked', { n: done.keysRevoked })}</li>
+          </ul>
+        </div>
+        <div className="dialog-actions">
+          <Button className="btn btn-primary" onPress={onClose} autoFocus>{t('account.changedDone')}</Button>
+        </div>
+      </Dialog>
+    )
+  }
+
   return (
-    <Form className="account-form" onSubmit={submit}>
-      <TextField className="field" name="current" type="password" isRequired autoComplete="current-password">
-        <Label>{t('account.current')}</Label>
-        <Input />
-      </TextField>
-      <TextField className="field" name="password" type="password" isRequired minLength={10} autoComplete="new-password">
-        <Label>{t('account.new')}</Label>
-        <Input />
-        <span className="hint">{t('field.passwordHint')}</span>
-        <FieldError className="error-text" />
-      </TextField>
-      <TextField className="field" name="repeat" type="password" isRequired minLength={10} autoComplete="new-password">
-        <Label>{t('invite.repeat')}</Label>
-        <Input />
-        <FieldError className="error-text" />
-      </TextField>
-      <label className="check">
-        <input type="checkbox" name="revokeOthers" checked={revokeOthers} onChange={(e) => setRevokeOthers(e.target.checked)} />
-        <span className="check-text">{t('account.revokeOthers')}</span>
-      </label>
-      {error && <p className="error-text" role="alert">{error}</p>}
-      {done && <p className="account-done" role="status">{done}</p>}
-      <div className="account-actions">
-        <Button type="submit" className="btn btn-primary" isDisabled={busy}>{t('account.change')}</Button>
-        <span className="hint">{t('account.changeHint')}</span>
+    <Dialog className="dialog dialog-narrow">
+      <Form onSubmit={submit}>
+        <div className="dialog-fields">
+          <Heading slot="title" className="dialog-title">{t('account.change')}</Heading>
+          <p className="dialog-text">{t('account.changeIntro')}</p>
+          <TextField className="field" name="current" type="password" isRequired autoComplete="current-password" autoFocus>
+            <Label>{t('account.current')}</Label>
+            <Input />
+          </TextField>
+          <TextField className="field" name="password" type="password" isRequired minLength={10} autoComplete="new-password">
+            <Label>{t('account.new')}</Label>
+            <Input />
+            <span className="hint">{t('field.passwordHint')}</span>
+            <FieldError className="error-text" />
+          </TextField>
+          <TextField className="field" name="repeat" type="password" isRequired minLength={10} autoComplete="new-password">
+            <Label>{t('invite.repeat')}</Label>
+            <Input />
+            <FieldError className="error-text" />
+          </TextField>
+          <fieldset className="key-fieldset">
+            <legend>{t('account.alsoEnd')}</legend>
+            <label className="check">
+              <input type="checkbox" name="endSessions" checked={endSessions} onChange={(e) => setEndSessions(e.target.checked)} aria-describedby="password-end-sessions-hint" />
+              <span className="check-text">
+                {t('account.endSessions')}
+                <span id="password-end-sessions-hint" className="hint">{t('account.endSessionsHint')}</span>
+              </span>
+            </label>
+            <label className="check">
+              <input type="checkbox" name="revokeKeys" checked={revokeKeys} onChange={(e) => setRevokeKeys(e.target.checked)} aria-describedby="password-revoke-keys-hint" />
+              <span className="check-text">
+                {t('account.revokeKeys')}
+                <span id="password-revoke-keys-hint" className="hint">{t('account.revokeKeysHint')}</span>
+              </span>
+            </label>
+          </fieldset>
+        </div>
+        {error && <p className="error-text dialog-error" role="alert">{error}</p>}
+        <div className="dialog-actions">
+          <Button className="btn" onPress={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" className="btn btn-primary" isDisabled={busy}>{t('account.change')}</Button>
+        </div>
+      </Form>
+    </Dialog>
+  )
+}
+
+/** One's own password: changed in its dialog. */
+function PasswordSection({ onChanged, onUnauthorized }: { onChanged: () => void; onUnauthorized: () => void }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  return (
+    <section className="settings-section" aria-labelledby="account-password">
+      <h2 id="account-password">{t('account.password')}</h2>
+      <p className="hint">{t('account.passwordHint')}</p>
+      <div className="twofa-actions">
+        <Button className="btn" onPress={() => setOpen(true)}>{t('account.changeOpen')}</Button>
       </div>
-    </Form>
+      <ModalOverlay className="modal-overlay" isOpen={open} isDismissable onOpenChange={setOpen}>
+        <Modal className="modal">
+          <PasswordDialog onClose={() => setOpen(false)} onUnauthorized={onUnauthorized} onChanged={onChanged} />
+        </Modal>
+      </ModalOverlay>
+    </section>
   )
 }
 
@@ -330,6 +392,7 @@ export function AccountPage({ user, onUnauthorized }: { user: User; onUnauthoriz
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [version, setVersion] = useState<string | null>(null)
+  const [passwordChanges, setPasswordChanges] = useState(0)
   // Only a line at the end: without it the page loses nothing.
   useEffect(() => { api.config().then((c) => setVersion(c.version ?? null), () => {}) }, [])
 
@@ -367,12 +430,10 @@ export function AccountPage({ user, onUnauthorized }: { user: User; onUnauthoriz
 
         <LanguageSection onUnauthorized={onUnauthorized} />
 
-        <section className="settings-section" aria-labelledby="account-password">
-          <h2 id="account-password">{t('account.password')}</h2>
-          <PasswordForm onUnauthorized={onUnauthorized} />
-        </section>
+        {/* A new password ends the confirmation of the moment (and maybe other sessions): both are read again. */}
+        <PasswordSection onUnauthorized={onUnauthorized} onChanged={() => { setPasswordChanges((n) => n + 1); void load() }} />
 
-        <TwoFactorSection onUnauthorized={onUnauthorized} />
+        <TwoFactorSection key={passwordChanges} onUnauthorized={onUnauthorized} />
 
         <section className="settings-section" aria-labelledby="account-sessions">
           <div className="settings-head">

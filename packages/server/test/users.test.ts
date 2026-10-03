@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { STATE_VERSION, openState } from '@vihko/server'
+import { CONFIRM_WINDOW_MS, STATE_VERSION, openState } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -336,7 +336,7 @@ test('one\'s own account: sessions (the current one marked), closing the others,
     assert.deepEqual([wrong.status, wrong.body.error], [403, 'wrong_password'])
     const weak = await s.member('POST', '/api/auth/password', { current: password, password: m.aWeakPassword() })
     assert.deepEqual([weak.status, weak.body.error], [400, 'weak_password'])
-    assert.equal((await s.member('POST', '/api/auth/password', { current: password, password: renewed })).status, 200)
+    assert.equal((await s.member('POST', '/api/auth/password', { current: password, password: renewed, endSessions: true })).status, 200)
     assert.equal((await s.app.request('/api/tree', { headers: { cookie: again } })).status, 401, 'other sessions end')
     assert.equal((await s.member('GET', '/api/tree')).status, 200, 'this one stays')
     assert.equal(await login(s.app, username, password), 401)
@@ -346,33 +346,107 @@ test('one\'s own account: sessions (the current one marked), closing the others,
   }
 })
 
-test('a new password signs out the other sessions and revokes keys and apps unless asked not to; a new key is always told to its person', async () => {
+test('a new key is always told to its person, even when they made it', async () => {
   const s = await setup()
   try {
     await s.enableApi()
     assert.equal((await s.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
-    const { username, password } = s.users.member
     const told = async () => (await s.member('GET', '/api/alerts')).body.alerts.filter((a: any) => a.code === 'account_key_added')
-    // A key made on their account: they're told, even of their own (a session taken would make one unnoticed otherwise).
+    // A session taken would make one unnoticed otherwise.
     const name = m.aKeyName()
     const key = await s.newKey({ name }, 'member')
     assert.deepEqual((await told()).map((a: any) => [a.kind, a.name]), [['key', name]])
     assert.equal((await s.withKey(key.token)('GET', '/api/tree')).status, 200)
-    // Keeping the rest: other sessions and the key go on.
+  } finally {
+    await s.close()
+  }
+})
+
+// Each combination of `endSessions` and `revokeKeys` (and neither sent: both
+// off), one after another on the same account: what ends and what stays, the
+// current session always staying, and the confirmation of the moment ending
+// whatever was chosen.
+test('a new password ends the other sessions with endSessions and the keys with revokeKeys, each off unless asked for; the confirmation of the moment always ends', async () => {
+  const s = await setup({ confirmWindowMs: CONFIRM_WINDOW_MS })
+  try {
+    await s.enableApi()
+    assert.equal((await s.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
+    const { username } = s.users.member
+    let password = s.users.member.password
+    const tree = async (cookie: string) => (await s.app.request('/api/tree', { headers: { cookie } })).status
+    const rounds: { endSessions?: boolean; revokeKeys?: boolean }[] = [
+      {},
+      { endSessions: false, revokeKeys: false },
+      { endSessions: true, revokeKeys: false },
+      { endSessions: false, revokeKeys: true },
+      { endSessions: true, revokeKeys: true },
+    ]
+    for (const also of rounds) {
+      const what = JSON.stringify(also)
+      // Another browser, and a key confirmed with the password: that opens this session's window.
+      const other = await login(s.app, username, password) as string
+      const key = await s.member('POST', '/api/keys', { name: m.aKeyName(), confirm: password })
+      assert.equal(key.status, 201, what)
+      assert.equal((await s.member('POST', '/api/keys', { name: m.aKeyName() })).status, 201, `${what}: the window is open`)
+      const othersBefore = (await s.member('GET', '/api/account/sessions')).body.sessions.filter((x: any) => !x.current).length
+      const activeBefore = (await s.member('GET', '/api/keys')).body.keys.filter((k: any) => k.status === 'active').length
+      assert.ok(othersBefore >= 1 && activeBefore >= 2, what)
+
+      const renewed = m.aPassword()
+      const r = await s.member('POST', '/api/auth/password', { current: password, password: renewed, ...also })
+      assert.equal(r.status, 200, `${what}: ${r.text}`)
+      password = renewed
+      assert.deepEqual([r.body.sessionsEnded, r.body.keysRevoked], [also.endSessions ? othersBefore : 0, also.revokeKeys ? activeBefore : 0], what)
+      assert.equal(await tree(other), also.endSessions ? 401 : 200, `${what}: the other session`)
+      assert.equal((await s.withKey(key.body.token)('GET', '/api/tree')).status, also.revokeKeys ? 401 : 200, `${what}: the key`)
+      const keys = (await s.member('GET', '/api/keys')).body.keys
+      assert.equal(keys.filter((k: any) => k.status === 'active').length, also.revokeKeys ? 0 : activeBefore, what)
+      assert.equal((await s.member('GET', '/api/tree')).status, 200, `${what}: this session stays`)
+      const asked = await s.member('POST', '/api/keys', { name: m.aKeyName() })
+      assert.deepEqual([asked.status, asked.body.error], [400, 'confirmation_required'], `${what}: the window ended`)
+      assert.equal(await login(s.app, username, renewed).then((c) => typeof c), 'string', what)
+    }
+  } finally {
+    await s.close()
+  }
+})
+
+test('a new password refuses what it doesn\'t take, before changing anything: revokeOthers is gone, and each choice is true or false', async () => {
+  const s = await setup()
+  try {
+    const { username, password } = s.users.member
     const other = await login(s.app, username, password) as string
-    const kept = m.aPassword()
-    const r = await s.member('POST', '/api/auth/password', { current: password, password: kept, revokeOthers: false })
-    assert.deepEqual([r.status, r.body.sessionsEnded, r.body.keysRevoked], [200, 0, 0])
-    assert.equal((await s.app.request('/api/tree', { headers: { cookie: other } })).status, 200)
-    assert.equal((await s.withKey(key.token)('GET', '/api/tree')).status, 200)
-    assert.equal((await s.member('POST', '/api/auth/password', { current: kept, password: m.aPassword(), revokeOthers: 'no' })).status, 400)
-    // By default: all of it goes.
+    for (const extra of [{ revokeOthers: true }, { revokeOthers: false }, { endSessions: 'yes' }, { revokeKeys: 1 }, { endSessions: null }]) {
+      const r = await s.member('POST', '/api/auth/password', { current: password, password: m.aPassword(), ...extra })
+      assert.deepEqual([r.status, r.body.error], [400, 'invalid'], JSON.stringify(extra))
+    }
+    assert.equal(typeof await login(s.app, username, password), 'string', 'the password stays')
+    assert.equal((await s.app.request('/api/tree', { headers: { cookie: other } })).status, 200, 'so does the other session')
+  } finally {
+    await s.close()
+  }
+})
+
+test('revokeKeys revokes a member\'s suspended keys too: letting members have keys again doesn\'t bring them back', async () => {
+  const s = await setup()
+  try {
+    await s.enableApi()
+    assert.equal((await s.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
+    const { password } = s.users.member
+    const keys = [await s.newKey({ name: m.aKeyName() }, 'member'), await s.newKey({ name: m.aKeyName() }, 'member')]
+    const statuses = async () => (await s.member('GET', '/api/keys')).body.keys.map((k: any) => k.status)
+    // Suspended while members may not have keys.
+    assert.equal((await s.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: false })).status, 200)
+    assert.deepEqual(await statuses(), ['suspended', 'suspended'])
+    // Without revokeKeys, they stay suspended, still theirs; with it, revoked for good.
     const renewed = m.aPassword()
-    const all = await s.member('POST', '/api/auth/password', { current: kept, password: renewed })
-    assert.deepEqual([all.status, all.body.sessionsEnded, all.body.keysRevoked], [200, 1, 1])
-    assert.equal((await s.app.request('/api/tree', { headers: { cookie: other } })).status, 401)
-    assert.equal((await s.withKey(key.token)('GET', '/api/tree')).status, 401)
-    assert.equal((await s.member('GET', '/api/tree')).status, 200, 'this one stays')
+    assert.equal((await s.member('POST', '/api/auth/password', { current: password, password: renewed, revokeKeys: false })).body.keysRevoked, 0)
+    assert.deepEqual(await statuses(), ['suspended', 'suspended'])
+    const r = await s.member('POST', '/api/auth/password', { current: renewed, password: m.aPassword(), revokeKeys: true })
+    assert.deepEqual([r.status, r.body.keysRevoked], [200, 2])
+    assert.deepEqual(await statuses(), ['revoked', 'revoked'])
+    assert.equal((await s.admin('PUT', '/api/admin/integrations', { membersCanCreateKeys: true })).status, 200)
+    for (const k of keys) assert.equal((await s.withKey(k.token)('GET', '/api/tree')).status, 401)
   } finally {
     await s.close()
   }

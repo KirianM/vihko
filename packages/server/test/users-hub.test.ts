@@ -88,7 +88,7 @@ test('a new password ends the editors of the other sessions, not the one that ch
     const there = await connect(srv, second, NOTE)
     const hereSeen = watch(here)
     const thereSeen = watch(there)
-    const r = await api(srv, admin, 'POST', '/api/auth/password', { current: who.password, password: m.aPassword() })
+    const r = await api(srv, admin, 'POST', '/api/auth/password', { current: who.password, password: m.aPassword(), endSessions: true })
     assert.equal(r.status, 200)
     await waitFor(() => thereSeen.status() === 'disconnected', 'the other session\'s editor closes')
     assert.ok(thereSeen.heard.includes('vihko:session-ended'))
