@@ -816,14 +816,21 @@ test('GET /api/spaces/members: whoever reads a space or a folder shared with the
     // A note isn't a folder.
     assert.equal((await members('member', `${s.path}/${m.aTitle()}.md`)).status, 404)
 
-    // A key: within its folders, as its person; outside them, as missing.
+    // A key: within its folders, as its person; outside them, where its person reads, agent_denied with why (as for a
+    // note); a folder closed to agents, the same; what its person doesn't read, as missing.
     const key = await h.newKey('other', { name: m.aKeyName(), canWrite: false, folders: [s.path] })
     const viaKey = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(s.path)}`)
     assert.equal(viaKey.status, 200, viaKey.text)
     assert.deepEqual(brief(viaKey), brief(seen))
     const out = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(inner)}`)
-    assert.deepEqual(errorOf(out), errorOf(await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(missing)}`)))
-    assert.equal(out.status, 404)
+    assert.deepEqual([out.status, out.body.error, out.body.reason], [403, 'agent_denied', 'outside_key_folders'], out.text)
+    const gone = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(missing)}`)
+    assert.deepEqual([gone.status, gone.body.error], [404, 'not_found'])
+    const closed = `${s.path}/${m.aFolder()}`
+    assert.equal((await h.member('POST', '/api/folder', { path: closed })).status, 201)
+    await h.rule(closed, { ai: false })
+    const hidden = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(closed)}`)
+    assert.deepEqual([hidden.status, hidden.body.error, hidden.body.reason], [403, 'agent_denied', 'ai_false'], hidden.text)
   } finally {
     h.close()
   }
