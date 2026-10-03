@@ -386,6 +386,9 @@ test('a subfolder can\'t be closed, so it moves out: «Move to a new space» mak
   await share.getByRole('button', { name: 'Mover a un espacio nuevo…' }).click()
   const dialog = k.getByRole('dialog').filter({ has: k.getByRole('heading', { name: `¿Mover «${name}» a un espacio nuevo?` }) })
   await expect(dialog.getByLabel('Nombre', { exact: true })).toHaveValue(name)
+  // Links never cross spaces: the dialog says those from the rest of the space break, never that they keep working.
+  await expect(dialog).toContainText('los del resto del espacio hacia ellas (y los de ellas hacia fuera) se quedan rotos')
+  await expect(dialog).not.toContainText('siguen llevando a sus notas')
   // The usual confirmation: who stops seeing it.
   const warning = dialog.getByRole('group', { name: 'Cambia de espacio' })
   await expect(warning).toContainText(MEMBER.username, SLOW)
