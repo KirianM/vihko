@@ -543,6 +543,38 @@ test('deleting a space names first what vihko doesn\'t show and goes with it: fi
   await expect.poll(() => existsSync(`${NOTES}/${root}`)).toBe(false)
 })
 
+test('deleting a space waits to name what goes with it: «Delete» stays off while that loads, and a listing that fails says so and is tried again', async () => {
+  const name = m.aSpaceName()
+  const root = ((await call(a, 'post', '/api/spaces', { name }, 201)) as { space: { path: string } }).space.path
+  await note(a, `${root}/${m.aTitle()}.md`, `# ${m.aHeading()}\n`)
+  await a.goto('/')
+  let release = () => {}
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let first = true
+  const listing = /\/api\/folder\?.*dryRun=true/
+  await a.route(listing, async (route) => {
+    if (!first) return route.continue()
+    first = false
+    await held
+    return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'internal', message: 'internal error' }) })
+  })
+  await sectionMenu(a, name, 'Borrar espacio…')
+  const dialog = a.getByRole('alertdialog', { name: `¿Borrar el espacio «${name}»?` })
+  const confirm = dialog.getByRole('button', { name: 'Borrar espacio' })
+  await expect(dialog.getByRole('status')).toHaveText('Mirando qué más se lleva…')
+  await expect(confirm).toBeDisabled()
+  release()
+  await expect(dialog.getByRole('alert')).toHaveText('No se ha podido ver qué más se lleva: no se borra sin verlo antes.')
+  await expect(confirm).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Reintentar' }).click()
+  await expect(confirm).toBeEnabled()
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await a.unroute(listing)
+  await confirm.click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => existsSync(`${NOTES}/${root}`)).toBe(false)
+})
+
 test('someone new sees «My notes» empty and creates their first note there', async ({ browser }) => {
   const f = await signIn(browser, FRESH)
   const mine = f.locator('.space-section', { has: f.getByRole('button', { name: 'Mis notas' }) })
