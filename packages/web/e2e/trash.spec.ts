@@ -74,7 +74,8 @@ test('a member deletes a note, finds it in the trash with where it was, who and 
   await expect(line).toBeVisible()
   await expect(line.locator('.trash-where')).toHaveText(spaceName)
   await expect(line.locator('.trash-meta')).toContainText(`Lo borró ${EDITOR.username}`)
-  await expect(line.locator('.trash-meta')).toContainText(/\d+(,\d+)?\s?(B|byte|kB|KB)/)
+  // A size in words: «51 bytes», «1,2 KB», never «51 byte».
+  await expect(line.locator('.trash-meta')).toContainText(/\d+ bytes|\d+(,\d)? KB/)
   await expect(line.getByRole('button', { name: `Borrar «${name}» para siempre` })).toHaveCount(0)
   await expect(editor.getByRole('button', { name: /^Vaciar/ })).toHaveCount(0)
   await expect(editor.getByText('Nada sale de la papelera por sí solo.')).toBeVisible()

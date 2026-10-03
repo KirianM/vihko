@@ -229,13 +229,17 @@ export function DeleteSpaceDialog({ space, notes, onClose, onDeleted }: { space:
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const managers = useMemo(() => [...space.managers].sort(collator.compare).join(', '), [space.managers])
-  // What else goes that vihko doesn't show (files that aren't notes, hidden folders such as its settings), named before anyone confirms.
+  // What else goes that vihko doesn't show (files that aren't notes, hidden folders such as its settings), named before anyone confirms:
+  // «Delete» waits for it, and if it can't be listed the dialog says so and offers to try again.
   const [contents, setContents] = useState<FolderContents | null>(null)
+  const [listFailed, setListFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let live = true
-    api.folderContents(space.path).then((c) => { if (live) setContents(c) }, () => {})
+    setListFailed(false)
+    api.folderContents(space.path).then((c) => { if (live) setContents(c) }, () => { if (live) setListFailed(true) })
     return () => { live = false }
-  }, [space.path])
+  }, [space.path, attempt])
   const go = async () => {
     setBusy(true)
     setError(null)
@@ -265,11 +269,14 @@ export function DeleteSpaceDialog({ space, notes, onClose, onDeleted }: { space:
         </>)}
         {contents && <HiddenList hidden={contents.hidden} />}
         {contents && contents.kept.total > 0 && <p className="dialog-text" role="alert">{t('folder.deleteKept')}</p>}
+        {!contents && !listFailed && <p className="hint" role="status">{t('spaces.deleteListing')}</p>}
+        {!contents && listFailed && <p className="error-text" role="alert">{t('spaces.deleteListFailed')}</p>}
         {error && <p className="error-text" role="alert">{error}</p>}
       </div>
       <div className="dialog-actions">
         <Button className="btn" onPress={onClose} autoFocus>{t('common.cancel')}</Button>
-        <Button className="btn btn-danger" isDisabled={busy} onPress={() => void go()}>{t('spaces.deleteConfirm')}</Button>
+        {!contents && listFailed && <Button className="btn" onPress={() => setAttempt((n) => n + 1)}>{t('common.retry')}</Button>}
+        <Button className="btn btn-danger" isDisabled={busy || !contents} onPress={() => void go()}>{t('spaces.deleteConfirm')}</Button>
       </div>
     </Dialog>
   )

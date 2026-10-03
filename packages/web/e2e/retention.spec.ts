@@ -109,9 +109,9 @@ test('the admin turns retention on after a preview and the password, lengthens i
   await section(page).screenshot({ path: `${SHOTS}/retention-on.png` })
 
   // Run now: the same preview; confirmed a moment ago in this browser, nothing to type. Then the last run says so.
-  await section(page).getByRole('button', { name: 'Aplicar ahora' }).click()
+  await section(page).getByRole('button', { name: 'Ejecutar ahora' }).click()
   const run = page.getByRole('alertdialog')
-  await expect(run.getByRole('heading')).toHaveText('¿Aplicar la retención ahora?')
+  await expect(run.getByRole('heading')).toHaveText('¿Ejecutar la retención ahora?')
   await expect(run.getByTestId('retention-preview')).toContainText('papelera')
   await expect(run.getByTestId('retention-preview')).not.toContainText('cada semana')
   await expect(run.getByRole('button', { name: 'Borrar ahora' })).toBeEnabled()

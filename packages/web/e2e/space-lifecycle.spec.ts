@@ -308,7 +308,8 @@ test('people: a folder already in people/ is adopted only when the admin chooses
   await create.getByLabel('Nombre de usuario').fill(name)
   await create.getByRole('button', { name: 'Crear y obtener el enlace' }).click()
   const adopt = create.getByRole('alert').filter({ hasText: `Ya hay una carpeta ${name}` })
-  await expect(adopt).toContainText(`people/${name} existe con notas dentro`)
+  // Adopting is an operation on the disk: the folder is named there, and marked as such.
+  await expect(adopt).toContainText(`Tiene notas dentro (en el disco: people/${name})`)
   await create.screenshot({ path: `${SHOTS}/users-adopt.png`, animations: 'disabled' })
   await adopt.getByRole('button', { name: 'Adoptar su carpeta' }).click()
   await k.getByRole('dialog', { name: `Enlace de invitación para ${name}` }).getByRole('button', { name: 'Listo' }).click()

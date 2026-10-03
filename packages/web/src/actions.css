@@ -129,7 +129,8 @@
   .preview-row { flex-direction: column; gap: 2px; }
   .preview-src { width: auto; }
   .dialog-actions .btn { flex-grow: 1; }
-  .toast, .toasts { bottom: var(--space-4); }
+  /* Above the formatting bar when a note shows it at the bottom (FormatBar.tsx sets --bottom-bar). */
+  .toast, .toasts { bottom: calc(var(--space-4) + var(--bottom-bar, 0px)); }
   .toast { flex-wrap: wrap; }
   .toast-text { flex: 1 1 200px; }
 }

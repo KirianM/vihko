@@ -80,7 +80,13 @@ export function usePathLabels(given?: Spaces) {
       const d = s.show(path)
       return d ? d.folders.join(' / ') : ''
     }
-    return { label, space, where, folders, spaceTag, spaceLabel }
+    /** A space named on its own, as it may be typed: «My notes», `~ana` (someone's own), «Home»; outside every space, the path on disk, marked as such. */
+    const place = (path: string): string => {
+      const d = s.show(path)
+      if (!d) return t('alerts.onDisk', { path })
+      return d.space.kind === 'mine' ? t('spaces.mine') : d.space.kind === 'person' ? `~${d.space.owner}` : d.space.name
+    }
+    return { label, space, where, folders, spaceTag, spaceLabel, place }
   }, [t, s])
 }
 

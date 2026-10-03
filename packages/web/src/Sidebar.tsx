@@ -196,6 +196,8 @@ export function SpaceSections(p: SpaceSectionsProps) {
         <section className="space-shared" aria-labelledby="space-shared-head">
           <Button className="space-toggle space-shared-toggle" aria-expanded={sharedOpen} onPress={() => setSharedOpen((o) => !o)}>
             <span className="space-chevron" aria-hidden="true">{Icon.chevron}</span>
+            {/* A heading like the others: its mark, then its name. */}
+            <span className="space-kind" aria-hidden="true">{Icon.inbox}</span>
             <span className="space-name" id="space-shared-head">{t('spaces.sharedWithMe')}</span>
             <span className="space-count">{received.length}</span>
           </Button>

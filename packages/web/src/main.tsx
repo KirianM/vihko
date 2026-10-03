@@ -5,6 +5,9 @@ import './fonts.ts'
 import './styles.css'
 import { App } from './App.tsx'
 import { I18nProvider } from './i18n.tsx'
+import { installDialogFocusGuard } from './dialogFocus.ts'
+
+installDialogFocusGuard()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
