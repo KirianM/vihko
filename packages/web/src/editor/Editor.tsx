@@ -157,7 +157,7 @@ export function Editor({ path, session, user, links, onNavigate, onView, onComme
         commentUi.of({
           count: (n) => t(n === 1 ? 'comments.inParagraphOne' : 'comments.inParagraph', { n }),
           show: t('comments.view'),
-          hint: (n) => t(n === 1 ? 'comments.hintOne' : 'comments.hint', { n }),
+          hint: t('comments.hint'),
           open: (id) => comments.current?.(id),
         }),
         viewUpdates,

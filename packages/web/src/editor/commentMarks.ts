@@ -28,15 +28,15 @@ const style = StateField.define<CommentStyle>({
 })
 
 export interface CommentUi {
-  /** "2 comments in this paragraph". */
+  /** "2 comments in this paragraph": comments are threads (a comment with its replies), as the panel counts them. */
   count: (n: number) => string
   show: string
-  /** "2 comments · click to see them": the commented text's title when a click opens them. */
-  hint: (n: number) => string
+  /** "1 comment · click to see it": the commented text's title when a click opens its thread. */
+  hint: string
   open: (threadId: string) => void
 }
 export const commentUi = Facet.define<CommentUi, CommentUi>({
-  combine: (v) => v[0] ?? { count: (n) => String(n), show: '›', hint: (n) => String(n), open: () => {} },
+  combine: (v) => v[0] ?? { count: (n) => String(n), show: '›', hint: '', open: () => {} },
 })
 
 /**
@@ -116,7 +116,7 @@ function decorations(state: EditorState): DecorationSet {
     if (anchored) {
       out.push(Decoration.mark({
         class: `cm-commented${t.id === active ? ' cm-commented-active' : ''}${click ? ' cm-commented-open' : ''}`,
-        attributes: { style: `--comment-color: ${c}`, ...(click ? { title: ui.hint(t.comments.length) } : {}) },
+        attributes: { style: `--comment-color: ${c}`, ...(click ? { title: ui.hint } : {}) },
       }).range(t.anchorFrom, t.anchorTo))
     }
     if (touches(state, t.from, t.to)) out.push(Decoration.mark({ class: 'cm-comment-raw' }).range(t.from, t.to))
@@ -126,7 +126,8 @@ function decorations(state: EditorState): DecorationSet {
     // After the block and after the thread (its replies may be on their own hidden lines).
     const end = state.doc.lineAt(Math.max(block ? Math.min(block.to, state.doc.length) : 0, t.to)).to
     const cur = perBlock.get(end)
-    perBlock.set(end, { n: (cur?.n ?? 0) + t.comments.length, thread: cur?.thread ?? t.id })
+    // One per thread, its replies included: the same count as the panel's «Comments · n».
+    perBlock.set(end, { n: (cur?.n ?? 0) + 1, thread: cur?.thread ?? t.id })
   }
   if (notices) {
     for (const [end, { n, thread }] of perBlock) {
