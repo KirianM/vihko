@@ -33,7 +33,7 @@
     "@fontsource-variable/literata": "^5.3.0",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@hocuspocus/provider": "^4.7.0",
-    "@lezer/highlight": "^1.2.4",
+    "@lezer/highlight": "^1.2.5",
     "@vihko/core": "*",
     "react": "^19.3.0",
     "react-aria-components": "^1.21.1",
