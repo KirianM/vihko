@@ -9,7 +9,7 @@ import type { Db } from './db.ts'
 /**
  * What vihko opens when the person comes in with nothing else asked for:
  * `home` (the default), `last` (the last note they had open on
- * that device: the UI keeps it), `note` (one they chose, `onOpenNote`) or
+ * that device: kept in their account, `lastNote`), `note` (one they chose, `onOpenNote`) or
  * `daily` (today's note of their series, only if it exists: never created
  * on coming in). Made to take more.
  */
@@ -30,6 +30,9 @@ export interface Profile {
   /** The UI's language; null = automatic, the browser's. */
   language: Language | null
 }
+
+/** How many devices a person's last note is kept for (the ones used most lately). */
+export const LAST_NOTE_DEVICES = 20
 
 /** Timezone used while a person has none: UTC, never the server's (which says nothing of where the person is). */
 export const FALLBACK_TIMEZONE = 'UTC'
@@ -116,6 +119,26 @@ export class Profiles {
         on_open = excluded.on_open, on_open_note = excluded.on_open_note, language = excluded.language`)
       .run(userId, next.timezone, next.dailySeries, next.openDailyOnStart ? 1 : 0, next.onOpen, next.onOpenNote, next.language)
     return next
+  }
+
+  /** The last note the person opened on `device` («On opening: Last note»), as kept; null if none. */
+  lastNote(userId: string, device: string): string | null {
+    const r = this.db.prepare('select path from last_notes where user_id = ? and device = ?').get(userId, device) as { path: string } | undefined
+    return r?.path ?? null
+  }
+
+  /**
+   * Keeps `path` as the last note the person opened on `device`. A person
+   * keeps it for their LAST_NOTE_DEVICES most recent devices: older ones go.
+   */
+  setLastNote(userId: string, device: string, path: string, at: Date = new Date()) {
+    if (!isNotePath(path)) throw new ProfileError(`not a note's path: ${String(path)}`)
+    this.db.transaction(() => {
+      this.db.prepare(`insert into last_notes (user_id, device, path, opened_at) values (?, ?, ?, ?)
+        on conflict (user_id, device) do update set path = excluded.path, opened_at = excluded.opened_at`).run(userId, device, path.normalize('NFC'), at.toISOString())
+      this.db.prepare(`delete from last_notes where user_id = ? and device not in
+        (select device from last_notes where user_id = ? order by opened_at desc limit ${LAST_NOTE_DEVICES})`).run(userId, userId)
+    })()
   }
 
   /** The person's timezone, or UTC while they have none. */

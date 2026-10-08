@@ -4,17 +4,12 @@ import { Button } from 'react-aria-components'
 import { useLang, useT } from './i18n.tsx'
 import { usePathLabels, useSpaces } from './spaces.tsx'
 import { useTheme } from './theme.ts'
+import { formatBytes } from './bytes.ts'
 
-/** A size in bytes as the person reads it, in their language («12 kB», «1,5 MB»). */
+/** A size in bytes as the person reads it, in their language («51 bytes», «12 KB», «1,5 MB»). */
 export function useBytes() {
   const lang = useLang()
-  return (bytes: number) => {
-    const units = ['byte', 'kilobyte', 'megabyte', 'gigabyte'] as const
-    let i = 0
-    let n = bytes
-    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
-    return new Intl.NumberFormat(lang, { style: 'unit', unit: units[i], unitDisplay: 'short', maximumFractionDigits: i === 0 ? 0 : 1 }).format(n)
-  }
+  return (bytes: number) => formatBytes(bytes, lang)
 }
 
 export function Mark({ size = 22 }: { size?: number }) {
@@ -90,6 +85,8 @@ export const Icon = {
   home: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5" /><path d="M5.5 9.5V20h13V9.5" /><path d="M10 20v-5.5h4V20" /></svg>,
   settings: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>,
   person: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>,
+  /** What others share with the person: a tray with something coming in. */
+  inbox: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 13h5l1.5 2.5h5L16 13h5" /><path d="M3 13l2.5-7.5A2 2 0 0 1 7.4 4H9M15 4h1.6a2 2 0 0 1 1.9 1.5L21 13v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M12 3v7M9.5 7.5 12 10l2.5-2.5" /></svg>,
   people: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8" /></svg>,
   sun: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>,
   // The formatting bar (editor/FormatBar.tsx), in the same line style as list and comment.

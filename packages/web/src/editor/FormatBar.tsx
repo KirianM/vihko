@@ -43,8 +43,37 @@ export function FormatBar({ view, level, onComment, onImage, mobile = false, end
     return () => vv.removeEventListener('resize', on)
   }, [view, mobile])
 
-  // On a phone, the edges of the row with more buttons beyond them fade (format.css).
+  // On a phone the bar is at the bottom: notices (toasts) go above it, never over its buttons.
+  const bar = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = bar.current
+    if (!mobile || !el) return
+    const root = document.documentElement
+    const place = () => {
+      // From the bar's top to the bottom of the window: what a toast at the bottom must clear.
+      const covered = Math.max(0, Math.round(window.innerHeight - el.getBoundingClientRect().top))
+      root.style.setProperty('--bottom-bar', `${covered}px`)
+    }
+    place()
+    const resize = new ResizeObserver(place)
+    resize.observe(el)
+    window.addEventListener('resize', place)
+    window.visualViewport?.addEventListener('resize', place)
+    return () => {
+      resize.disconnect()
+      window.removeEventListener('resize', place)
+      window.visualViewport?.removeEventListener('resize', place)
+      root.style.removeProperty('--bottom-bar')
+    }
+  }, [mobile])
+
+  // On a phone, an edge of the row with more buttons beyond it shows an arrow over a fade (format.css): a row that goes on, not a button cut off.
   const row = useRef<HTMLDivElement>(null)
+  /** The arrows scroll the row by most of its width (by touch it scrolls anyway; they never take the focus from the editor). */
+  const scrollRow = (dir: 1 | -1) => {
+    const el = row.current
+    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.7, behavior: 'smooth' })
+  }
   useEffect(() => {
     const el = row.current
     if (!el) return
@@ -162,8 +191,15 @@ export function FormatBar({ view, level, onComment, onImage, mobile = false, end
     </Fragment>
   ))
   return (
-    <Toolbar className={mobile ? 'editor-bar' : 'format-bar'} aria-label={t('editor.bar')}>
-      {mobile ? <div className="fmt-scroll" ref={row}>{tools}</div> : tools}
+    <Toolbar ref={bar} className={mobile ? 'editor-bar' : 'format-bar'} aria-label={t('editor.bar')}>
+      {mobile ? (
+        <div className="fmt-scroll-wrap">
+          <div className="fmt-scroll" ref={row}>{tools}</div>
+          {/* For the pointer only (the toolbar's arrow keys reach every button): hidden from assistive technology, never focused. */}
+          <span className="fmt-more fmt-more-start" aria-hidden="true" onPointerDown={(e) => e.preventDefault()} onClick={() => scrollRow(-1)}>{Icon.chevron}</span>
+          <span className="fmt-more fmt-more-end" aria-hidden="true" onPointerDown={(e) => e.preventDefault()} onClick={() => scrollRow(1)}>{Icon.chevron}</span>
+        </div>
+      ) : tools}
       {end}
     </Toolbar>
   )

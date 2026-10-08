@@ -23,7 +23,7 @@ The plan is in `ROADMAP.md`.
 3. **Blank canvas, inside the spaces.** The notes folder has two fixed
    top-level folders, `people/` (each person's own space,
    `people/<username>/`) and `spaces/` (shared spaces,
-   `spaces/<readable>-<id>/`). Those two names are the product's and the only
+   `spaces/<name>/`). Those two names are the product's and the only
    ones hardcoded: links across spaces are written with them. Inside a space
    the system imposes no folder structure or taxonomy. Integration
    conventions go in configuration, never hardcoded. No other hardcoded paths

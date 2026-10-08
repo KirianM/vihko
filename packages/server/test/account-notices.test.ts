@@ -27,8 +27,9 @@ async function session(h: H, { username, password }: { username: string; passwor
 const accountNotices = async (as: (m: string, p: string) => Promise<Res>) =>
   ((await as('GET', '/api/alerts')).body.alerts as Notice[]).filter((a) => a.code === 'account_changed' || a.code === 'user_account_changed')
 
-test('a reset link, a second factor\'s reset and a new role are confirmed, and told to the person and the other admins', async () => {
-  const h = await setup()
+test('a reset link, a second factor\'s reset and a new role are confirmed, told to the person and the other admins, and written to the log', async () => {
+  const logged: string[] = []
+  const h = await setup({ log: (msg) => logged.push(msg) })
   try {
     const [admin, member] = [h.users.admin, h.users.member]
     const password = admin.password
@@ -81,6 +82,11 @@ test('a reset link, a second factor\'s reset and a new role are confirmed, and t
     ])
     assert.deepEqual(await accountNotices(h.admin), [])
     assert.deepEqual(await accountNotices(await session(h, member)), theirs, 'still there on signing in again')
+    // And the log says who did it to whom: the reset link and the second factor taken away (an invitation, nothing).
+    assert.deepEqual(logged.filter((l) => l.includes(member.username)), [
+      `${admin.username} made a password reset link for ${member.username}`,
+      `${admin.username} took the second factor of ${member.username} away`,
+    ])
 
     // Each dismisses their own, and only their own.
     assert.equal((await otherAdmin('DELETE', `/api/account/notices/${theirs[0]!.id}`)).status, 404)

@@ -32,6 +32,8 @@ export interface AgentSetup {
   clientMetadata?: ClientMetadataFetcher
   /** The largest image stored (VIHKO_MAX_IMAGE_MB), in bytes. */
   maxImageBytes?: number
+  /** What the server logs (nothing by default). */
+  log?: (msg: string) => void
 }
 
 export async function setup(opts: AgentSetup = {}) {
@@ -84,7 +86,7 @@ export async function setup(opts: AgentSetup = {}) {
   // Every confirmation asks (no window): the tests of the window give their own.
   const { app, services } = createServer({
     confirmWindowMs: opts.confirmWindowMs ?? 0,
-    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now, publicUrl: opts.publicUrl ?? null, webDir, clientMetadata: opts.clientMetadata,
+    auth, profiles, workspace, notes, index, indexer, notesDir, runtime, history, keys, integrations, now: () => clock.now, publicUrl: opts.publicUrl ?? null, webDir, clientMetadata: opts.clientMetadata, log: opts.log,
     routes: (a, s) => { mountMcp(a, s, { auth, workspace, pollMs: 25, icons: markIcons(webDir) }) },
   })
 

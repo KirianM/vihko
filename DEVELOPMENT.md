@@ -121,8 +121,7 @@ GitHub Actions runs `.github/workflows/ci.yml` on every pull request, and its
 four checks are the ones `main` requires. `npm run ci` runs the same four jobs
 on your own machine: to reproduce a failure with its seed, or to check a
 branch before pushing it; with `--post` it reports the result on the commit as
-the `ci/local` status. (Until the repository went public, with `v1.0.0-rc.1`,
-the CI ran only this way, to save Actions minutes.)
+the `ci/local` status.
 
 ```sh
 npm run ci                        # the last commit of this checkout
@@ -221,6 +220,7 @@ whose text is that `CHANGELOG.md` section.
 | Tag | Image tags (`ghcr.io/kirianm/vihko:…`) | GitHub Release |
 |---|---|---|
 | `v1.2.3` | `1.2.3`, `1.2`, `1`, `latest` | a release, the latest |
+| `v0.2.3` (while at 0.x) | `0.2.3`, `0.2` (never `0` or `latest`) | a release, the latest |
 | `v1.0.0-rc.1` (any `-…`) | `1.0.0-rc.1` only | a pre-release |
 
 A moving tag only goes forward: a fix for an older line (`v1.1.5` once
@@ -327,7 +327,7 @@ ci` needed), build the image and name it:
 docker build -t vihko:local .
 npm run upgrade-smoke -- --new vihko:local                        # from the previous stable release
 npm run upgrade-smoke -- --new vihko:local --version 1.2.0         # as the release of 1.2.0 would
-npm run upgrade-smoke -- --new vihko:local --old ghcr.io/kirianm/vihko:1.0.0-rc.1   # from any image
+npm run upgrade-smoke -- --new vihko:local --old ghcr.io/kirianm/vihko:0.1.0   # from any image
 ```
 
 It publishes vihko on a free port of the host (`--port` to choose it), with
@@ -391,8 +391,8 @@ npm run screenshots
 It builds the UI, starts a fresh vihko on a copy of the demo workspace in
 `scripts/screenshots/vault` (plain Markdown in the spaces layout: the note
 shown is `handbook/Welcome.md` in the shared space «Team», the admin has notes
-of their own, and the member shares a folder with them), with two people and a
-comment thread, and takes the
+of their own, and the member shares two folders with them, one of which the
+admin pinned), with two people and a comment thread, and takes the
 pictures with Chromium from the Playwright image of the installed
 `@playwright/test` (Docker required, as for the browser tests): the desktop in
 light and dark (1440×900 at 2×) and the phone (390×844 at 3×). The split

@@ -25,7 +25,7 @@ The sidebar shows them in that order: «My notes», then each shared space you
 belong to, by name, then «Shared with me». A folder in «Shared with me» can be
 pinned (its menu → «Pin to the sidebar»), and then it gets a section of its
 own, next to your spaces. It shows with its real name and whose it is
-(«trips · ana’s»); you can't rename or move it, since it isn't yours.
+(«trips», marked «ana’s»); you can't rename or move it, since it isn't yours.
 
 **A new person** sees «My notes», empty, and can start writing at once.
 Nothing else shows until someone adds them to a space or shares a folder with
@@ -77,8 +77,8 @@ Family». On the server it's the folder `spaces/Family/`.
 
 **Adding someone later, or changing their level:**
 
-1. Open the space's menu: its `⋯` button in the sidebar, or right-click its
-   name → **Members…**.
+1. Open the space's menu: the `⋯` button next to its name in the sidebar
+   (it shows when you point at the name) → **Members…**.
 2. To add: choose the person or group in «Add…», a level, and press **Add**.
    To change a level, pick another one in that person's row; to take
    someone out, press the `×` on their row. Your own row has **Leave**
@@ -125,7 +125,7 @@ can create spaces». Then the «New space» button only shows for admins.
 **Names of shared spaces are unique, and everyone in the installation can see
 them.** Two spaces can't have the same name, not even in different case
 («Home» and «home»): if a name is taken, vihko says «There's already a space
-called Home: choose another name», to anyone, whether they're in that space
+called “Home”: choose another name.», to anyone, whether they're in that space
 or not. So a name tells everyone that a space exists; what it holds and who
 is in it stay private. Choose names you don't mind others seeing. A name
 can't have `/` or `\`, start with `.` or `~`, or end with `.`, `~` or `.md`.
@@ -313,8 +313,8 @@ Then Noa:
 - pastes a photo into a Family note and it goes to «Family / Photos»; one
   pasted into her journal goes next to the note (the installation's
   default, since her own settings don't say otherwise);
-- connects an assistant, which reads vihko's instructions, then «About this
-  space», then her «For agents».
+- connects an assistant, which reads vihko's instructions, then Family's
+  guide («Recipes go in Recipes, one note each»), then her «For agents».
 
 If two series would give the same note, it's offered once. The details,
 and the format of the files, are in
@@ -343,14 +343,14 @@ on her row, and **Save**.
 Noa gets a notice, «sam shared “Trips” with you», and the folder shows:
 
 - on **Home**, under «Shared with you lately»;
-- in the sidebar, under **Shared with me** (folded, with a count): «Trips
-  sam’s».
+- in the sidebar, under **Shared with me** (folded, with a count): «Trips»,
+  marked «sam’s».
 
 To keep it at hand:
 
 1. Unfold «Shared with me», open the menu of «Trips» (`⋯`) → **Pin to the
    sidebar**.
-2. «Trips sam’s» now has a section of its own in the sidebar, next to your
+2. «Trips» now has a section of its own in the sidebar, next to your
    spaces, with its notes, and leaves «Shared with me» (which goes away when
    everything in it is pinned). **Unpin from the sidebar**, in the same
    menu, puts it back there.
@@ -439,9 +439,10 @@ send it yourself over a channel you trust.
    admins get a notice.
 3. Press «Create and get the link», copy the link and send it.
 
-The person opens the link, chooses their password (at least 10 characters) and
-is signed in, with their own empty «My notes». If the second factor is
-required, they set it up right there.
+The person opens the link («Welcome»), chooses their password (at least 10
+characters) and repeats it, and presses «Save and sign in». They land on Home,
+with their own «My notes», still empty, in the sidebar. If the second factor
+is required, they set it up right there.
 
 - The link works **once**, for **7 days**. It's only shown when made: if it
   gets lost, make another one («New invitation link»); the previous one stops
@@ -597,7 +598,7 @@ anything in it, and confirms at the moment:
 - **Make it a shared space…**, with the members the admin chooses (at least
   one who manages it). Its members will see everything the person had, also
   what they never shared; the dialog says so. The person's own settings
-  folder (`.vihko/`) doesn't come along.
+  folder (`.vihko/`) doesn't come along: it goes to the trash.
 - **Delete…**: its files are deleted from the disk, with no trash, since
   nobody could see it. The history keeps what it had, with nobody to read it;
   the admin can purge it by path ([History](history.md#purging)).
@@ -806,10 +807,14 @@ when they sign in and in the alerts until they dismiss them:
   their role (the other admins get one too);
 - to every other admin: an admin created a new admin («Lead made Noa an
   admin», as for a role change);
-- someone added them to a shared space, or shared a folder with them;
-- the admin made them a manager of a space, joined a space they manage, or
-  gave them (or its members) a deleted person's space; the other admins are
-  told too;
+- someone added them to a shared space, or shared a folder with them, or
+  took them out of one;
+- a shared space they're in was deleted, restored or renamed;
+- someone they shared a folder or note of their own space with moved it out
+  of their space;
+- the admin made them a manager of a space, joined a space they're in (only
+  one with no active managers, to rescue it), or gave them (or its members) a
+  deleted person's space; the other admins are told too;
 - a move of theirs left links that couldn't be updated, even after vihko
   tried again;
 - someone purged from the history a note or a version they wrote in (see

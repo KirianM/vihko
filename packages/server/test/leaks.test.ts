@@ -37,6 +37,8 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
     const { secret: secretIds, revealed, visible: visibleIds } = await historyToHide(h)
 
     await h.enableApi()
+    // The series is in a shared space: the person chose it (vihko never picks one there by itself).
+    await h.admin('PUT', '/api/profile', { dailySeries: SERIES.own })
     const { token } = await h.newKey({ name: m.aKeyName(), canWrite: true, folders: [DIR.key] })
     const key = h.withKey(token)
     const q = (path: string, params: Record<string, string>) => h.url(path, params)
@@ -79,9 +81,9 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
       'GET /api/history/changes': [{ method: 'GET', path: q('/api/history/changes', { limit: '50' }), expect: 200 }],
       // What its user reaches, space by space, within its folders.
       'GET /api/spaces': [{ method: 'GET', path: '/api/spaces', expect: 200 }],
-      // Who has access: to its folder; outside it, or what it can't see, as missing.
-      'GET /api/spaces/members': [[DIR.key, 200], [DIR.outside, 404], [`${DIR.key}/${SUB.onlyHidden}`, 200], [`${DIR.key}/${m.aFolder()}`, 404]]
-        .map(([p, s]) => ({ method: 'GET', path: q('/api/spaces/members', { path: p as string }), expect: s as number })),
+      // Who has access: to its folder; outside it (its person reads it), agent_denied with why, as a note; what isn't there, missing.
+      'GET /api/spaces/members': [[DIR.key, 200], [DIR.outside, 'outside_key_folders'], [`${DIR.key}/${SUB.onlyHidden}`, 200], [`${DIR.key}/${m.aFolder()}`, 404]]
+        .map(([p, s]) => ({ method: 'GET', path: q('/api/spaces/members', { path: p as string }), ...expect(s as number | DenyReason) })),
       'GET /api/history/resolved': [{ method: 'GET', path: q('/api/history/resolved', { path: PATH.visible }), expect: 200 }, { method: 'GET', path: q('/api/history/resolved', { path: PATH.secret }), ...expect(AI) }],
 
       'POST /api/note': [
@@ -155,7 +157,7 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
         if (r.status === 404) assert.equal(r.body?.error, 'not_found', where)
         if (r.status === 403) {
           assert.ok(call.deny, `${where}: denied without naming a hidden note`)
-          assert.ok(HIDDEN.some((p) => asked.includes(p)), `${where}: denied, but it named no hidden note`)
+          assert.ok(HIDDEN.some((p) => asked.includes(p)) || asked.includes(DIR.outside), `${where}: denied, but it named no hidden note or folder`)
           assert.deepEqual(Object.keys(r.body).sort(), ['error', 'message', 'reason'], where)
           assert.deepEqual([r.body.error, r.body.reason], ['agent_denied', call.deny], where)
         } else assert.equal(call.deny, undefined, `${where}: expected a denial`)

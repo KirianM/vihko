@@ -30,7 +30,10 @@ To turn them on, as the vihko admin:
    - **Members can create keys**, if members are to have keys of their own.
      Until you turn it on, only admins can create keys.
 
-The switches apply at once; there is nothing to restart. While a switch is off,
+Only the vihko admin sees the switches; members see whether the API and MCP
+are on. They are kept in `state.db`, not in a file: there is no key in
+`vihko.yaml` or variable that turns them on. The switches apply at once;
+there is nothing to restart. While a switch is off,
 its door doesn't exist: every request with a key to `/api/…` gets `404`, and so
 does `/mcp`, as if there were nothing there. The web UI works the same either
 way.
@@ -76,9 +79,9 @@ changes, the key follows. On top of that, each key has its own limits.
 | Setting | Default | What it does |
 |---|---|---|
 | Name | (required) | Who the key is for: "Claude Code", "Backup script". The history and the editor show it |
-| Permissions | Read only | **Read only**, or **Reads and writes**: create, edit, move and trash notes, and add images to them |
-| Folders | Every folder you see | Or only the folders you choose, with everything inside them: your own space (`people/<you>`), a shared space (`spaces/Home`), or any folder in them |
-| Expiry | Never expires | 7 days, 30 days, 90 days or 1 year |
+| Permissions | Read only | Tick **Can write** to let it create, edit, move and trash notes, and add images to them. The list of keys shows **Read only** or **Reads and writes** |
+| Folders | **Every folder you see** | Or **Only these folders, with what's inside them**: your own space (`people/<you>`), a shared space (`spaces/Home`), or any folder in them |
+| Expiry | **No expiry** | 7 days, 30 days, 90 days or 1 year |
 
 Whatever the settings, a key never sees:
 
@@ -111,7 +114,9 @@ folders or moves folders: that's for people, in the UI.
 2. Give it a name, and choose its permissions, folders and expiry.
 3. Confirm it's you: the current code of your second factor or, if you have
    none, your password. vihko asks even though you're signed in, because a key
-   gives access to your notes.
+   gives access to your notes. A confirmation lasts 15 minutes in that browser
+   session (signing in with a code counts as one): within them, vihko doesn't
+   ask again, here or for anything else it confirms at the moment.
 4. Copy the key. It's shown only this once; vihko keeps only a hash of it.
 
 The same dialog shows ready-made configurations for Claude Code, Claude
@@ -122,9 +127,10 @@ them one by one.
 
 ### Change, rotate and revoke
 
-Each key in the list shows its permissions, folders, expiry, when it was last
-used and how (via the API, via MCP, or via MCP with OAuth). **What it sees**
-lists what the key reaches right now.
+Each key in the list shows its status (**Active**, **Expired**, **Suspended**
+or **Revoked**), its permissions, folders, expiry, when it was last used and
+how (via the API, via MCP, or via MCP with OAuth). **What it sees** lists
+what the key reaches right now.
 
 - **Edit** changes the name, permissions, folders or expiry. A change that
   lets the key do more (from read only to reads and writes, another folder or
@@ -274,7 +280,7 @@ The server offers these tools. A read-only key is offered only the reading ones
 | `list_folder` | The folders and notes in a folder, optionally everything under it. With `""`, the spaces the person reaches: their own, the shared spaces they belong to (with their names), and the folders others share with them (with whose they are) |
 | `related` | How a note connects to others: its links with the titles they lead to, and the notes that link to it with the text around each link |
 | `resolve_link` | Where a link written in a note leads: resolved, ambiguous (with candidates), missing or `no_access` |
-| `daily_note` | Today's note of the person the key acts for, in their time zone. With a key that writes, it creates the note from its template if it doesn't exist yet (`create: false` only looks) |
+| `daily_note` | Today's note of the person the key acts for, in their time zone. With a key that writes, it creates the note from its template if it doesn't exist yet (`create: false` only looks). `series` picks another of their series: an id of `vihko.yaml`, or a space's series as `me-…` (their own space) or `sp-…` (a shared space) |
 
 **Writing** (keys that may write)
 
@@ -345,7 +351,9 @@ Conventions the tools share:
 
 `attach_image` takes the note the image is for and the image's bytes in
 base64 (`data`), with an optional `alt` text. vihko stores it as an upload
-from the UI or the API: where `vihko.yaml` says (next to the note by default),
+from the UI or the API: where the settings of the note's space say, or else
+`vihko.yaml` (next to the note by default; see
+[Configuration](configuration.md)),
 only for a note the key can write, only PNG, JPEG, GIF, WebP or AVIF (told by
 the bytes; `mime_type` is only a hint), and up to the size limit
 (`VIHKO_MAX_IMAGE_MB`). An MCP request carries at most 4 MiB and base64 adds a
@@ -438,12 +446,16 @@ step by step, with an example of what to write:
   settings, never in a note, so a member who can edit the space's notes
   can't change what every member's agents are told. It reaches every key
   that reaches the space.
-- **A person's own guide** is a note of theirs, named in Preferences › «Your
-  note settings». Their key gets it only if it can read that note.
+- **A person's own guide** is a note of theirs, named in Preferences →
+  «Your note settings», under «Guide for agents (a note)». Their key gets it
+  only if it can read that note.
 
 An agent gets, in this order: the server's instructions, the guide in
 `vihko.yaml`, the guide of each shared space its key reaches, and its
-person's own guide.
+person's own guide. vihko puts them together for every request, so a change
+to any of them, or to `mcp.instructions` in `vihko.yaml`, reaches agents
+without a restart (a client that keeps the instructions of its first
+connection sees it when it connects again).
 
 `mcp.instructions` in `vihko.yaml` is a note, too: whoever can edit that note
 changes what every agent of the installation is told. Name a note only its
@@ -494,7 +506,8 @@ tokens only work on `/mcp`: the HTTP API takes keys, never OAuth tokens.
 4. **Turn on OAuth apps can register themselves**, right under it, only for
    apps that register themselves before asking for access, such as
    `mcp-remote` (see [How apps introduce themselves](#how-apps-introduce-themselves)).
-   claude.ai and Claude Code identify themselves with a URL and don't need it.
+   claude.ai, and other apps that identify themselves with a URL, don't need
+   it.
 5. For members to connect apps, also turn on **Members can create keys**: an
    authorization is a key.
 
@@ -573,7 +586,8 @@ vihko ever makes to an address someone else chose, and it's fenced in:
   link-local and the like), checked after resolving the name, and the
   connection goes to the address that was checked;
 - no redirects followed, at most 5 KB and 5 seconds;
-- kept in memory for a few minutes, never on disk.
+- kept in memory for a few minutes, and on disk only once someone approves
+  the app (its name and the addresses it goes back to).
 
 The approval page then shows the app's domain: that is who publishes it. This
 way in isn't affected by the registration switch.
@@ -591,9 +605,12 @@ A domain covers its subdomains. An app named by a metadata document must be
 served from one of them (vihko doesn't even fetch it otherwise), and one that
 registers itself must go back only to addresses on them (for `mcp-remote`,
 which goes back to this computer, add `localhost` or `127.0.0.1`). Any other
-gets an error on vihko's page, naming its domain; one registered before the
-list keeps the tokens it already has (revoke it in Agents and API) but can't
-be authorized again. See [Configuration](configuration.md#mcpclient_domains).
+can't register (`invalid_redirect_uri`), and asking for access it gets an
+error on vihko's page, naming its domain; one registered before the list
+keeps the tokens it already has (revoke it in Agents and API) but can't be
+authorized again. vihko reads the list at every request: a change to
+`vihko.yaml` applies without a restart. See
+[Configuration](configuration.md#mcpclient_domains).
 
 **Where an app may go back to.** An `https` address, `http` only to the same
 computer (`127.0.0.1`, `[::1]` or `localhost`, on any port), or an app's own

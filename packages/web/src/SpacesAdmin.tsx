@@ -1,7 +1,8 @@
 // Settings → «Spaces» (the vihko admin): the
 // directory of shared spaces (their names, who manages them and how many
 // members: never what's inside), a manager for one that has none, the admin
-// joining one (a member row like any other, told to its managers), who may
+// joining one only to rescue it, when nobody active manages it (a member row
+// like any other, told to its members and the other admins), who may
 // create spaces, and what becomes of a deleted person's space (transfer it,
 // make it a shared space, or delete it). Every change is confirmed at the
 // moment with the admin's own code or password, so nothing is done to someone else's space quietly.
@@ -98,7 +99,7 @@ function ManagerDialog({ space, users, onClose, onDone }: { space: SpaceInfo; us
   )
 }
 
-/** The admin joins a space: a member like any other, `read` by default; its managers are told. */
+/** The admin joins a space nobody active manages, to rescue it: a member like any other, `read` by default; its members and the other admins are told. */
 function JoinDialog({ space, onClose, onDone }: { space: SpaceInfo; onClose: () => void; onDone: () => void }) {
   const t = useT()
   const [level, setLevel] = useState<Level>('read')

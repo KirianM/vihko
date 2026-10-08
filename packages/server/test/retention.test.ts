@@ -254,6 +254,31 @@ test('with the history off, retention empties the trash and leaves the history a
   } finally { await h.close() }
 })
 
+test('with the history managed and only the trash\'s retention on, emptying the trash leaves the history alone: the emptied note keeps its versions', async () => {
+  const NOTE = inShared(m.aNotePath(m.aFolder()))
+  const WORD = m.aSecret()
+  const h = await setup({ files: { [NOTE]: `# ${m.aHeading()}\n` } })
+  try {
+    await h.put(NOTE, (x) => x + `${WORD}\n`)
+    await h.settle()
+    await h.notes.delete(NOTE, { actor: { kind: 'user', id: h.ids.admin } })
+    await h.settle()
+    const versions = await versionsOf(h.stateDir, NOTE)
+    assert.deepEqual(versions.map((v) => v.status), ['D', 'M', 'A'])
+    const { r, settings } = retention(h, () => Date.now() + 10 * DAY)
+    settings.set({ trashRetentionDays: 5, historyRetentionDays: null })
+    const run = await r.run()
+    assert.deepEqual([run.trash.entries, run.history, run.failed], [1, null, false])
+    assert.deepEqual(h.notes.trash(), [])
+    // Its versions are where they were, nothing is noted down to drop later, and a second run changes nothing.
+    assert.deepEqual(await versionsOf(h.stateDir, NOTE), versions)
+    assert.ok((await objects(h.stateDir)).includes(WORD))
+    assert.deepEqual(JSON.parse(readFileSync(join(h.stateDir, 'retention.json'), 'utf8')).emptied, [])
+    await r.run()
+    assert.deepEqual(await versionsOf(h.stateDir, NOTE), versions)
+  } finally { await h.close() }
+})
+
 test('a run cut short leaves nothing half done: a trash entry set aside is removed by the next run', async () => {
   const h = await setup()
   try {

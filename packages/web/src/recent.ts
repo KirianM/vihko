@@ -1,5 +1,6 @@
-// Recently opened notes, for the palette with an empty query and «Al entrar:
-// Last note». A convenience of this browser: if there's no storage, the list
+// Recently opened notes, for the palette with an empty query (each device's
+// last note «On opening» is kept in the account instead, onOpen.ts). A
+// convenience of this browser: if there's no storage, the list
 // stays empty. Each person's own (`vihko.recent.<user id>`), and forgotten
 // when their session ends here: whoever signs in next on a shared browser
 // never sees, nor opens, the notes the one before was reading.

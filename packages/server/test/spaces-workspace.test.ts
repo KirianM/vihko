@@ -5,8 +5,9 @@
 // folder moved from vihko; and state.db's version for 0.1.0.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { STATE_VERSION, attachmentPath, movedPath } from '@vihko/server'
 import { setup, type Name, type Spaces } from './_spacesApp.ts'
 import { mother } from '../../../test/mother.ts'
@@ -23,8 +24,58 @@ async function newSpace(h: Spaces, who: Name, members?: Record<string, string>) 
   return { name, path: r.body.space.path as string }
 }
 
-test('state.db of 0.1.0 is version 12, with the pins, «On opening», when grants began and deleted spaces', () => {
-  assert.equal(STATE_VERSION, 12)
+test('state.db of 0.1.0 is version 13, with the pins, «On opening» (each device\'s last note too), when grants began and deleted spaces', () => {
+  assert.equal(STATE_VERSION, 13)
+})
+
+test('vihko.yaml as a symbolic link: sharing writes through it, to the file it leads to, and the link stays', async () => {
+  const comment = `# ${m.aSentence()}\n`
+  const h = await setup({ config: `${comment}version: 1\n` })
+  const elsewhere = join(mkdtempSync(join(tmpdir(), 'vihko-yaml-elsewhere-')), 'vihko.yaml')
+  try {
+    const file = join(h.notesDir, 'vihko.yaml')
+    renameSync(file, elsewhere)
+    symlinkSync(elsewhere, file)
+    const space = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    assert.ok(lstatSync(file).isSymbolicLink(), 'still a link')
+    assert.equal(readlinkSync(file), elsewhere)
+    const text = readFileSync(elsewhere, 'utf8')
+    assert.ok(text.startsWith(comment) && text.includes(space.name) && text.includes(h.names.other), text)
+    // And what it says is in force: the other member reads the space.
+    assert.equal((await h.other('GET', '/api/spaces')).body.spaces.some((s: { path: string }) => s.path === space.path), true)
+  } finally {
+    h.close()
+    rmSync(dirname(elsewhere), { recursive: true, force: true })
+  }
+})
+
+test('creating where vihko.yaml still has the rules of a folder gone, while vihko.yaml can\'t be used: config_invalid, the same over HTTP and MCP, and nothing written', async () => {
+  const h = await setup()
+  try {
+    await h.enable()
+    const space = await newSpace(h, 'member', { [h.names.other]: 'edit' })
+    // Rules for a folder that isn't on the disk (gone outside vihko): a note created there would clear them first.
+    const ghost = `${space.path}/${m.aFolder()}`
+    await h.rule(ghost, { grants: { [h.names.admin]: 'edit' } })
+    // The file broken by hand: what is in force stays, and vihko writes nothing over it.
+    const file = join(h.notesDir, 'vihko.yaml')
+    const broken = `${readFileSync(file, 'utf8')}permissions: [\n`
+    writeFileSync(file, broken)
+    h.workspace.reload()
+    assert.notEqual(h.workspace.permissionsFallback, null)
+    const note = () => `${ghost}/${m.aTitle()}.md`
+    const http = await h.member('POST', '/api/note', { path: note(), text: m.aSentence() })
+    assert.deepEqual([http.status, http.body.error], [409, 'config_invalid'], http.text)
+    const c = await h.mcp((await h.newKey('member', { name: m.aKeyName(), canWrite: true })).token)
+    try {
+      const r = await c.call('create_note', { path: note(), text: m.aSentence() })
+      assert.deepEqual([r.error, r.data?.error], [true, 'config_invalid'], r.raw)
+    } finally { await c.close() }
+    assert.equal(readFileSync(file, 'utf8'), broken)
+    assert.ok(!existsSync(join(h.notesDir, ghost)))
+  } finally {
+    h.close()
+  }
 })
 
 test('vihko.yaml without its permissions: nothing is shared, the admin is told, and «Restore previous permissions» writes them back', async () => {
@@ -160,7 +211,8 @@ test('«Today» offers only the series where the person can write; a series or g
     // Their «Today» is the first they can write; one they can't, asked for by id, doesn't exist for them.
     assert.equal((await h.other('GET', '/api/daily')).body.series, own.id)
     assert.ok((await h.other('GET', '/api/daily')).body.path.startsWith(`${h.home('other')}/${own.folder}/`))
-    assert.equal((await h.member('GET', '/api/daily')).body.series, team.id)
+    // The member writes in the space too, listed first: never picked by itself, the one in their own space is.
+    assert.equal((await h.member('GET', '/api/daily')).body.series, own.id)
     const hidden = await h.other('GET', `/api/daily?series=${team.id}`)
     const missing = await h.other('GET', `/api/daily?series=${m.anId()}`)
     assert.deepEqual([hidden.status, hidden.body.error, missing.status, missing.body.error], [404, 'not_found', 404, 'not_found'])

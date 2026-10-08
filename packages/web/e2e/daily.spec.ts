@@ -271,6 +271,38 @@ test('the series chosen is gone: «Today» asks which one to use, never another 
   await expect.poll(async () => (await (await k.request.get('/api/profile')).json()).dailySeries).toBe(OWN.id)
 })
 
+test('never chose, and no series in one\'s own space: the first «Today» asks which one, never a shared space\'s by itself', async () => {
+  const daily = async () => ((await (await k.request.get('/api/workspace')).json()).daily as { id: string }[]).map((s) => s.id)
+  const inTeam = async () => ((await (await k.request.get('/api/tree')).json()).notes as { path: string }[]).filter((n) => n.path.startsWith(`${TEAM.folder}/`)).length
+  // Only the team's series, in the vault's shared space; no choice made.
+  writeWorkspace(`# e2e\ndaily:\n  ${TEAM.id}:\n    label: ${q(TEAM.label)}\n    folder: ${q(TEAM.folder)}\n`)
+  try {
+    await expect.poll(daily, { timeout: 20_000 }).toEqual([TEAM.id])
+    expect((await k.request.put('/api/profile', { data: { dailySeries: null } })).ok()).toBe(true)
+    const before = await inTeam()
+    await k.goto(`/?note=${encodeURIComponent(inVault('Plan.md'))}`)
+    await expect(k.locator('.crumbs b')).toHaveText('Plan')
+    await todayButton(k).click()
+    const dialog = k.getByRole('dialog', { name: '¿Qué serie usa «Nota de hoy»?' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('Las series que tienes escriben en un espacio compartido, y vihko no elige por ti dónde escribir')
+    await expect(dialog.getByRole('radio', { name: TEAM.label })).toBeVisible()
+    await dialog.screenshot({ path: `${SHOTS}/series-first.png` })
+    await k.setViewportSize({ width: 390, height: 844 })
+    await expect(dialog.getByRole('button', { name: 'Usar y abrir' })).toBeVisible()
+    await k.screenshot({ path: `${SHOTS}/series-first-phone.png` })
+    await k.setViewportSize({ width: 1280, height: 800 })
+    await dialog.getByRole('button', { name: 'Cancelar' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(await inTeam()).toBe(before)
+    await expect(k.locator('.crumbs b')).toHaveText('Plan')
+  } finally {
+    writeWorkspace(CONFIG)
+    await expect.poll(daily, { timeout: 20_000 }).toEqual([OWN.id, TEAM.id])
+    expect((await k.request.put('/api/profile', { data: { dailySeries: OWN.id } })).ok()).toBe(true)
+  }
+})
+
 test('another timezone near midnight gets another date', async ({ browser }) => {
   const member = await signInAt(browser, MEMBER, WEST)
   await todayButton(member).click()

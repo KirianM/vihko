@@ -29,6 +29,8 @@ test('a key limited to a folder sees nothing of what it can\'t read, through any
   try {
     const { secret, revealed, visible } = await historyToHide(h)
     await h.enableMcp()
+    // The series is in a shared space: the person chose it (vihko never picks one there by itself).
+    await h.admin('PUT', '/api/profile', { dailySeries: SERIES.own })
     const c = await h.mcp((await h.newKey({ name: m.aKeyName(), canWrite: true, folders: [DIR.key] })).token)
     assert.deepEqual(leaked(c.client.getInstructions() ?? '', ''), [], 'the instructions')
     const etag = (await c.call('get_note', { path: PATH.visible })).data.etag as string

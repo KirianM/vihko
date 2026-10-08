@@ -378,8 +378,15 @@ test('leaving: one\'s own grants go and nothing is deleted; through a group, lea
     assert.equal((await h.admin('DELETE', `/api/admin/groups/${group.id}/members/${h.created.other.id}`)).status, 200)
     assert.ok(h.rechecks.n > before)
     assert.ok(!(await h.other('GET', '/api/spaces')).body.spaces.some((x: any) => x.path === g.path))
+    // The admin also has a grant of their own in a subfolder (above what the space gives them), the other one too.
+    const sub = `${s.path}/${m.aFolder()}`
+    assert.equal((await h.member('POST', '/api/folder', { path: sub })).status, 201)
+    await h.rule(sub, { grants: { [h.names.admin]: 'edit', [h.names.other]: 'manage' } })
     assert.equal((await h.admin('POST', '/api/spaces/leave', { path: s.path })).status, 200)
     assert.deepEqual((await h.admin('GET', '/api/spaces')).body.spaces.map((x: any) => x.path), [g.path])
+    // Leaving takes one's grants below too; the others' stay.
+    assert.deepEqual(rulesInFile(readFileSync(join(h.notesDir, 'vihko.yaml'), 'utf8')).get(sub)?.grants, { [h.names.other]: 'manage' })
+    assert.equal((await h.admin('GET', `/api/note?path=${encodeURIComponent(note)}`)).status, 404)
     // Now the admin sees nothing of it: as for a space that doesn't exist.
     const again = await h.admin('POST', '/api/spaces/leave', { path: s.path })
     const missing = await h.admin('POST', '/api/spaces/leave', { path: `spaces/${m.aSpaceFolder()}` })
@@ -664,7 +671,8 @@ test('a closed space converted into a shared space: its members see all of it, w
   try {
     const { shared, note, own } = await deletedMember(h)
     // The person's own settings folder: theirs, not the shared space's.
-    h.write(`${h.home('member')}/.vihko/${m.aTitle()}.md`, m.aParagraph())
+    const [settingsName, settingsText] = [`${m.aTitle()}.md`, m.aParagraph()]
+    h.write(`${h.home('member')}/.vihko/${settingsName}`, settingsText)
     const name = m.aSpaceName()
     // Someone has to manage it: a dry run says so too.
     for (const members of [{}, { [h.names.admin]: 'edit', [`@${h.group}`]: 'read' }]) {
@@ -678,6 +686,11 @@ test('a closed space converted into a shared space: its members see all of it, w
     const dest = r.body.plan.to as string
     assert.equal(dest, `spaces/${name}`)
     assert.ok(!existsSync(join(h.notesDir, dest, '.vihko')), 'their settings don\'t come along')
+    // …but go to the trash, as anything hidden in a folder that goes does: never lost for good.
+    const entry = h.notes.trash().find((e) => e.kind === 'files' && e.files?.some((f) => f.path === `${dest}/.vihko/${settingsName}`))
+    assert.ok(entry, JSON.stringify(h.notes.trash()))
+    const stored = entry.files!.find((f) => f.path === `${dest}/.vihko/${settingsName}`)!.stored
+    assert.equal(readFileSync(join(h.stateDir, 'trash', entry.id, stored), 'utf8'), settingsText)
     const admin = (await h.admin('GET', '/api/spaces')).body.spaces
     assert.deepEqual(admin.map((s: any) => [s.path, s.name, s.level]), [[dest, name, 'manage']])
     assert.equal((await h.admin('GET', `/api/note?path=${encodeURIComponent(dest + own.slice(h.home('member').length))}`)).status, 200, 'all of it, also what was never shared')
@@ -810,14 +823,21 @@ test('GET /api/spaces/members: whoever reads a space or a folder shared with the
     // A note isn't a folder.
     assert.equal((await members('member', `${s.path}/${m.aTitle()}.md`)).status, 404)
 
-    // A key: within its folders, as its person; outside them, as missing.
+    // A key: within its folders, as its person; outside them, where its person reads, agent_denied with why (as for a
+    // note); a folder closed to agents, the same; what its person doesn't read, as missing.
     const key = await h.newKey('other', { name: m.aKeyName(), canWrite: false, folders: [s.path] })
     const viaKey = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(s.path)}`)
     assert.equal(viaKey.status, 200, viaKey.text)
     assert.deepEqual(brief(viaKey), brief(seen))
     const out = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(inner)}`)
-    assert.deepEqual(errorOf(out), errorOf(await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(missing)}`)))
-    assert.equal(out.status, 404)
+    assert.deepEqual([out.status, out.body.error, out.body.reason], [403, 'agent_denied', 'outside_key_folders'], out.text)
+    const gone = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(missing)}`)
+    assert.deepEqual([gone.status, gone.body.error], [404, 'not_found'])
+    const closed = `${s.path}/${m.aFolder()}`
+    assert.equal((await h.member('POST', '/api/folder', { path: closed })).status, 201)
+    await h.rule(closed, { ai: false })
+    const hidden = await h.withKey(key.token)('GET', `/api/spaces/members?path=${encodeURIComponent(closed)}`)
+    assert.deepEqual([hidden.status, hidden.body.error, hidden.body.reason], [403, 'agent_denied', 'ai_false'], hidden.text)
   } finally {
     h.close()
   }
@@ -1019,6 +1039,16 @@ test('whoever manages a folder shared from someone\'s own space may take it to a
     h.write(mine, m.aParagraph())
     assert.equal((await h.member('POST', '/api/note/move', { from: mine, to: `${h.home('member')}/${m.aTitle()}.md` })).status, 200)
     assert.equal((await movedOut('member')).length, 2)
+    assert.deepEqual(await movedOut('other'), [])
+    // «Move to a new space» of a folder they manage there is a move out too: its owner is told.
+    const another = `${proj}/${m.aFolder()}`
+    h.write(`${another}/${m.aTitle()}.md`, m.aParagraph())
+    await h.rule(another, { grants: { [h.names.other]: 'manage' } })
+    const made = await h.other('POST', '/api/spaces/from-folder', { path: another })
+    assert.equal(made.status, 201, made.text)
+    const fromFolder = (await movedOut('member')).find((a: any) => a.from === another)
+    assert.ok(fromFolder, JSON.stringify(await movedOut('member')))
+    assert.deepEqual([fromFolder.kind, fromFolder.by], ['folder', h.names.other])
     assert.deepEqual(await movedOut('other'), [])
   } finally {
     h.close()

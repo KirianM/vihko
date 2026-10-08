@@ -19,7 +19,7 @@ const m = mother(import.meta.url)
 function version5(file: string) {
   openState(file).close()
   const raw = new Database(file)
-  raw.exec(`drop table deleted_spaces; drop table grant_starts; drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
+  raw.exec(`drop table last_notes; drop table deleted_spaces; drop table grant_starts; drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
     alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;
     alter table profiles drop column on_open; alter table profiles drop column on_open_note;`)
   raw.pragma('user_version = 5')
@@ -138,7 +138,7 @@ test('state.db: «Open today\'s note on start» of version 10 carries over as «
   openState(file).close()
   const raw = new Database(file)
   raw.exec(`alter table profiles drop column on_open; alter table profiles drop column on_open_note;
-    drop table deleted_spaces; drop table grant_starts; alter table group_members drop column added_at;`)
+    drop table last_notes; drop table deleted_spaces; drop table grant_starts; alter table group_members drop column added_at;`)
   const [daily, plain] = [m.aUsername(), m.aUsername()]
   for (const [id, name] of [['01A', daily], ['01B', plain]]) raw.prepare("insert into users (id, username, password_hash, role, created_at) values (?, ?, 'x', 'member', '2026-01-01T00:00:00Z')").run(id, name)
   raw.prepare('insert into profiles (user_id, open_daily) values (?, ?), (?, ?)').run('01A', 1, '01B', 0)
@@ -185,7 +185,7 @@ test('state.db of version 11 takes when grants began, since when people are in g
   const file = join(dir, 'state.db')
   openState(file).close()
   const raw = new Database(file)
-  raw.exec('drop table deleted_spaces; drop table grant_starts; alter table group_members drop column added_at;')
+  raw.exec('drop table last_notes; drop table deleted_spaces; drop table grant_starts; alter table group_members drop column added_at;')
   raw.prepare("insert into users (id, username, password_hash, role, created_at) values ('01A', ?, 'x', 'member', '2026-01-01T00:00:00Z')").run(m.aUsername())
   raw.prepare("insert into user_groups (id, name, created_at) values ('01G', ?, '2026-01-01T00:00:00Z')").run(m.aGroupName())
   raw.prepare("insert into group_members (group_id, user_id) values ('01G', '01A')").run()
@@ -197,4 +197,29 @@ test('state.db of version 11 takes when grants began, since when people are in g
   assert.deepEqual([db.prepare('select count(*) n from grant_starts').get(), db.prepare('select count(*) n from deleted_spaces').get()], [{ n: 0 }, { n: 0 }])
   db.close()
   assert.ok(existsSync(`${file}.bak-v11`))
+})
+
+test('state.db of version 12 takes each device\'s last note («On opening»), with its copy; what was there stays', () => {
+  const dir = tempDir('vihko-state-v12-')
+  const file = join(dir, 'state.db')
+  openState(file).close()
+  const raw = new Database(file)
+  raw.exec('drop table last_notes;')
+  raw.prepare("insert into users (id, username, password_hash, role, created_at) values ('01A', ?, 'x', 'member', '2026-01-01T00:00:00Z')").run(m.aUsername())
+  raw.prepare("insert into profiles (user_id, on_open) values ('01A', 'last')").run()
+  raw.pragma('user_version = 12')
+  raw.close()
+  const db = openState(file)
+  assert.equal(db.pragma('user_version', { simple: true }), STATE_VERSION)
+  assert.deepEqual(stateMigrations(db).map((r) => [r.from, r.to, r.backup]), [[12, STATE_VERSION, 'state.db.bak-v12']])
+  assert.equal(new Profiles(db).get('01A').onOpen, 'last')
+  // Kept per person and device, in the account.
+  const profiles = new Profiles(db)
+  const [device, other] = [m.anId(), m.anId()]
+  const note = m.aNotePath(`people/${m.aUsername()}`)
+  assert.equal(profiles.lastNote('01A', device), null)
+  profiles.setLastNote('01A', device, note)
+  assert.deepEqual([profiles.lastNote('01A', device), profiles.lastNote('01A', other)], [note, null])
+  db.close()
+  assert.ok(existsSync(`${file}.bak-v12`))
 })

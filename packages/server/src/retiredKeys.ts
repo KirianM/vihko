@@ -175,6 +175,10 @@ export async function migrateRetiredKeys(deps: RetiredKeysDeps): Promise<Retired
 
   for (const file of files) {
     const abs = join(deps.notesDir, file.path)
+    // A person's or a space's settings are never read or written through a
+    // symbolic link (the file, or `.vihko/`): it could lead out of the notes
+    // folder, or into another space's settings. vihko.yaml goes through its own store.
+    if (file.root !== null && !followable(deps.notesDir, file.path)) continue
     let text = file.root === null ? deps.file.read().text : readText(abs)
     if (text === null) continue
     for (const k of keys) {

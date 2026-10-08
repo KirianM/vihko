@@ -547,7 +547,7 @@ test('state.db: version 5 migrates keeping its users, with a copy before and a l
   openState(file, { log: (msg) => created.push(msg) }).close()
   assert.deepEqual(created, [], 'a new database is no news')
   const raw = new Database(file)
-  raw.exec(`drop table deleted_spaces; drop table grant_starts; drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
+  raw.exec(`drop table last_notes; drop table deleted_spaces; drop table grant_starts; drop table pins; drop table notices; drop table recovery_codes; drop table two_factor; drop table user_links; drop table group_members; drop table user_groups;
     alter table users drop column deleted_at; alter table sessions drop column user_agent; alter table profiles drop column language;
     alter table profiles drop column on_open; alter table profiles drop column on_open_note;`)
   raw.prepare("insert into users (id, username, password_hash, role, created_at) values ('01U', ?, 'x', 'admin', '2026-01-01T00:00:00Z')").run(admin)

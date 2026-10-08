@@ -34,6 +34,7 @@ import { contextAfter, contextBefore, wordDiff } from '../history/diff.ts'
 import { HistoryError, UNAVAILABLE_MESSAGE, clientMessage, type AuthorRef, type HistoryReader } from '../history/reader.ts'
 import type { History } from '../history/index.ts'
 import { NoteError, NoteService } from '../notes.ts'
+import { ConfigInvalidError } from '../permissionsFile.ts'
 import type { AudienceChange } from '../audience.ts'
 import { AudienceWidens, HIGHLIGHT_END, HIGHLIGHT_START, RequestError, type NowHidden, type ScopedMoveReport, type ScopedNotes, type ScopedRevertReport } from '../scoped.ts'
 import type { TextCache } from './texts.ts'
@@ -203,6 +204,7 @@ function failure(err: unknown, log: (m: string) => void): CallToolResult {
   else if (err instanceof AudienceWidens) body = { error: 'audience_widens', message: err.message, audience: audienceResult(err.audience) }
   else if (err instanceof RequestError) body = { error: err.code, message: err.message }
   else if (err instanceof AccessError) body = { error: 'forbidden', message: err.message }
+  else if (err instanceof ConfigInvalidError) body = { error: 'config_invalid', message: err.message }
   else if (err instanceof HistoryError) body = { error: err.code, message: clientMessage(err) }
   else if (err instanceof GitError) {
     log(`mcp: history: ${err.message}`)
@@ -283,12 +285,18 @@ function changesOf(a: string, b: string): { changes: TextChange[]; words: { adde
 /** What a write that hid the note from this agent adds to its answer (scoped.ts `NowHidden`). */
 const hiddenFields = (h: NowHidden) => ({ now_hidden: true, reason: h.reason, message: h.message })
 
-/** Who gains or loses access with a move: users and groups by name (everyone sees them), keys only counted. */
+/**
+ * Who gains or loses access with a move: users and groups by name (everyone
+ * sees them), keys only counted; and whose it is before and after when it
+ * changes space (`owner`: a person's space by its username, a shared one by
+ * its path and name; null when it stays in its space).
+ */
 function audienceResult(a: AudienceChange) {
   return {
     users: { gain: a.users.gain.map((u) => u.username), lose: a.users.lose.map((u) => u.username) },
     groups: a.groups,
     keys: a.keys,
+    owner: a.owner,
   }
 }
 
@@ -618,6 +626,8 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
       return null
     }
     if (!/^[0-9a-f]{4,64}$/i.test(since)) throw new ToolError('invalid', 'since must be an ETag ("sha256:…") or a version id')
+    // A version is the note's history, which is for whoever can edit it (as `history` answers).
+    if (!access.canHistory(p)) throw new AccessError('the history of a note is only for whoever can edit it')
     const v = await reader().version(p, since)
     if (!v) throw new HistoryError('not_found', `${since} is not a version of ${p}`)
     return v.text ?? ''
@@ -677,7 +687,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     return reply({ series: t.series, path: r.path, exists: true, etag: r.etag }, noteText(`The text of ${r.path}`, r.text))
   }
   const DAILY = 'The daily note for today of the person you act for (their series and time zone, from vihko.yaml and their profile)'
-  const series = z.string().optional().describe('Another series than the person\'s own, by its id in vihko.yaml.')
+  const series = z.string().optional().describe('Another series than the one the person chose, by its id: one of vihko.yaml\'s, a shared space\'s (`sp-…`) or one of their own settings (`me-…`). Without it, the person\'s choice; with no choice and no series in their own space, `series_gone`: ask them which one.')
 
   if (!access.mayWrite) {
     server.registerTool('daily_note', {

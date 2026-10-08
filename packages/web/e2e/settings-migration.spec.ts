@@ -30,7 +30,8 @@ test('templates folders in someone\'s settings: converted at start, the key gone
   const card = page.locator('.alert-card', { hasText: 'Tus carpetas de plantillas se han convertido' })
   await expect(card).toContainText(`vihko marcó como plantilla 1 nota de las carpetas que ~${ADMIN.username}/.vihko/settings.yaml nombraba en «templates»`)
   await expect(card).toContainText('Estas carpetas que nombraba ya no existen')
-  await expect(card.getByRole('listitem')).toHaveText(LOCKED_TEMPLATES.gone)
+  // A value of that file, marked as such: never a folder on disk.
+  await expect(card.getByRole('listitem')).toHaveText(`en ~${ADMIN.username}/.vihko/settings.yaml: templates: ${LOCKED_TEMPLATES.gone}`)
   // Nothing else to warn about in the file.
   await expect(page.locator('.alert-card', { hasText: 'Los ajustes de tus notas tienen algo mal' })).toHaveCount(0)
   for (const theme of ['light', 'dark'] as const) {

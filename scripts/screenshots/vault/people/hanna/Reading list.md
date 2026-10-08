@@ -1,5 +1,5 @@
 # Reading list
 
-- [x] *Shape Up*, Ryan Singer
-- [ ] *The Mom Test*, Rob Fitzpatrick, before the [[spaces/Team/projects/Customer interviews|Customer interviews]]
-- [ ] *Don't Make Me Think*, Steve Krug, for the [[spaces/Team/projects/Website relaunch|Website relaunch]]
+- [x] [[spaces/Team/handbook/How we write notes|How we write notes]], once more, before I ask the others to follow it
+- [ ] A short book on running interviews that don't lead the answer, before the [[spaces/Team/projects/Customer interviews|Customer interviews]]
+- [ ] Something on how people scan a web page, for the [[spaces/Team/projects/Website relaunch|Website relaunch]]

@@ -8,10 +8,11 @@ New here? Read [[Onboarding]], then [[How we write notes]]. #handbook #start-her
 - [x] Invite Ravi with a sign-up link
 - [ ] Turn on the API and MCP, as agreed in [[2026-09-29 Weekly sync]]
 
-| Folder | What goes there |
+| Where | What goes there |
 |---|---|
-| `meetings` | The weekly syncs, date first |
-| `projects` | One note per project, linked from the syncs |
+| **My notes** | Notes only you see |
+| **Team** | Notes for the whole team |
+| **Shared with me** | Folders others share with you |
 
 ```yaml
 permissions:

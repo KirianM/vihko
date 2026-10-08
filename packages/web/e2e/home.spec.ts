@@ -105,7 +105,7 @@ test('«Back» on the settings pages goes where the person was: a note, or Home'
   await expect(u.getByRole('button', { name: 'Volver' })).toHaveCount(0)
 })
 
-test('«On opening»: the last note, a chosen one, today\'s only if it exists, and Home', async () => {
+test('«On opening»: the last note (of this device, kept in the account), a chosen one, today\'s only if it exists, and Home', async ({ browser }) => {
   const [last, chosen] = [m.aTitle(), m.aTitle()]
   for (const t of [last, chosen]) await call(u, 'post', '/api/note', { path: mine(t), text: `# ${t}\n` }, 201)
 
@@ -122,6 +122,19 @@ test('«On opening»: the last note, a chosen one, today\'s only if it exists, a
   await expect(u.locator('.cm-content')).toBeVisible()
   await u.goto('/')
   await expect(crumbsName(u)).toHaveText(last)
+  // Kept in the account, for this device: signing out and in again, it's still there; meanwhile nothing of it in the browser.
+  await u.getByRole('button', { name: 'Cerrar sesión' }).click()
+  await expect(u.getByLabel('Nombre de usuario')).toBeVisible()
+  const stored = await u.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + document.cookie)
+  expect(stored).not.toContain(last)
+  await u.getByLabel('Nombre de usuario').fill(USER.username)
+  await u.getByLabel('Contraseña').fill(USER.password)
+  await u.getByRole('button', { name: 'Entrar' }).last().click()
+  await expect(crumbsName(u)).toHaveText(last)
+  // Another device of theirs has a last note of its own: none yet, Home.
+  const other = await signIn(browser, USER)
+  await expect(home(other)).toBeVisible()
+  await other.context().close()
 
   // A note chosen by its name.
   prefs = await openPrefs(u)

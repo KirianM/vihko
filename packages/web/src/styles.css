@@ -196,7 +196,8 @@ kbd { font-family: var(--font-mono); font-size: 12px; color: var(--muted); borde
 .space-shared { display: flex; flex-direction: column; gap: var(--space-1); padding-top: var(--space-2); border-top: 1px solid var(--line); }
 .space-shared .space-section { padding-left: var(--space-3); }
 .space-shared .space-toggle.space-shared-toggle { color: var(--ink-2); }
-.space-section-received .space-toggle { text-transform: none; letter-spacing: 0; font-size: 13px; }
+/* Every section heading looks the same (its mark, its name in small capitals), a pinned folder's too; inside «Shared with me» the folders are a list, in their own case. */
+.space-shared .space-section-received .space-toggle { text-transform: none; letter-spacing: 0; font-size: 13px; }
 .space-issue { margin: var(--space-2) 0 0; font-size: 13px; }
 .drawer .space-toggle { height: var(--touch); font-size: 13px; }
 .drawer .space-new { height: var(--touch); font-size: 15px; }

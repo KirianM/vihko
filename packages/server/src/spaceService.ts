@@ -22,7 +22,7 @@ import {
   type Level, type PermissionRule, type RuleValue,
 } from '@vihko/core'
 import type { Access } from './access.ts'
-import { AccessError } from './access.ts'
+import { AccessError, AgentDenied } from './access.ts'
 import type { Actor } from './actor.ts'
 import type { AdminSettings } from './adminSettings.ts'
 import type { Db } from './db.ts'
@@ -512,7 +512,10 @@ export class SpaceService {
     let folder: string
     try { folder = this.folderArg(p) } catch { throw notFound() }
     const s = parseSpacePath(folder)
-    if (!s || access.level(folder) === null || !access.folderInScope(folder) || access.closedToAgent(folder) || !this.isFolder(folder)) throw notFound()
+    if (!s || access.level(folder) === null || !this.isFolder(folder)) throw notFound()
+    // A folder its person reads but that is hidden from the agent: `agent_denied` with why, as for a note.
+    if (access.closedToAgent(folder)) throw new AgentDenied('ai_false', 'folder')
+    if (!access.folderInScope(folder)) throw new AgentDenied('outside_key_folders', 'folder')
     const readable = (f: string) => access.level(f) !== null && access.folderInScope(f)
     const members = this.engine.audience(folder).map((u) => ({
       username: u.username,
@@ -735,10 +738,11 @@ export class SpaceService {
     }, { actor: access.actor }).catch((err) => this.opts.log?.(`the old rules of ${shownPath(from)} stay in vihko.yaml after it moved to ${shownPath(dest)}: ${err instanceof Error ? err.message : String(err)}`))
     // Its trash goes along, whatever space it lands in: what was shared stays so, with what was deleted there.
     this.opts.refs.moved(from, dest, { trash: 'always' })
-    // A person's settings (their `.vihko/`) aren't a shared space's: they don't come along.
+    // A person's settings (their `.vihko/`) aren't a shared space's: they don't come along. They go to
+    // the trash, as anything hidden in a folder that goes does, never lost for good.
     if (action === 'convert') {
       for (const entry of readdirSync(join(this.opts.notesDir, dest))) {
-        if (isReserved(`${dest}/${entry}`)) rmSync(join(this.opts.notesDir, dest, entry), { recursive: true, force: true })
+        if (isReserved(`${dest}/${entry}`)) await this.opts.notes.trashHidden(dest, entry, access.actor)
       }
     }
     if (action === 'transfer') {

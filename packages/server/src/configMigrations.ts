@@ -20,7 +20,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { WORKSPACE_FILE, WORKSPACE_MIGRATIONS, contentHash, migrateWorkspaceText, type Alert, type ConfigMigrationRef, type WorkspaceMigration } from '@vihko/core'
-import { commitText, createFile, readText } from './fsutil.ts'
+import { commitText, createFile, readText, writeTarget } from './fsutil.ts'
 import { writeAtomic } from './history/recorder.ts'
 
 /** Where the copies go, in the state volume. */
@@ -98,7 +98,7 @@ export class ConfigMigrations {
       return this.fail(null, `the copy of the file couldn't be made: ${describe(err)}`)
     }
     try {
-      const w = await commitText(file, r.text, contentHash(text))
+      const w = await commitText(writeTarget(file), r.text, contentHash(text))
       if (!w.ok) {
         rmSync(join(this.opts.stateDir, backup), { force: true })
         return this.fail(null, 'the file changed while it was being rewritten')

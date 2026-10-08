@@ -5,3 +5,5 @@ permissions:
     grants: { hanna: manage, ravi: edit }
   people/ravi/website:
     grants: { hanna: comment }
+  people/ravi/talks:
+    grants: { hanna: read }

@@ -332,14 +332,15 @@ export class ApiKeys {
    * user disabled; `suspended` for a member's while members may not have
    * keys (nothing is recorded). Records when and how (`via`) it was last used.
    */
-  principal(id: string, via: Via): AgentPrincipal | 'suspended' | null {
+  principal(id: string, via: Via, opts: { touch?: boolean } = {}): AgentPrincipal | 'suspended' | null {
     const r = this.db.prepare('select k.*, u.username, u.role, u.disabled from api_keys k join users u on u.id = k.user_id where k.id = ?')
       .get(id) as (Row & { username: string; role: Role; disabled: number }) | undefined
     if (!r) return null
     const now = this.now()
     if (r.revoked_at || r.disabled || (r.expires_at && Date.parse(r.expires_at) <= now.getTime())) return null
     if (r.role !== 'admin' && !this.membersAllowed()) return 'suspended'
-    if (!r.last_used_at || now.getTime() - Date.parse(r.last_used_at) >= LAST_USED_EVERY_MS || r.last_via !== via) {
+    // `touch: false`: only whether it works, nothing recorded as used.
+    if (opts.touch !== false && (!r.last_used_at || now.getTime() - Date.parse(r.last_used_at) >= LAST_USED_EVERY_MS || r.last_via !== via)) {
       this.db.prepare('update api_keys set last_used_at = ?, last_via = ? where id = ?').run(now.toISOString(), via, r.id)
     }
     const user: User = { id: r.user_id, username: r.username, role: r.role, disabled: false }

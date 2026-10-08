@@ -623,6 +623,10 @@ export class OAuthServer {
     if (!this.available() || !OAuthServer.isAccessToken(token)) return null
     const row = this.db.prepare(`select * from oauth_tokens where token_hash = ? and kind = 'access'`).get(sha256hex(token)) as TokenRow | undefined
     if (!row || row.resource !== this.resource || Date.parse(row.expires_at) <= this.now().getTime()) return null
+    // Whether its authorization still holds first (its person disabled, say): one that doesn't is the
+    // 401 with its challenge, whatever the Origin, so the client finds out how to get a new one.
+    const valid = this.keys.principal(row.key_id, 'oauth', { touch: false })
+    if (valid === null || valid === 'suspended') return valid
     if (foreignOrigin !== undefined) {
       const origin = originOf(foreignOrigin)
       if (origin === null || !this.clientOrigins(row.key_id).includes(origin)) return 'origin'

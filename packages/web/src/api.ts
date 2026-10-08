@@ -267,7 +267,8 @@ export interface WorkspaceInfo {
 /** The person's own settings (state.db). `language`: the UI's, null = automatic (the browser's). */
 /** What vihko opens when the person comes in: Home, this device's last note, a note they chose, or today's note if it exists. */
 export type OnOpen = 'home' | 'last' | 'note' | 'daily'
-export interface Profile { timezone: string | null; dailySeries: string | null; onOpen: OnOpen; onOpenNote: string | null; openDailyOnStart: boolean; language: Language | null }
+/** `lastNote`: the last note opened on this device («On opening: Last note»), kept in the account; null if none or no longer readable. */
+export interface Profile { timezone: string | null; dailySeries: string | null; onOpen: OnOpen; onOpenNote: string | null; openDailyOnStart: boolean; language: Language | null; lastNote: string | null }
 
 /** Note settings of a person or a shared space (GET/PUT /api/settings): paths inside the space. */
 export interface NoteSettingsForm {
@@ -595,6 +596,8 @@ export const api = {
   /** `remove`: keys vihko doesn't know (as `errors` names them) to remove from the file. */
   saveSettings: (space: string | null, settings: NoteSettingsForm, ifMatch: string, remove: string[] = []) => request<SettingsView>('PUT', '/api/settings', { ...(space ? { space } : {}), settings, ifMatch, ...(remove.length ? { remove } : {}) }),
   updateProfile: (patch: Partial<Profile>) => request<Profile>('PUT', '/api/profile', patch),
+  /** The note opened now, as this device's last («On opening: Last note»). */
+  setLastNote: (path: string) => request<{ lastNote: string }>('PUT', '/api/profile/last-note', { path }),
   /** Where today's note is and whether it exists; creates nothing. */
   today: () => request<{ series: string; path: string; exists: boolean }>('GET', '/api/daily'),
   /** Opens today's note, creating it from its template if it doesn't exist. */

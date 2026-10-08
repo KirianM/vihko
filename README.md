@@ -18,7 +18,7 @@ optionally, from an API and an MCP server.
 
 Your notes stay a folder of `.md` files. If vihko disappears, you lose nothing.
 
-<img src=".github/assets/screenshots/desktop.png" width="900" alt="vihko on a computer, half in the light theme and half in the dark one: on the left, the sidebar with My notes, the shared space Team open on its handbook folder, and Shared with me holding a folder another person shares; in the middle, a note of the Team space with the vihko logo, a highlighted passage, links, tags, a task list, a table, a YAML block that gives the space its name and members, and a second person's cursor; on the right, a comment thread about that passage">
+<img src=".github/assets/screenshots/desktop.png" width="900" alt="vihko on a computer, half in the light theme and half in the dark one: on the left, the sidebar with My notes, the shared space Team open on its handbook folder, a folder another person shares pinned below it, Shared with me holding one more, and Recent changes and Trash at its foot; in the middle, a note of the Team space with the vihko logo, a highlighted passage, links, tags, a task list, a table of where notes go, a YAML block that gives the space its name and members, and a second person's cursor; on the right, a comment thread about that passage">
 
 ## The problem it solves
 
@@ -47,7 +47,7 @@ server**, giving up full offline mode.
   belongs to several, folders shared one by one, real-time co-editing between
   people and the agents they allow in, comments, and a history of every note.
 - **Spaces on disk, too.** Each person's notes are in `people/<name>/`, each
-  shared space's in `spaces/<name>-<id>/`: the same paths for everyone, for
+  shared space's in `spaces/<name>/`: the same paths for everyone, for
   agents and for any other editor. The admin manages people and spaces but
   doesn't read other people's notes in vihko; whoever runs the server can
   read the files, so one installation is for one group that trusts them.
@@ -96,8 +96,8 @@ The log of the first start prints a one-time token:
 ```
 
 Open `http://<your-server>:8080`, paste the token, and choose the admin's name
-and password (10 characters or more). That's it: you're in «My notes», your
-own space. Create notes in the UI, or drop `.md` files into
+and password (10 characters or more). That's it: you're in, and «My notes»,
+in the sidebar, is your own space. Create notes in the UI, or drop `.md` files into
 `notes/people/<your name>/`. Then: [First steps in the app](guide/first-steps.md)
 shows notes, spaces, links, search and sharing in a few minutes.
 

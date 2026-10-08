@@ -56,7 +56,7 @@ test('a marked template: the new note gets its frontmatter without the mark and 
 })
 
 test('templates are left out of search, tags and Home, not out of the tree (marked there) or of opening them; asked by their mark, they are found', async () => {
-  const { admin, notesDir, runtime } = await setup({ config: CONFIG })
+  const { admin, notesDir, runtime, users } = await setup({ config: CONFIG })
   const [word, tag] = [m.aUniqueWord(), m.aTag()]
   const template = inShared(`${m.aFolder()}/${m.aTitle()}.md`)
   const note = inShared(`${m.aTitle()}.md`)
@@ -77,6 +77,16 @@ test('templates are left out of search, tags and Home, not out of the tree (mark
   assert.equal(tags.find((t) => t.tag === tag)?.count, 1)
   // Home doesn't list it.
   assert.ok(!JSON.stringify((await admin('GET', '/api/home')).body).includes(template))
+  // Where Home would list a note (one's own space, changed lately): the note is there, the template next to it isn't.
+  const own = `people/${users.admin.username}`
+  const [ownNote, ownTemplate] = [`${own}/${m.aTitle()}.md`, `${own}/${m.aTitle()}.md`]
+  mkdirSync(join(notesDir, own), { recursive: true })
+  writeFileSync(join(notesDir, ownTemplate), `---\ntemplate: true\n---\n# {{title}}\n`)
+  writeFileSync(join(notesDir, ownNote), `# ${m.aHeading()}\n`)
+  runtime.rescan({})
+  const recent = ((await admin('GET', '/api/home')).body.recent as { path: string }[]).map((r) => r.path)
+  assert.ok(recent.includes(ownNote), JSON.stringify(recent))
+  assert.ok(!recent.includes(ownTemplate), JSON.stringify(recent))
   // The tree and opening it: as any note, marked in the tree.
   const tree = (await admin('GET', '/api/tree')).body.notes as { path: string; template?: true }[]
   assert.equal(tree.find((n) => n.path === template)?.template, true)

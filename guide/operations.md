@@ -43,8 +43,9 @@ user created: alex (admin)
 ```
 
 The user gets their folder, `people/<name>/`. If that folder already exists
-with something in it, the user isn't created (`error: people/<name> already
-exists with something in it…`): move it away first.
+with something in it, the user isn't created (`error (personal_folder_exists):
+people/<name> already exists with something in it…`): move it away first, or
+add `--adopt` to make it theirs as it is.
 
 Usernames have 2 to 64 letters, digits, `.`, `_` or `-`, don't start with a
 dot, and can't be one of
@@ -165,7 +166,7 @@ The lines to know:
 | Line | What it means |
 |---|---|
 | `vihko <version>` | The first line of every start. |
-| `no vihko.yaml: nothing configured` | There's no [`vihko.yaml`](configuration.md): no daily notes, and nothing is shared: each person has only their own space. |
+| `no vihko.yaml: nothing configured` | There's no [`vihko.yaml`](configuration.md): no settings for the whole installation, and nothing is shared: each person has only their own space. (A person's or a space's own settings still apply.) |
 | `vihko.yaml loaded` | `vihko.yaml` was read and applies. Printed again whenever it changes. |
 | `vihko.yaml loaded without unknown_key at <key>, …` | It applies, except what the line lists: `unknown_key at <key>` is a key vihko doesn't know (a typo, or a setting of a newer vihko), which is ignored; `section_rejected at permissions` means the permissions section was rejected. The admins see each one, with its line, in the workspace alerts. See [When something is wrong](configuration.md#when-something-is-wrong). |
 | `index ready: …` | The first scan of the notes folder is done: notes added, changed, removed and unchanged since the index last saw them. |
@@ -193,14 +194,17 @@ The lines to know:
 | `scan aborted: mass_delete` | A scan found most notes gone and stopped. See [Notes vanished](#notes-vanished-scan-stopped). |
 | `scan aborted: root_unavailable` | The notes folder isn't there (an unmounted share?). |
 | `history sweep: N of M files look deleted; not recorded (…)` | Same guard, for the history. |
+| `history sweep skipped: the notes folder is not available` | The notes folder wasn't there when the history went to compare it: nothing was recorded. |
 | `watcher: …` | The file watcher failed. The periodic rescan keeps vihko up to date meanwhile. |
 | `history unavailable: …` / `history available again` | The history couldn't save versions for a while; notes are saved as usual. |
 | `vihko runs as root (0:0), which it doesn't need: …` | `.env` (or its absence, as root) has vihko run as root. It works, but give the folders to an ordinary user: see [The user and file ownership](install.md#the-user-and-file-ownership). |
 | `the state folder … belongs to …, not to the user vihko runs as …, so vihko can't close it to other users of this system …` | vihko starts, but can't make the state folder private (mode `700`). The line says the `chown` that fixes it. |
 | `vihko can't write to the … folder …` / `vihko can't read the … folder …` / `the notes folder … doesn't exist …` | vihko stops, and Docker restarts it in a loop: see [Restarting in a loop](#restarting-in-a-loop-vihko-cant-write-to-the--folder). |
 
-Errors that stop vihko at start print the message and a stack trace. The
-first lines say what's wrong: see [Common problems](#common-problems).
+What stops vihko at start, and is yours to fix (a variable it can't use, a
+folder it can't write), is one line each, saying what and how. Anything else
+prints `vihko couldn't start: …` followed by a stack trace: the first line
+says what's wrong. See [Common problems](#common-problems).
 
 Docker's default log driver keeps everything unless you limit it. To cap it,
 add this to the `vihko` service:
@@ -364,7 +368,8 @@ on two settings for the whole installation:
 
 - **Empty the trash after…** (days): trash entries deleted longer ago than
   that are removed for good, with the images and files that went with them.
-- **Delete history versions older than…** (days or months): versions older
+- **Delete history versions older than…** (days or months, a month counting
+  as 30 days): versions older
   than that leave the [history](history.md#retention). The current version of
   every note is always kept (each file keeps the version it had at that
   moment), and so is the whole history of notes still in the trash; once a
@@ -375,8 +380,10 @@ on two settings for the whole installation:
 Turning one on, or shortening it, first shows what the next run would remove
 (how many trash entries and versions, and their size; never a path, since the
 admin doesn't read everyone's spaces) and asks for your current code, or your
-password without two-step verification. A longer period, or off, is saved at
-once.
+password without two-step verification (not again within 15 minutes of
+confirming something in that browser session). A longer period, or off, is
+saved at once. Only an admin sees and changes these settings; they're kept in
+`state.db`, not in `vihko.yaml`.
 
 ### Turning it on, step by step
 
@@ -437,6 +444,7 @@ ids: a link to a version kept from before (an address with `&version=`, or an
 id an agent noted) stops working after a run that removed versions, as after
 a [purge](history.md#purging). That's why it runs weekly and not every
 night.
+
 ## Common problems
 
 ### "port is already allocated"
@@ -560,12 +568,24 @@ the files aren't yours.)
 ### Notes copied into the folder don't show up
 
 Every note vihko shows lives in a space: `people/<username>/` or
-`spaces/<name>-<id>/`. Files put anywhere else, at the root of the notes
-folder say, are seen by nobody, and the admins get an alert («outside the
-spaces») listing them; Preferences → Spaces lists them too. Move them into
-someone's folder or a shared space's folder. A folder in `people/` named after
-no user, or one in `spaces/` without the id at the end of its name, isn't a
-space either.
+`spaces/<name>/`. Files put anywhere else, at the root of the notes folder
+say, are seen by nobody, and the admins get an alert («Something is outside
+the spaces») listing them; Preferences → Spaces lists them too, under
+«Outside the spaces». Move them into someone's folder or a shared space's
+folder.
+
+- A folder in `people/` named after no user is nobody's space: the admins
+  get the alert «Personal folders without a person».
+- A folder made by hand in `spaces/` is a shared space, but with no members
+  nobody sees it: the admins get the alert «Projects has no members» (with its
+  name), and an admin assigns someone to manage it in Preferences → Spaces.
+  To bring notes
+  into a space people already use, copy them into that space's folder
+  instead.
+- A file directly in `spaces/`, or a folder there whose name can't be a
+  space's (hidden, starting with `~`, ending in `.`, `~` or `.md`), is
+  outside the spaces too (see
+  [What 0.x tries to keep](compatibility.md#paths-and-spaces)).
 
 ### Changes made elsewhere don't show up
 
@@ -586,4 +606,4 @@ image), request bodies too, but some things aren't capped yet:
 - how many images a person uploads in total over time.
 
 If someone abuses that, disable their account (Preferences → Users and
-groups): their connections close at once. Caps for these are planned.
+groups): their connections close at once.

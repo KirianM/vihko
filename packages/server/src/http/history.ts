@@ -36,6 +36,7 @@ import { revertVersion } from '../history/revert.ts'
 import { NoteError, NoteService, type Actor } from '../notes.ts'
 import { RequestError, agentGuard, assertPlacement, hiddenAfterWrite, revertWritten } from '../scoped.ts'
 import { written } from './written.ts'
+import { scrub } from '../logging.ts'
 import { jsonBody } from './jsonBody.ts'
 
 export interface HistoryRoutesDeps {
@@ -206,7 +207,8 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       let current: string | null = null
       try { current = notes.read(path).text } catch (err) { if (!(err instanceof NoteError && err.code === 'not_found')) throw err }
       const [now, then] = [current === null ? null : uidOf(current), uidOf(v.text)]
-      if (now !== null && then !== null && now !== then) throw new RequestError(409, 'uid_mismatch', 'that version is of another note that had this path before: restore it as a new note (`to`)')
+      // A note there now without a uid is another note too (the history keeps them apart): never overwritten by one that had one.
+      if (current !== null && then !== null && now !== then) throw new RequestError(409, 'uid_mismatch', 'that version is of another note that had this path before: restore it as a new note (`to`)')
     }
     // The images it brings back: only from folders whoever asks can read, and to where they can write.
     const r = await notes.restoreVersion(dest, { id: v.id, at: v.at, path: v.path, text: v.text }, {
@@ -216,8 +218,9 @@ export function historyRoutes(app: Hono<Env>, deps: HistoryRoutesDeps) {
       // As a new note, its own uid when the old one is taken (the note it was may live on elsewhere).
       freshUid: dest !== path,
     })
-    c.header('ETag', `"${r.etag}"`)
-    return c.json(dest === path ? r : { ...r, path: dest })
+    // A restore that leaves the note hidden from the agent that made it stands, with `nowHidden`, as any write (scoped.ts).
+    const nowHidden = hiddenAfterWrite(access, notes, dest) ?? undefined
+    return c.json(written(c, { ...(dest === path ? r : { ...r, path: dest }), ...(nowHidden ? { nowHidden } : {}) }))
   })
 
   // Undoes what one version changed, on the note as it is now (history/revert.ts):
@@ -413,7 +416,7 @@ export function purgeErrorStatus(e: PurgeError) {
  */
 export function purgeClientMessage(e: PurgeError): string {
   if (e.code === 'history_moved') {
-    console.error(`history: purge: ${e.message}`)
+    console.error(scrub(`history: purge: ${e.message}`))
     return 'the history changed while it was being rewritten; nothing was changed'
   }
   if (e.code === 'history_no_repository') return 'there is no managed history yet'

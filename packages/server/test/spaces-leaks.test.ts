@@ -199,6 +199,9 @@ test('two people and an agent over the same tree: nothing of what they can\'t se
         { route: 'GET /api/workspace', method: 'GET', path: '/api/workspace' },
         { route: 'GET /api/profile', method: 'GET', path: '/api/profile' },
         { route: 'PUT /api/profile', method: 'PUT', path: '/api/profile', body: {} },
+        // This device's last note: one the person reads, kept; one they don't, as missing, whether it exists or not.
+        { route: 'PUT /api/profile/last-note', method: 'PUT', path: '/api/profile/last-note', body: { path: mine } },
+        { route: 'PUT /api/profile/last-note', method: 'PUT', path: '/api/profile/last-note', body: { path: theirs }, expect: 404 },
         { route: 'GET /api/integrations', method: 'GET', path: '/api/integrations' },
         { route: 'PUT /api/admin/integrations', method: 'PUT', path: '/api/admin/integrations', body: { api: true }, expect: adminOnly(who) },
         { route: 'GET /api/keys', method: 'GET', path: '/api/keys' },
@@ -496,7 +499,7 @@ test('where a route used to give away what is in a space someone can\'t read: th
   // A folder of the admin's own space shared with the member to edit: links never leave a space, so the notes
   // the member can't read and whose links a move rewrites are the rest of that space.
   const lent = `${home(ADMIN.username)}/${m.aFolder()}`
-  const h = await setup({ files: { ...FILES, [`${lent}/${m.aTitle()}.md`]: `# ${m.aHeading()}\n` }, config: RULES + `  ${yamlKey(lent)}:\n    grants: { ${yamlKey(MEMBER.username)}: edit }\n` })
+  const h = await setup({ files: { ...FILES, [`${lent}/${m.aTitle()}.md`]: `# ${m.aHeading()}\n` }, config: RULES + `  ${yamlKey(lent)}:\n    grants: { ${yamlKey(MEMBER.username)}: edit }\n`, moveWaitMs: 0 })
   try {
     await h.enable()
     const memberHome = home(MEMBER.username)
@@ -551,6 +554,18 @@ test('where a route used to give away what is in a space someone can\'t read: th
     assert.equal(report.hidden, true)
     assert.deepEqual([...new Set(totals)], [1], 'one note they read; the others are never counted')
     assert.ok(!JSON.stringify(report).includes(hidden[0]!) && !JSON.stringify(report).includes(hidden[1]!))
+    // The same over HTTP, in the background (202 and its job): the job's totals count only what they read.
+    const moved = report.to
+    const bg = await h.member('POST', '/api/note/move', { from: moved, to: `${lent}/${m.aTitle()}.md`, background: true })
+    assert.equal(bg.status, 202, bg.text)
+    assert.equal(bg.body.job.total, 1, bg.text)
+    let job = bg.body.job
+    for (let i = 0; job.state === 'running' && i < 500; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+      job = (await h.member('GET', `/api/move-jobs/${job.id}`)).body
+    }
+    assert.deepEqual([job.state, job.total, job.done], ['done', 1, 1])
+    for (const text of [bg.text, JSON.stringify(job)]) assert.ok(!text.includes(hidden[0]!) && !text.includes(hidden[1]!), text)
 
     // The history cursor of a note that came from someone's personal space: opaque, never the path it had there.
     const before = `${memberHome}/${m.aTitle()}.md`

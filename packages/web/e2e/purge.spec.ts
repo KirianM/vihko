@@ -160,6 +160,10 @@ test('a member purges, from the trash notice, a note two folders down in their o
     await dialog.getByRole('button', { name: 'Purgar el historial' }).click()
     await expect(dialog).toHaveCount(0, { timeout: 30_000 })
     await expect.poll(theirVersions, { timeout: 30_000 }).toBe(0)
+    // Purging by a path typed in «Recent changes» is the admin's alone: a member never sees the form.
+    await member.goto('/?view=changes')
+    await expect(member.getByRole('heading', { level: 1 })).toHaveText('Cambios recientes')
+    await expect(member.getByRole('button', { name: 'Purgar del historial…' })).toHaveCount(0)
   } finally {
     await member.context().close()
   }

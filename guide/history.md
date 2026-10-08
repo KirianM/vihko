@@ -224,9 +224,9 @@ what an agent writes gets no version of its own in vihko to undo it by.
 ## Retention
 
 By default the history keeps every version for good. The admin can turn on
-**Delete history versions older than…** (days or months) in «Users and
-groups» → Retention, for the whole installation; once a week (or at once,
-with «Run now»), versions older than that are removed:
+**Delete history versions older than…** (days or months; a month is 30 days)
+in «Users and groups» → «Retention», for the whole installation; once a week
+(or at once, with «Run now»), versions older than that are removed:
 
 - **The current version of every note stays.** Each file keeps the version it
   had at that moment (with its author and date), so a note nobody touched in

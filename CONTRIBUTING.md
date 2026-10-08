@@ -9,7 +9,7 @@ Thanks for taking an interest in vihko.
   how you run it (Docker, which volumes and reverse proxy if any), what you did,
   what you expected and what happened. The log (`docker compose logs vihko`)
   helps; remove anything private from it first.
-- **An idea or a question:** open an issue with the feature request template.
+- **An idea or a question:** open an issue with the «Idea» template.
   [ROADMAP.md](ROADMAP.md) says what's planned.
 
 ## Pull requests

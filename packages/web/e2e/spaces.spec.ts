@@ -386,6 +386,9 @@ test('a subfolder can\'t be closed, so it moves out: «Move to a new space» mak
   await share.getByRole('button', { name: 'Mover a un espacio nuevo…' }).click()
   const dialog = k.getByRole('dialog').filter({ has: k.getByRole('heading', { name: `¿Mover «${name}» a un espacio nuevo?` }) })
   await expect(dialog.getByLabel('Nombre', { exact: true })).toHaveValue(name)
+  // Links never cross spaces: the dialog says those from the rest of the space break, never that they keep working.
+  await expect(dialog).toContainText('los del resto del espacio hacia ellas (y los de ellas hacia fuera) se quedan rotos')
+  await expect(dialog).not.toContainText('siguen llevando a sus notas')
   // The usual confirmation: who stops seeing it.
   const warning = dialog.getByRole('group', { name: 'Cambia de espacio' })
   await expect(warning).toContainText(MEMBER.username, SLOW)
@@ -543,6 +546,38 @@ test('deleting a space names first what vihko doesn\'t show and goes with it: fi
   await expect.poll(() => existsSync(`${NOTES}/${root}`)).toBe(false)
 })
 
+test('deleting a space waits to name what goes with it: «Delete» stays off while that loads, and a listing that fails says so and is tried again', async () => {
+  const name = m.aSpaceName()
+  const root = ((await call(a, 'post', '/api/spaces', { name }, 201)) as { space: { path: string } }).space.path
+  await note(a, `${root}/${m.aTitle()}.md`, `# ${m.aHeading()}\n`)
+  await a.goto('/')
+  let release = () => {}
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let first = true
+  const listing = /\/api\/folder\?.*dryRun=true/
+  await a.route(listing, async (route) => {
+    if (!first) return route.continue()
+    first = false
+    await held
+    return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'internal', message: 'internal error' }) })
+  })
+  await sectionMenu(a, name, 'Borrar espacio…')
+  const dialog = a.getByRole('alertdialog', { name: `¿Borrar el espacio «${name}»?` })
+  const confirm = dialog.getByRole('button', { name: 'Borrar espacio' })
+  await expect(dialog.getByRole('status')).toHaveText('Mirando qué más se lleva…')
+  await expect(confirm).toBeDisabled()
+  release()
+  await expect(dialog.getByRole('alert')).toHaveText('No se ha podido ver qué más se lleva: no se borra sin verlo antes.')
+  await expect(confirm).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Reintentar' }).click()
+  await expect(confirm).toBeEnabled()
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await a.unroute(listing)
+  await confirm.click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => existsSync(`${NOTES}/${root}`)).toBe(false)
+})
+
 test('someone new sees «My notes» empty and creates their first note there', async ({ browser }) => {
   const f = await signIn(browser, FRESH)
   const mine = f.locator('.space-section', { has: f.getByRole('button', { name: 'Mis notas' }) })
@@ -590,7 +625,10 @@ test('a space\'s folder is its name: renaming it moves the open note\'s address,
     await fresh.getByRole('button', { name: 'Crear espacio' }).click()
     await expect(fresh.getByRole('alert')).toContainText(said)
   }
-  await fresh.getByRole('button', { name: 'Cancelar' }).click()
+  // After an error the focus stays in the dialog (its button was off while it asked), so Escape still closes it.
+  await expect.poll(() => o.evaluate(() => document.activeElement?.closest('[role="dialog"]') !== null && document.activeElement !== document.body)).toBe(true)
+  await o.keyboard.press('Escape')
+  await expect(fresh).toHaveCount(0)
 
   // An address of the folder rc.1 or rc.2 would have made for it leads to the space it is now.
   const legacy = `${readablePart(after)}-${m.pick(['k3v9q2', '7k2q9x', 'qa23l6'])}`

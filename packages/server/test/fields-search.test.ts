@@ -64,6 +64,10 @@ test('search by frontmatter fields: key and value in any case, any item of a lis
     assert.deepEqual(await q(`${word} type:${m.aWord()}`), [])
     assert.deepEqual(await q(`tag:${tag} rating:5`), [two], 'with a tag')
     assert.deepEqual(await q(`type:${decision.slice(0, -1)}`), [], 'a value is never matched by a prefix of it')
+    // created: and modified: aren't vihko's: fields of the frontmatter as any other.
+    const [made, changed] = ['2026-01-02', '2026-03-04']
+    h.write(two, `---\nType: ${idea.toUpperCase()}\nrating: 5.0\ntags: [${tag}]\ncreated: ${made}\nmodified: ${changed}\n---\n# ${m.aHeading()}\n\n${word}\n`)
+    assert.deepEqual([await q(`created:${made}`), await q(`modified:${changed}`), await q(`modified:${made}`)], [[two], [two], []])
     // A change to the frontmatter is searched at once.
     h.write(three, `---\ntype: ${decision}\n---\n# ${m.aHeading()}\n`)
     assert.deepEqual(await q(`type:${decision}`), sorted(one, three))

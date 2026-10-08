@@ -4,8 +4,8 @@
 // yet.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 import { isMap, isScalar, type Document, type Pair, type Scalar, type YAMLMap } from 'yaml'
 import type { Alert, WorkspaceMigration } from '@vihko/core'
 import { BACKUP_DIR, ConfigMigrations, KEEP_BACKUPS, Workspace, configFromEnv, start } from '@vihko/server'
@@ -98,6 +98,20 @@ test('an old file is rewritten once: the new form, every other byte kept, atomic
   assert.equal(again.dismiss(a.id), false)
   assert.deepEqual(again.alerts(), [])
   assert.deepEqual(s.runner().alerts(), [], 'dismissed for good')
+})
+
+test('vihko.yaml as a symbolic link: the file it leads to is rewritten, atomically, and the link stays', async () => {
+  const s = setup(null)
+  const elsewhere = join(tempDir('vihko-config-elsewhere-'), 'vihko.yaml')
+  writeFileSync(elsewhere, OLD)
+  symlinkSync(elsewhere, s.file)
+  const inode = statSync(elsewhere).ino
+  assert.equal(await s.runner().run(), 'migrated')
+  assert.ok(lstatSync(s.file).isSymbolicLink(), 'the link is still a link')
+  assert.equal(readlinkSync(s.file), elsewhere)
+  assert.equal(readFileSync(elsewhere, 'utf8'), NEW)
+  assert.notEqual(statSync(elsewhere).ino, inode, 'a new file renamed into place')
+  assert.deepEqual(readdirSync(dirname(elsewhere)), ['vihko.yaml'], 'no temporary file left')
 })
 
 test('nothing to migrate: no write, no copy, no alert, no log (no file, a current one, or no migrations at all)', async () => {

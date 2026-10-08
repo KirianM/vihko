@@ -71,7 +71,7 @@ services:
     # that way). From 0.1.0 on, this line says :0.1, which gets every 0.1.x
     # release (fixes only); a new minor version (0.2) may change things and
     # you move to it by changing the tag, after reading its upgrade notes.
-    image: ghcr.io/kirianm/vihko:0.1.0-rc.7
+    image: ghcr.io/kirianm/vihko:0.1.0-rc.8
     restart: unless-stopped
     # Hardening: nothing is written outside the two volumes, no Linux
     # capabilities, and no way to gain privileges. vihko needs none of them.
@@ -102,8 +102,11 @@ services:
     #   VIHKO_PUBLIC_URL: https://notes.example.com
     #   # The reverse proxy's address as vihko sees it, so the login limits
     #   # count each client apart (X-Forwarded-For is believed only from it).
-    #   # A proxy on this machine or in this file: 172.16.0.0/12. On another
-    #   # machine: its address alone (such as 10.0.0.50), never a range.
+    #   # A proxy on this machine with the 127.0.0.1 port line, or in this file
+    #   # without publishing the port: 172.16.0.0/12. With the port published on
+    #   # every address, or a Docker network shared with other containers, and
+    #   # on another machine: the proxy's address alone (such as 10.0.0.50),
+    #   # never a range. See guide/reverse-proxy.md.
     #   VIHKO_TRUSTED_PROXIES: 172.16.0.0/12
 ```
 
@@ -212,6 +215,8 @@ Back it up. See [Backups](backups.md).
 | `trash/` | Deleted notes and folders, which people can restore from the UI | Yes |
 | `collab/` | Saved editor states of the notes opened in the editor (`.ystate`), and recovery logs of notes being edited (`.ylog`), so a crash loses no typing | Yes |
 | `config-backups/` | Copies of `vihko.yaml` made before vihko rewrote it after an upgrade | Yes |
+| `vihko.yaml.last-valid`, `vihko.yaml.last-permissions` | The last `vihko.yaml` vihko could use, and the last one whose `permissions` shared something: what applies if it starts with a file it can't use, and what «Restore previous permissions» writes back | Yes |
+| `retention.json`, `permission-holds.json`, `external-moves.json`, `relink-retries.json` | Work in progress: what [retention](operations.md#retention) has to finish, notes held after a move made outside vihko, and links still to rewrite. Small, and only there when needed | Yes |
 | `state.db.bak-v<N>` | A copy of `state.db` made before an upgrade migrated it. See [Rolling back](upgrading.md#rolling-back) | Optional |
 | `index.db` | The search index. Derived from the notes, rebuilt when needed | No |
 | `state.db-wal`, `state.db-shm`, `index.db-wal`, `index.db-shm` | SQLite's companion files of the two databases, while vihko runs | With its database |
@@ -346,8 +351,9 @@ reach it on the host port you published.)
 1. Open `http://<your-server>:8080`.
 2. vihko shows «Create the administrator». Paste the token from the log.
 3. Choose a username (2 to 64 letters, digits, `.`, `_` or `-`, not starting
-   with a dot) and a password of at least 10 characters. You're signed in, in
-   «My notes», your own space (`people/<your username>/`), still empty.
+   with a dot) and a password of at least 10 characters, and press «Create
+   and sign in». You're signed in, on Home; in the sidebar, «My notes» is
+   your own space (`people/<your username>/`), still empty.
 
 The token works once. While there are no users, vihko prints a new one every
 time it starts; once the admin exists, it prints none. A script can do the
@@ -434,8 +440,8 @@ give it a sensible value.)
 | `VIHKO_PUBLIC_URL` | unset | The `https://` address vihko is reached at from outside, behind a reverse proxy: the origin only, such as `https://notes.example.com`. It makes OAuth available for remote MCP clients (while the MCP server is on), and invitation and password-reset links use it. See [Reverse proxy](reverse-proxy.md) and [Agents](agents.md). |
 | `VIHKO_TRUSTED_PROXIES` | unset | Addresses or CIDR ranges of your reverse proxies, separated by commas or spaces (`172.16.0.0/12, 10.0.0.50`). Only from them does vihko believe `X-Forwarded-For`, to tell clients apart for the sign-in limits. Unset, every request counts as coming from the connection's address. A proxy on another machine is its one address: a range such as `10.0.0.50/8` trusts the whole `10.0.0.0/8`. See [Reverse proxy](reverse-proxy.md#tell-vihko-about-the-proxy). |
 | `VIHKO_INTEGRATIONS` | unset | `off` keeps every integration off, whatever an admin turns on in the UI: the API with keys, the MCP server, and any a later release adds. The only other accepted value is unset. |
-| `VIHKO_EXTERNAL_IMAGES` | `ask` (installed with 0.1.0-rc.6 or later) or `allow` (installed before) | Images that notes link from other sites, which tell those sites who reads the note, and when. `ask`: a box with the site's domain, and the browser loads the image only when the reader presses **Show**; **Save a copy** keeps it in the notes. `allow`: loaded as the note opens. `block`: never loaded (the page forbids it), only **Save a copy**. Unset, an installation keeps the default it had when it was first started. |
-| `VIHKO_MAX_IMAGE_MB` | `20` | The largest image vihko stores from an upload, a paste or a URL, in megabytes. An agent's `attach_image` takes about 3 MB at most whatever it says: that is what fits in an MCP request (see [Agents](agents.md#images)). |
+| `VIHKO_EXTERNAL_IMAGES` | `ask` | Images that notes link from other sites, which tell those sites who reads the note, and when. `ask`: a box with the site's domain, and the browser loads the image only when the reader presses **Show**; **Save a copy** keeps it in the notes. `allow`: loaded as the note opens. `block`: never loaded (the page forbids it), only **Save a copy**. Unset, an installation keeps the default it had when it was first started. |
+| `VIHKO_MAX_IMAGE_MB` | `20` | The largest image vihko stores from an upload, a paste or a URL, in mebibytes (MiB). An agent's `attach_image` takes about 3 MB at most whatever it says: that is what fits in an MCP request (see [Agents](agents.md#images)). |
 | `VIHKO_SECRET_KEY` | unset | A key of 32 characters or more that encrypts the second-factor secrets stored in `state.db`, so that a copy of `state.db` alone can't produce anyone's codes. See [The second-factor key](#the-second-factor-key). |
 | `VIHKO_SECRET_KEY_FILE` | unset | The same key, read from a file (a Docker secret, such as `/run/secrets/vihko_key`). Set one of the two, not both. |
 | `VIHKO_LOG_LEVEL` | `info` | `info` never writes a path inside a personal space to the log (only that it is one, and a note's `uid`); `debug` writes paths whole, to chase a problem. See [The log](operations.md#the-log). |
@@ -546,9 +552,7 @@ in:
   person asks it to: copying an image from a URL someone pasted, or, for
   remote MCP, fetching the description of the app that someone is authorizing.
 - **Images that notes link from other sites** load only when the reader
-  presses «Show» on a new installation (`VIHKO_EXTERNAL_IMAGES=ask`); one
-  installed before 0.1.0-rc.6 loads them as the note opens, until you set
-  `ask` or `block`.
+  presses «Show» (`VIHKO_EXTERNAL_IMAGES=ask`, the default).
 - **The port is published on your whole network**, over plain HTTP. On the
   Internet, always use HTTPS: see [Reverse proxy](reverse-proxy.md).
 

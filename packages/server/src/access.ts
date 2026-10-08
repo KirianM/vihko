@@ -83,10 +83,10 @@ export type DenyReason = 'ai_false' | 'outside_key_folders'
 export class AgentDenied extends Error {
   readonly code = 'agent_denied'
   readonly reason: DenyReason
-  constructor(reason: DenyReason) {
+  constructor(reason: DenyReason, what: 'note' | 'folder' = 'note') {
     const why = reason === 'ai_false' ? 'it is marked as hidden from them' : 'it is outside the folders of this key'
-    super(`This note exists but is not available to agents (${why}). `
-      + 'Do not delete, rewrite or replace links to it, and do not create a note to replace it.')
+    super(`This ${what} exists but is not available to agents (${why}).`
+      + (what === 'note' ? ' Do not delete, rewrite or replace links to it, and do not create a note to replace it.' : ''))
     this.reason = reason
   }
 }

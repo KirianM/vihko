@@ -4,7 +4,8 @@
 // paths notices name (a space someone was added to, a folder shared with
 // them, a note purged), the original paths of trash entries, the series
 // people chose of a shared space renamed (its ids are made from its root),
-// and the note people open on coming in («On opening», which also follows a
+// and the notes people open on coming in («On opening»: the one they chose and
+// each device's last, which also follow a
 // note moved on its own: `noteMoved`). Before 0.1.0
 // none of them followed: a key limited to a folder that moved stopped
 // reaching it, and «ana added you to Home» became «shared something you no
@@ -74,19 +75,30 @@ export class FolderRefs {
     return this.rewriteOnOpen(from, to)
   }
 
-  /** «On opening: a note» (`profiles.on_open_note`) under `from`, or `from` itself, now under `to`. How many changed. */
+  /**
+   * «On opening»: the note people chose (`profiles.on_open_note`) and the
+   * last note they opened on each device (`last_notes`), under `from` or
+   * `from` itself, now under `to`. How many people changed.
+   */
   private rewriteOnOpen(from: string, to: string): number {
-    let n = 0
+    const people = new Set<string>()
     this.state.transaction(() => {
       const rows = this.state.prepare('select user_id, on_open_note from profiles where on_open_note is not null').all() as { user_id: string; on_open_note: string }[]
       for (const r of rows) {
         const m = movedPath(r.on_open_note, from, to)
         if (m === null) continue
         this.state.prepare('update profiles set on_open_note = ? where user_id = ?').run(m, r.user_id)
-        n++
+        people.add(r.user_id)
+      }
+      const last = this.state.prepare('select user_id, device, path from last_notes').all() as { user_id: string; device: string; path: string }[]
+      for (const r of last) {
+        const m = movedPath(r.path, from, to)
+        if (m === null) continue
+        this.state.prepare('update last_notes set path = ? where user_id = ? and device = ?').run(m, r.user_id, r.device)
+        people.add(r.user_id)
       }
     })()
-    return n
+    return people.size
   }
 
   /**

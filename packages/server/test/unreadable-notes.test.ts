@@ -12,7 +12,7 @@ import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
 
-test('vihko starts with an unreadable note, and only the admin is told where it is', { skip: process.getuid?.() === 0 }, async () => {
+test('vihko starts with an unreadable note, and only the admin is told where it is; the log never names a personal one', { skip: process.getuid?.() === 0 }, async (t) => {
   const dir = tempDir('vihko-unreadable-')
   const notesDir = join(dir, 'notes')
   const stateDir = join(dir, 'state')
@@ -34,6 +34,8 @@ test('vihko starts with an unreadable note, and only the admin is told where it 
   }
   chmodSync(join(notesDir, mine), 0o000)
   chmodSync(join(notesDir, theirs), 0o000)
+  const warned: string[] = []
+  t.mock.method(console, 'warn', (...args: unknown[]) => { warned.push(args.map(String).join(' ')) })
   const server = await start(config)
   try {
     const cookies: Record<string, string> = {}
@@ -53,6 +55,9 @@ test('vihko starts with an unreadable note, and only the admin is told where it 
     assert.equal(more.length, 0)
     assert.deepEqual(a, { code: 'unreadable_notes', paths: [mine], elsewhere: [`people/${people.member.username}`], actions: [] })
     assert.deepEqual(await alerts('member'), [])
+    // The log says a note in a personal space couldn't be read, never which one (paths only at debug).
+    assert.ok(warned.some((l) => l.includes("can't read")), warned.join('\n'))
+    for (const p of [mine, theirs]) for (const l of warned) assert.ok(!l.includes(p) && !l.includes(p.split('/').at(-1)!), l)
     // The rest is indexed.
     const tree = (await as('admin', 'GET', '/api/tree')).body
     assert.ok(tree.notes.some((n: { path: string }) => n.path === readable))
