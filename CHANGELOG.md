@@ -10,7 +10,7 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
-## [0.1.0-rc.8] - unreleased
+## [0.1.0-rc.8] - 2026-10-08
 
 Fixes from a review of the rules of the spaces and of the published
 contract against the code, before 0.1.0.
