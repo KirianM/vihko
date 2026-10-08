@@ -18,7 +18,7 @@ optionally, from an API and an MCP server.
 
 Your notes stay a folder of `.md` files. If vihko disappears, you lose nothing.
 
-<img src=".github/assets/screenshots/desktop.png" width="900" alt="vihko on a computer, half in the light theme and half in the dark one: on the left, the sidebar with My notes, the shared space Team open on its handbook folder, and Shared with me holding a folder another person shares; in the middle, a note of the Team space with the vihko logo, a highlighted passage, links, tags, a task list, a table, a YAML block that gives the space its name and members, and a second person's cursor; on the right, a comment thread about that passage">
+<img src=".github/assets/screenshots/desktop.png" width="900" alt="vihko on a computer, half in the light theme and half in the dark one: on the left, the sidebar with My notes, the shared space Team open on its handbook folder, a folder another person shares pinned below it, Shared with me holding one more, and Recent changes and Trash at its foot; in the middle, a note of the Team space with the vihko logo, a highlighted passage, links, tags, a task list, a table of where notes go, a YAML block that gives the space its name and members, and a second person's cursor; on the right, a comment thread about that passage">
 
 ## The problem it solves
 
