@@ -10,6 +10,46 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.0] - 2026-10-08
+
+The first public release: a self-hosted notebook over plain Markdown files,
+for one group of people, such as a family or a small team.
+
+### What's in it
+
+- **Spaces.** Each person has a space of their own; what belongs to several
+  people lives in shared spaces, with their own members and managers. A
+  folder of your own can be shared with others, who can pin it. Nothing you
+  can't read takes up a name or tells you it exists, and links stay within
+  a space.
+- **An editor for desktop and phone**, live and collaborative: Markdown that
+  stays plain on disk, comments kept inside the note, tasks, tables, images,
+  a formatting bar, and text typed offline rescued instead of lost.
+- **The files are the truth.** Edit them with any other tool; vihko notices,
+  keeps the frontmatter as it was written, and rebuilds its index from them.
+- **History and trash.** Every change is kept in a git history, with
+  versions, restore and revert; a Trash screen; optional retention for both,
+  off by default.
+- **Search** by text, tags, paths and any frontmatter field; templates are
+  notes marked `template: true`; daily notes by series.
+- **Agents, closed by default.** An HTTP API with keys and an MCP server
+  (OAuth, for apps like claude.ai), each off until the admin turns it on,
+  and never seeing more than the person they act for. Notes or folders can
+  be closed to agents.
+- **People and security.** Invitations by link, roles, two-step
+  verification, a confirmation for sensitive actions, sessions and keys you
+  can end, login limits, and no telemetry, CDN or auto-update.
+- **Self-hosting.** One Docker image (linux/amd64 and linux/arm64), no
+  database server or reverse proxy needed; `guide/` explains installing,
+  configuring, backing up and upgrading.
+
+### Upgrade notes
+
+- From 0.1.0-rc.8: nothing to do.
+- From an earlier release candidate: read the *Upgrade notes* of each one
+  after yours, below. `state.db` and `vihko.yaml` are migrated on start, as
+  they say.
+
 ## [0.1.0-rc.8] - 2026-10-08
 
 Fixes from a review of the rules of the spaces and of the published
