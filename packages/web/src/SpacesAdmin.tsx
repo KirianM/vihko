@@ -198,7 +198,10 @@ function SettleConsequences({ action, username, plan }: { action: PersonalSpaceP
   return (<>
     {action === 'transfer' && <li>{t('spacesAdmin.transfer1', { user: username })}</li>}
     {action === 'transfer' && <li>{t('spacesAdmin.transferLinks')}</li>}
+    {/* Its trash goes along with it: what they deleted is no longer only theirs. */}
+    {action === 'transfer' && <li>{t('spacesAdmin.transferTrash', { user: username })}</li>}
     {action === 'convert' && <li>{t('spacesAdmin.convert1', { user: username })}</li>}
+    {action === 'convert' && <li>{t('spacesAdmin.convertTrash', { user: username })}</li>}
     {action === 'delete' && <li>{t('spacesAdmin.delete1')}</li>}
     {action === 'delete' && <li>{t('spacesAdmin.delete2')}</li>}
     {plan && <li>{t('spacesAdmin.holds', { what: counts ?? '' })}</li>}

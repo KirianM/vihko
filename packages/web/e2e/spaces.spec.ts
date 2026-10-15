@@ -471,6 +471,10 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   const l = await signIn(browser, LEFT)
   const lNote = `${personal(LEFT)}/${m.aTitle()}.md`
   await note(l, lNote, `# ${baseName(lNote)}\n`)
+  // And something one of them deleted: their trash goes with their space.
+  const lDeleted = `${personal(LEFT)}/${m.aTitle()}.md`
+  await note(l, lDeleted, `# ${baseName(lDeleted)}\n`)
+  await call(l, 'delete', `/api/note?path=${q(lDeleted)}`)
   await g.context().close()
   await l.context().close()
   for (const u of [GONE, LEFT]) await call(k, 'post', `/api/admin/users/${await userId(k, u.username)}/disable`, { confirm: ADMIN.password })
@@ -488,6 +492,7 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   await closed(GONE).getByRole('button', { name: 'Convertir en espacio compartido…' }).click()
   let dialog = k.getByRole('alertdialog', { name: `Convertir el espacio de ${GONE.username} en compartido` })
   await expect(dialog).toContainText(`Sus miembros verán todo lo que tenía ${GONE.username}`)
+  await expect(dialog).toContainText(`Su papelera va también: sus miembros podrán ver y restaurar lo que ${GONE.username} borró.`)
   await dialog.getByLabel('Nombre', { exact: true }).fill(name)
   await dialog.getByRole('combobox', { name: 'Persona o grupo' }).selectOption(MEMBER.username)
   await dialog.getByRole('combobox', { name: 'Nivel', exact: true }).selectOption('manage')
@@ -511,13 +516,23 @@ test('the admin deletes two people: one\'s space closes, the admin is reminded, 
   dialog = k.getByRole('alertdialog', { name: `¿Borrar a ${LEFT.username}?` })
   await dialog.getByRole('radio', { name: 'Traspasarlo a alguien' }).check()
   await expect(dialog).toContainText('Algún enlace roto de sus notas puede empezar a llevar a una nota de quien lo recibe')
+  // Silent no more: whoever receives it gets their trash too.
+  await expect(dialog).toContainText(`Su papelera va también: quien lo recibe podrá ver y restaurar lo que ${LEFT.username} borró.`)
   await dialog.getByRole('combobox', { name: 'A quién' }).selectOption({ label: MEMBER.username })
   await expect(dialog).toContainText('Contiene 1 nota, 0 archivos.', SLOW)
+  for (const theme of ['light', 'dark'] as const) {
+    await k.emulateMedia({ colorScheme: theme })
+    await dialog.screenshot({ path: `${E2E_DIR}/shots/person-delete-transfer-${theme}.png` })
+  }
+  await k.emulateMedia({ colorScheme: null })
   const go = dialog.getByRole('button', { name: 'Borrar y decidir su espacio' })
   await expect(dialog.getByLabel('Tu contraseña')).toHaveCount(0)
   await go.click()
   await expect(dialog).toHaveCount(0)
   await expect.poll(() => existsSync(`${NOTES}/${personal(MEMBER)}/${LEFT.username}/${baseName(lNote)}.md`)).toBe(true)
+  // As the dialog said: what they deleted is now in the member's trash.
+  const trash = await call(a, 'get', '/api/trash') as { entries: { path: string }[] }
+  expect(trash.entries.map((e) => e.path)).toContain(`${personal(MEMBER)}/${LEFT.username}/${baseName(lDeleted)}.md`)
   await k.goto('/?view=spaces')
   await expect(k.locator('.group-card', { hasText: `Espacio de ${LEFT.username}` })).toHaveCount(0)
 })
