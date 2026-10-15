@@ -674,7 +674,7 @@ explains it.
 |---|---|---|
 | `version` | whole number from 1 | The file's format (1 when left out). A newer one is read as far as vihko can, with `newer_version` |
 | `daily.<id>` | as in `vihko.yaml`: `label`, `folder`, `name`, `template` | The space's daily-note series. Patterns take `{YYYY}`, `{MM}`, `{DD}`, `{GGGG}` and `{WW}`, not `{user}` (`pattern_token`) |
-| `attachments` | `mode`, `folder`, `suffix`, as in `vihko.yaml` but for what follows | Where new images of the space's notes go. Only the key of the mode applies (`folder` for `folder`, `suffix` for `per-note`); the other is left out without a word. A `suffix` that can't be one is `invalid_value`, and it has no length limit |
+| `attachments` | `mode`, `folder`, `suffix`, as in `vihko.yaml` but for what follows | Where new images of the space's notes go. Only the key of the mode applies (`folder` for `folder`, `suffix` for `per-note`); the other is left out without a word. A `suffix` that can't be one is `invalid_value`; it has no length limit and may have spaces around it |
 | `agents` | note | A person's space only: their guide for agents. In a shared space's file it doesn't apply, and is reported as `space_guide_note` (with the note it names) |
 | `guide` | text, up to 20,000 characters | A shared space only: its guide for agents, the text itself. Only its managers change it. In a person's file it's an `unknown_key` |
 
