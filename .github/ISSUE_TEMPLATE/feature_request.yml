@@ -1,6 +1,6 @@
 name: Idea
 description: Something vihko could do, or do differently.
-labels: [enhancement]
+labels: [enhancement, triage]
 body:
   - type: textarea
     id: problem
