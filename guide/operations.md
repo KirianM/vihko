@@ -289,7 +289,14 @@ live in the state volume, on local disk, so they're as fast as anywhere.
 
 - **Mount with `hard`**, not `soft`. With `soft`, a server hiccup can turn
   into a failed or partial write with no visible error; with `hard`, the
-  write waits until the server is back.
+  write waits until the server is back. **The price of `hard`**: if the
+  network to the file server is cut, vihko freezes. Every access to the notes
+  folder blocks until the server answers again, so people's pages stop
+  responding until the share is back, and then vihko carries on. `soft` trades that for I/O errors in the middle of a write once the
+  client gives up: vihko writes each note to a temporary file and renames it,
+  so a reader never sees half a note, but the change that failed is not
+  saved. vihko recommends `hard`: a freeze you can see is better than a note
+  that silently doesn't save.
 - **Mind the owner.** vihko writes as `VIHKO_UID:VIHKO_GID` from `.env`
   (`1000:1000` without them): the numeric ids that own the notes on the share,
   as `stat -c %u:%g` shows them from this host. If the export maps every
