@@ -30,6 +30,11 @@ writes into your notes folder.
   - Folders whose name starts with a dot are vihko's or other tools': vihko
     never indexes or serves them, nor keeps their history. `.vihko/` at the
     root of any space is reserved for vihko's settings.
+  - vihko may give a meaning to new names at the root of a space, as it does
+    to `.vihko/` today. Those names are reserved for future use: a folder or
+    note of yours at the root of a space with a name vihko later makes
+    meaningful may be treated differently from then on. Such a change is a
+    minor version's, with its *Upgrade notes*.
   - The subjects of a grant may grow. `@everyone`, `@all`, `@public` and
     `@anyone` are reserved: no group can take those names.
   - The keys inside a `permissions` rule may grow. An older vihko that
@@ -110,7 +115,8 @@ note. Every path vihko serves is inside a space:
   and the username (`?note=~ana/trips/Rome.md`). An address with the path
   from the notes root (`?note=spaces/Home/plan.md`) still opens the note and
   is replaced by that form. Other query parameters (`view`, `version`) may be added; addresses of
-  another form may be added too.
+  another form may be added too. The query parameter `n` is reserved: no
+  address uses it today, and a later version may give it a meaning.
 - A link never leads to another space (see [What vihko writes into your
   notes folder](#what-vihko-writes-into-your-notes-folder)).
 
@@ -136,6 +142,7 @@ The [API guide](api.md) explains how to use it.
 | Dates | ISO 8601, UTC |
 | A note's ETag | `sha256:<hex>` of its text, in the body and in the `ETag` header (quoted); a dry run gives it in the body only |
 | Cursors | `next`, passed back as `cursor`: opaque (encrypted), valid until vihko restarts |
+| Lists that answer everything at once | `GET /api/tree` answers every note and folder the key can see, in one response. A later minor version may paginate it (`next` and `cursor`, as above), so a client that reads it should be ready for a page and a cursor |
 | Version ids | Opaque text (in 0.1.0, 40 hex digits). They change when the history is rewritten: a purge, or a retention run that removed something, gives new ids to every later version of the installation, with no table from old to new. A version id kept from before (a `version` or `against`, the `since` of `changes_since`) then answers `404 not_found`, or `base_known: false` for `since`: read the versions again |
 | Conditional writes | `If-Match` (quoted or bare), `ifMatch` in the body where a route takes it, `If-None-Match: *` on `PUT /api/note` |
 | An ETag a note open in the editor had a moment ago | A write planned on it (`PUT /api/note`, `POST /api/note/edit`, `POST /api/history/restore`) goes in, applied to the text as it is now, when nothing changed since in what it replaces or right next to it (a whole text counts from the first character it changes to the last); otherwise `412 precondition_failed`. "A moment ago": the texts vihko handed out with their ETag in the last 10 minutes, the last 32 of each open note and about 4 MiB of text at most, and the texts it wrote to the note's file lately |
@@ -405,7 +412,7 @@ spaces, sharing and what an admin is told of them:
 
 | Code | Who sees it | What it says |
 |---|---|---|
-| `outside_spaces` | Admins | `paths`: top-level names, and folders in `spaces/` that aren't a space, that nobody sees; `into`: the admin's own space (`people/<admin>`), where they can move them on the disk. Also a `config_warnings` entry for a `vihko.yaml` path outside the spaces |
+| `outside_spaces` | Admins | `paths`: top-level names, files right in `people/` or `spaces/`, and folders in `spaces/` that aren't a space, that nobody sees; `into`: the admin's own space (`people/<admin>`), where they can move them on the disk. Also a `config_warnings` entry for a `vihko.yaml` path outside the spaces |
 | `unreadable_notes` | Admins | `paths`: notes on the disk vihko can't read (no permission, an I/O error), among those the admin reads; `elsewhere`: the roots of the spaces that hold the others. Each stays as the index had it, and the server's log names it, until it can be read. A scan or a start never stops for one |
 | `permissions_missing` | Admins | `file`, `folders` (how many folders the kept section has rules for), `actions` (`restore_permissions`, `dismiss`): `vihko.yaml` has no `permissions` (or there's no file), so nothing is shared, while vihko kept the last section that shared something |
 | `notes_too_large` | Admins | `paths` (those the admin reads), `elsewhere` (the roots of the spaces that hold the others), `limitMb`: notes over `notes.maxSize`, indexed by their name alone and never opened live |
@@ -413,6 +420,7 @@ spaces, sharing and what an admin is told of them:
 | `person_folder_without_user` | Admins | `names`: folders in `people/` named after no user |
 | `space_without_members` | Admins | `path`, `name`: a shared space nobody has access to |
 | `space_without_managers` | Admins | `path`, `name`: a shared space with members but nobody who manages it (a disabled manager doesn't count) |
+| `space_not_renamed` | Admins | `path`, `name` (its folder's), `wanted`: a shared space whose old `name` in `vihko.yaml` vihko couldn't make its folder's at start, because another space or folder has it or the disk refused. Each start tries again; its managers can rename it |
 | `missing_folder` | Whoever manages the space | `folders`: grants in `vihko.yaml` for folders that don't exist. Never the admin as such |
 | `permissions_held` | Who could have made that move from vihko | `id`, `folder`, `notes` (a count): notes held after a move made outside vihko |
 | `shared_with_you` | The person added | `kind` (`space` or `folder`), `by`, `path`, `name`, `owner`, `space`: someone added them to a space or shared a folder with them. Names and path only while they can still see it |
@@ -594,9 +602,10 @@ Every key vihko reads. [Configuration](configuration.md) explains each one.
 | `history.exclude` | pattern, or list of patterns | none | Paths kept out of the history |
 | `mcp.instructions` | note | none | A note served to agents as instructions; may hold `{user}` |
 | `mcp.client_domains` | list of domains (or one) | empty | The domains OAuth apps may come from, with their subdomains (a metadata document's host, or every redirect URI of an app that registers itself). Empty: any. An app from elsewhere can't register (`invalid_redirect_uri`) or be authorized (`client_not_allowed`, with `host`, on `GET/POST /api/oauth/authorize`) |
-| `notes.maxSize` | number of MiB | 5 | The largest note vihko indexes and opens in the live editor: a larger one is indexed by its name alone, shows as plain text with a download, and the API and MCP refuse writes that make a note larger (`413 note_too_large`) |
+| `notes.maxSize` | number of MiB | 5 | The largest note vihko indexes and opens in the live editor: a larger one is indexed by its name alone, shows as plain text with a download, and the API and MCP refuse a write that leaves a note over it and larger than it was (`413 note_too_large`); a write that doesn't make a note larger always goes through |
 | `permissions.<folder>.grants` | map of subject to level | nobody | Who gets what in that folder and below |
 | `permissions.<folder>.ai` | `false` | open | Closes the folder and everything below it to agents |
+| `permissions.<root>.name` | text | none | Retired: how 0.1.0's first release candidates kept a shared space's name. Only at a shared space's root (anywhere else rejects the section). When vihko starts, it renames the space's folder to it (or, when it can't be a folder's name, to the readable part of a folder such as `home-7k2q9x`) and removes the key; when neither can be one, it only removes the key. While another space or folder in `spaces/` has that name, the space and the key stay as they are, the admins get `space_not_renamed`, and the next start tries again |
 
 `attachments.folder` without `mode: folder` (or `mode: folder` without a
 folder), and `attachments.suffix` without `mode: per-note`, are wrong values
@@ -623,7 +632,8 @@ What goes with them:
   (`people/<user>`) takes only `ai: false`. Anything else rejects the
   section: `""`, `people`, `spaces`, a path in no space, a `{user}` segment,
   grants at a personal space's root, a key written twice. A shared space's
-  name is its folder's: no key holds it.
+  name is its folder's: no key holds it (an old `name` is renamed into the
+  folder at start, above).
 - **Subjects**: a username, or `@group`. **Levels**: `read`, `comment`,
   `edit` and `manage`. No group can be named `everyone`, `all`, `public` or
   `anyone` (`400 invalid_group_name`): those subjects are kept for grants to
@@ -647,7 +657,7 @@ What goes with them:
   deletes a folder, or when a user or group is deleted or renamed; when the
   admin assigns a manager, joins a space to rescue it, restores the last
   permissions or settles a deleted person's space; when a key vihko retired
-  is migrated at start; and a format rewrite at start after an upgrade,
+  is migrated at start, a shared space's old `name` among them; and a format rewrite at start after an upgrade,
   which may raise `version`. Comments, key order and keys it doesn't know
   stay. When `vihko.yaml` is a symbolic link, vihko writes the file it
   points to, atomically, and the link stays.
@@ -664,7 +674,7 @@ explains it.
 |---|---|---|
 | `version` | whole number from 1 | The file's format (1 when left out). A newer one is read as far as vihko can, with `newer_version` |
 | `daily.<id>` | as in `vihko.yaml`: `label`, `folder`, `name`, `template` | The space's daily-note series. Patterns take `{YYYY}`, `{MM}`, `{DD}`, `{GGGG}` and `{WW}`, not `{user}` (`pattern_token`) |
-| `attachments` | `mode`, `folder`, `suffix`, as in `vihko.yaml` but for what follows | Where new images of the space's notes go. Only the key of the mode applies (`folder` for `folder`, `suffix` for `per-note`); the other is left out without a word. A `suffix` that can't be one is `invalid_value`, and it has no length limit |
+| `attachments` | `mode`, `folder`, `suffix`, as in `vihko.yaml` but for what follows | Where new images of the space's notes go. Only the key of the mode applies (`folder` for `folder`, `suffix` for `per-note`); the other is left out without a word. A `suffix` that can't be one is `invalid_value`; it has no length limit and may have spaces around it |
 | `agents` | note | A person's space only: their guide for agents. In a shared space's file it doesn't apply, and is reported as `space_guide_note` (with the note it names) |
 | `guide` | text, up to 20,000 characters | A shared space only: its guide for agents, the text itself. Only its managers change it. In a person's file it's an `unknown_key` |
 
@@ -779,7 +789,7 @@ else into a note unless someone asks it to (an edit, a comment, a
 |---|---|
 | The two folders | `people/` and `spaces/`, made when vihko starts if they're missing |
 | A person's folder | `people/<username>/`, made when the user is created, and again at start if it went missing; renamed with them while their invitation is unused. Empty folders in `people/` with their name in another case are removed when they're created |
-| A shared space's folder | `spaces/<name>/`, the space's name as written, made when the space is created, when a folder becomes a space of its own («Move to a new space»), when a deleted person's space is converted into a shared one, or when a deleted space is restored (with its folders); renamed with the space |
+| A shared space's folder | `spaces/<name>/`, the space's name as written, made when the space is created, when a folder becomes a space of its own («Move to a new space»), when a deleted person's space is converted into a shared one, or when a deleted space is restored (with its folders); renamed with the space, and at start to an old `name` in `vihko.yaml` |
 | A deleted person's space, transferred | Moved to `people/<recipient>/<their username>/`, or the first free `-<n>` after that name |
 | A shared space's members | `permissions.<root>.grants` in `vihko.yaml` |
 | Settings of a person or a space | `<space root>/.vihko/settings.yaml`, written when someone saves them in the UI: atomically, only the keys that changed (a `version` that isn't valid becomes 1), `version` added first when missing; comments and key order stay, the spacing and quoting of the rest of the file may not |

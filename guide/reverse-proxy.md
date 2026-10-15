@@ -350,6 +350,41 @@ server {
 To connect assistants through this address, continue with
 [Agents](agents.md).
 
+## Changing the domain
+
+When the address people use changes (`notes.example.com` to
+`vihko.example.org`), update, in this order:
+
+1. **The proxy.** Serve the new name (and its certificate), and keep passing
+   `Host` as the browser sent it, as above. Nothing in vihko ties it to a
+   name: it judges each request by the `Host` it arrives with.
+2. **`VIHKO_PUBLIC_URL`**, if you set it, to the new origin, and restart vihko
+   (`docker compose up -d`). Check the log's `public URL …` line. It changes
+   what vihko gives out:
+   - Invitation and password-reset links are made with it. The ones you
+     already sent carry the old name: make new ones for whoever hasn't used
+     theirs.
+   - OAuth's address (the issuer and the MCP resource, `<address>/mcp`).
+3. **Every OAuth app connected through the old address.** The tokens it holds
+   were issued for `https://<old>/mcp` and stop working: vihko only accepts
+   tokens for its current address. In each assistant (a claude.ai connector,
+   `mcp-remote`…), change the URL to `https://<new>/mcp` and authorize it
+   again. Keys (`vihko_…`) are not tied to the address: only the URL in
+   whatever uses them changes (scripts, `curl`, an MCP client's configuration).
+4. **Sessions.** The session cookie belongs to the old name, so everyone signs
+   in again at the new one. Nothing needs to be done in vihko.
+5. **What people kept.** Bookmarks, shortcuts and notes' addresses saved
+   with the old name (`https://<old>/?note=…`) stop working once the old name
+   does, and the app installed from the browser (PWA) has to be installed again
+   from the new name. If you keep the old name answering, redirect it to the
+   new one (`redirect` in Caddy, `return 301 https://<new>$request_uri;` in
+   nginx) so those keep working.
+
+Second factors and passkeys don't depend on the domain: authenticator apps keep
+working (vihko uses no passkeys or WebAuthn, which would tie an account to the
+name). Only the account's label in an authenticator app, made from the address
+when the factor was set up, keeps showing the old name.
+
 ## The proxy can't reach vihko (502 Bad Gateway)
 
 Every page answers `502 Bad Gateway` (Caddy, nginx) or a similar error of the

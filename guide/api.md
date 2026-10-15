@@ -107,7 +107,7 @@ The codes you can meet with a key:
 | `uid_mismatch` | 409 | Restoring, over the note at a path, a version of another note that had that path before: restore it with `to` instead |
 | `history_off` | 409 | `vihko.yaml` turns the history off |
 | `too_large` | 413 | An image over the size limit |
-| `note_too_large` | 413 | A write that would make a note larger than `notes.maxSize` in `vihko.yaml` (5 MB by default) |
+| `note_too_large` | 413 | A write that would leave a note above `notes.maxSize` in `vihko.yaml` (5 MB by default) and larger than it was. A write that leaves a note no larger than it was goes through |
 | `unsupported_type` | 415 | An upload that isn't a PNG, JPEG, GIF, WebP or AVIF image |
 | `busy` | 429 | Too many images being uploaded at once; `Retry-After` says when to try again |
 | `precondition_required` | 428 | A write that needs `If-Match` (or `ifMatch`) and has none |
@@ -293,7 +293,8 @@ curl -G -H "Authorization: Bearer $VIHKO_KEY" "$VIHKO/api/note" \
 written from outside): its `title`, `uid`, and `fmError`, why its frontmatter
 can't be read, or `null`. A note larger than `notes.maxSize` in `vihko.yaml`
 (5 MB by default) adds `"tooLarge": true`: it is indexed by its name alone,
-and no write may make it larger (`413 note_too_large`).
+and no write may make it larger (`413 note_too_large`); a write that trims it
+or leaves it no larger goes through.
 
 To see what's around a note:
 

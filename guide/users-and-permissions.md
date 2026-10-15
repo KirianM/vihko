@@ -674,6 +674,17 @@ Grants in `vihko.yaml` for a folder that no longer exists are kept, and apply
 again if the folder comes back; whoever manages its space gets an alert. Moves
 made from vihko take their grants with them.
 
+**Don't rename a shared space's folder from outside vihko**, whether vihko is
+running or stopped. A space's members are kept under its name in
+`vihko.yaml`, so the renamed folder is a new space, with nobody in it (the
+admins get the `space_without_members` alert), while the old name's members
+stay in the file with no folder. Rename the space from vihko instead: its menu
+→ **Rename…**: it renames the folder and moves the members with it. If you
+already renamed it outside, give the folder its old name again and the members
+are back; or leave the new name and have the admin assign it a manager (see
+[What the admin can do with spaces](#what-the-admin-can-do-with-spaces)), who
+adds the members.
+
 ## Two-step verification
 
 Besides the password, vihko can ask for a 6-digit code from an authenticator

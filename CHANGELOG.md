@@ -1489,3 +1489,13 @@ published under its exact image tag, `ghcr.io/kirianm/vihko:1.0.0-rc.1`.
   working name) aren't migrated: start them again from empty state.
 
 </details>
+
+[0.1.0]: https://github.com/KirianM/vihko/releases/tag/v0.1.0
+[0.1.0-rc.8]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.8
+[0.1.0-rc.7]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.7
+[0.1.0-rc.6]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.6
+[0.1.0-rc.5]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.5
+[0.1.0-rc.4]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.4
+[0.1.0-rc.3]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.3
+[0.1.0-rc.2]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.2
+[0.1.0-rc.1]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.1

@@ -219,6 +219,8 @@ sudo tar -xzpf /backups/vihko-2026-10-01.tar.gz
 docker run -d --name vihko-restore-test -p 127.0.0.1:8099:8080 \
   --user "$(stat -c %u:%g state)" \
   -v "$PWD/notes:/data/notes" -v "$PWD/state:/data/state" \
+  -v /path/to/vihko_key.txt:/run/secrets/vihko_key:ro \
+  -e VIHKO_SECRET_KEY_FILE=/run/secrets/vihko_key \
   "$image"
 ```
 
@@ -228,6 +230,12 @@ docker run -d --name vihko-restore-test -p 127.0.0.1:8099:8080 \
   refuses a `state.db` that a newer one migrated.
 - `--user`: the owner of the restored state folder, which is the user vihko
   ran as, `VIHKO_UID:VIHKO_GID` in your `.env`.
+- The two key lines: the second-factor key, which you keep apart from the
+  backup. Without the same key, people with a second factor can't sign in to
+  the copy with their codes. Point it at your key file (it must be readable by
+  that `--user`), or drop both lines if you don't use a key. With the key in
+  `VIHKO_SECRET_KEY` instead, pass `-e VIHKO_SECRET_KEY` with it set in your
+  shell.
 
 Open `http://127.0.0.1:8099` on the server (or through an SSH tunnel), sign in
 with your usual account, open a few notes and their history. Then remove it:
