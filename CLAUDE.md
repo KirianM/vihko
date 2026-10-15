@@ -24,8 +24,9 @@ The plan is in `ROADMAP.md`.
    top-level folders, `people/` (each person's own space,
    `people/<username>/`) and `spaces/` (shared spaces,
    `spaces/<name>/`). Those two names are the product's and the only
-   ones hardcoded: links across spaces are written with them. Inside a space
-   the system imposes no folder structure or taxonomy. Integration
+   ones hardcoded. Links never cross spaces: a link leads only inside its
+   note's space. Inside a space the system imposes no folder structure or
+   taxonomy. Integration
    conventions go in configuration, never hardcoded. No other hardcoded paths
    or folder names.
 
