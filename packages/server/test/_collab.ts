@@ -9,6 +9,7 @@ import WebSocket from 'ws'
 import type * as Y from 'yjs'
 import { openLineage } from '../../web/src/editor/lineage.ts'
 import { tempDir } from './_tmp.ts'
+import { claimPort } from './_ports.ts'
 import { SHARED, sharedSpace } from './_permissions.ts'
 import { mother, type NewUser } from '../../../test/mother.ts'
 
@@ -17,7 +18,6 @@ const m = mother(import.meta.url)
 export const VAULT = fileURLToPath(new URL('../../../testdata/vault', import.meta.url))
 export const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-let nextPort = 21000 + Math.floor(Math.random() * 5000)
 
 export async function waitFor(cond: () => boolean | Promise<boolean>, what: string, timeout = 10000) {
   const start = Date.now()
@@ -41,7 +41,7 @@ export function makeDirs() {
   const dir = tempDir('vihko-hub-')
   const notes = join(dir, 'notes')
   cpSync(VAULT, join(notes, SHARED), { recursive: true })
-  const env = { VIHKO_NOTES_DIR: notes, VIHKO_STATE_DIR: join(dir, 'state'), VIHKO_HOST: '127.0.0.1', VIHKO_PORT: String(nextPort++) }
+  const env = { VIHKO_NOTES_DIR: notes, VIHKO_STATE_DIR: join(dir, 'state'), VIHKO_HOST: '127.0.0.1', VIHKO_PORT: String(claimPort()) }
   const admin = m.aUser({ role: 'admin' })
   writeFileSync(join(notes, 'vihko.yaml'), sharedSpace({ [admin.username]: 'manage' }))
   spawnSync(process.execPath, [CLI, 'user', 'create', admin.username, '--admin'], { env: { ...process.env, ...env }, input: admin.password })

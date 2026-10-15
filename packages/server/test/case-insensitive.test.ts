@@ -165,8 +165,7 @@ if (!INSIDE) {
     mkdirSync(join(notes, P.dir), { recursive: true })
     writeFileSync(join(notes, P.day), `# ${m.aHeading()}\n\n${word}\n`)
     writeFileSync(join(notes, 'vihko.yaml'), config({ admin: admin.username, member: member.username }))
-    // A port of the range these tests may use.
-    const srv = await startServer({ ...env, VIHKO_PORT: String(42300 + Math.floor(Math.random() * 100)) })
+    const srv = await startServer(env)
     try {
       const cookie = await login(srv)
       const provider = new HocuspocusProvider({ websocketProvider: socket(srv, cookie), name: P.alias(P.day), document: new Y.Doc(), token: '{}' })

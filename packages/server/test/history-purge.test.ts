@@ -9,6 +9,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'no
 import { join } from 'node:path'
 import { Git } from '@vihko/server'
 import { CLI, makeDirs, startServer } from './_collab.ts'
+import { claimPort } from './_ports.ts'
 import { setup, who } from './_history.ts'
 import { SHARED, inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -218,7 +219,7 @@ test('the purge refuses while vihko runs (and a second server refuses too), in u
     assert.equal(running.status, 1, running.out)
     assert.match(running.out, /error \(state_in_use\)/)
     assert.equal(purge(env, [NOTE, '--dry-run']).status, 0, 'a dry run only reads: it works with vihko running')
-    const second = spawnSync(process.execPath, [CLI, 'serve'], { env: { ...process.env, ...env, VIHKO_PORT: String(Number(env.VIHKO_PORT) + 1) }, encoding: 'utf8', timeout: 30_000 })
+    const second = spawnSync(process.execPath, [CLI, 'serve'], { env: { ...process.env, ...env, VIHKO_PORT: String(claimPort()) }, encoding: 'utf8', timeout: 30_000 })
     assert.equal(second.status, 1, second.stdout + second.stderr)
     assert.match(second.stderr, /state_in_use/)
   } finally { await srv.stop('SIGKILL') }
