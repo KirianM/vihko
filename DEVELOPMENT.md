@@ -337,13 +337,14 @@ failure prints what didn't hold and the container's log.
 
 ## Deprecations
 
-From 1.0 on, the contract is listed in
+The contract is listed in
 [guide/upgrading.md](guide/upgrading.md#what-a-version-number-promises): the
 HTTP API, the MCP tools, `vihko.yaml`, what vihko writes into notes and the
-Docker interface. (In 0.x a minor version may change it outright, with its
-*Upgrade notes*; deprecating first is still preferred where it's cheap.) When
-something there has to change within a major, the old form is deprecated, not
-removed: it keeps working until the next major, the
+Docker interface, among others. While vihko is at 0.x, a minor version may
+change it outright, with its *Upgrade notes* in `CHANGELOG.md`, and a patch
+version only fixes; deprecating first is still preferred where it's cheap.
+From 1.0 on, when something there has to change within a major, the old form
+is deprecated, not removed: it keeps working until the next major, the
 changelog says so (under "Deprecated", and in "Upgrade notes" what to use
 instead), and whoever still uses it is told:
 
