@@ -411,3 +411,14 @@ change the demo notes, not the pictures.
   `packages/web/src/i18n.tsx` (English and Spanish); the server returns error
   and alert codes, never prose for the UI.
 - One logical change per commit; commit messages and pull requests in English.
+- **A path vihko stores follows the folder when it moves.** Any path kept in
+  `state.db` (agent keys' folders, pins, notices, the note «On opening»,
+  chosen daily series) or in the trash's entries is registered in `FolderRefs`
+  (`packages/server/src/folderRefs.ts`), or it goes stale when a folder is moved
+  or renamed: a key stops reaching its folder, a notice names a folder that
+  isn't there. To register one, add a private `rewriteX(from, to)` that maps
+  each stored path through `movedPath`, call it from `moved()` and add its
+  count to `RefsReport`. A path that points at a single note and must also
+  follow that note when it moves alone is also called from `noteMoved()`.
+  Only moves made from vihko are followed; a folder moved outside vihko is a
+  new folder to these.
