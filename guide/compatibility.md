@@ -601,7 +601,7 @@ Every key vihko reads. [Configuration](configuration.md) explains each one.
 | `history.exclude` | pattern, or list of patterns | none | Paths kept out of the history |
 | `mcp.instructions` | note | none | A note served to agents as instructions; may hold `{user}` |
 | `mcp.client_domains` | list of domains (or one) | empty | The domains OAuth apps may come from, with their subdomains (a metadata document's host, or every redirect URI of an app that registers itself). Empty: any. An app from elsewhere can't register (`invalid_redirect_uri`) or be authorized (`client_not_allowed`, with `host`, on `GET/POST /api/oauth/authorize`) |
-| `notes.maxSize` | number of MiB | 5 | The largest note vihko indexes and opens in the live editor: a larger one is indexed by its name alone, shows as plain text with a download, and the API and MCP refuse writes that make a note larger (`413 note_too_large`) |
+| `notes.maxSize` | number of MiB | 5 | The largest note vihko indexes and opens in the live editor: a larger one is indexed by its name alone, shows as plain text with a download, and the API and MCP refuse a write that leaves a note over it and larger than it was (`413 note_too_large`); a write that doesn't make a note larger always goes through |
 | `permissions.<folder>.grants` | map of subject to level | nobody | Who gets what in that folder and below |
 | `permissions.<folder>.ai` | `false` | open | Closes the folder and everything below it to agents |
 

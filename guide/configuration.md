@@ -400,8 +400,11 @@ are fine; 5 by default). A note larger than that, written with another tool
 or imported, is still listed by its name, but nothing of its text is indexed
 (no search, links or tags from it), and opening it shows it as plain text
 with a download instead of the editor. The admins get the `notes_too_large`
-alert listing them. The API and MCP refuse a write that would make a note
-larger than this (`note_too_large`). A huge note in the live editor would make
+alert listing them. The API and MCP refuse a write that would leave a note
+above this **and** larger than it was (`note_too_large`); a new note above it
+is refused too. Trimming a note that is already too large is always allowed,
+and so is any other change that doesn't make it larger, so you can cut it down
+in steps. A huge note in the live editor would make
 every browser that opens it, and the server, slow for everyone.
 
 ### `permissions`
