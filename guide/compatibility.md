@@ -30,6 +30,11 @@ writes into your notes folder.
   - Folders whose name starts with a dot are vihko's or other tools': vihko
     never indexes or serves them, nor keeps their history. `.vihko/` at the
     root of any space is reserved for vihko's settings.
+  - vihko may give a meaning to new names at the root of a space, as it does
+    to `.vihko/` today. Those names are reserved for future use: a folder or
+    note of yours at the root of a space with a name vihko later makes
+    meaningful may be treated differently from then on. Such a change is a
+    minor version's, with its *Upgrade notes*.
   - The subjects of a grant may grow. `@everyone`, `@all`, `@public` and
     `@anyone` are reserved: no group can take those names.
   - The keys inside a `permissions` rule may grow. An older vihko that
@@ -110,7 +115,8 @@ note. Every path vihko serves is inside a space:
   and the username (`?note=~ana/trips/Rome.md`). An address with the path
   from the notes root (`?note=spaces/Home/plan.md`) still opens the note and
   is replaced by that form. Other query parameters (`view`, `version`) may be added; addresses of
-  another form may be added too.
+  another form may be added too. The query parameter `n` is reserved: no
+  address uses it today, and a later version may give it a meaning.
 - A link never leads to another space (see [What vihko writes into your
   notes folder](#what-vihko-writes-into-your-notes-folder)).
 
@@ -136,6 +142,7 @@ The [API guide](api.md) explains how to use it.
 | Dates | ISO 8601, UTC |
 | A note's ETag | `sha256:<hex>` of its text, in the body and in the `ETag` header (quoted); a dry run gives it in the body only |
 | Cursors | `next`, passed back as `cursor`: opaque (encrypted), valid until vihko restarts |
+| Lists that answer everything at once | `GET /api/tree` answers every note and folder the key can see, in one response. A later minor version may paginate it (`next` and `cursor`, as above), so a client that reads it should be ready for a page and a cursor |
 | Version ids | Opaque text (in 0.1.0, 40 hex digits). They change when the history is rewritten: a purge, or a retention run that removed something, gives new ids to every later version of the installation, with no table from old to new. A version id kept from before (a `version` or `against`, the `since` of `changes_since`) then answers `404 not_found`, or `base_known: false` for `since`: read the versions again |
 | Conditional writes | `If-Match` (quoted or bare), `ifMatch` in the body where a route takes it, `If-None-Match: *` on `PUT /api/note` |
 | An ETag a note open in the editor had a moment ago | A write planned on it (`PUT /api/note`, `POST /api/note/edit`, `POST /api/history/restore`) goes in, applied to the text as it is now, when nothing changed since in what it replaces or right next to it (a whole text counts from the first character it changes to the last); otherwise `412 precondition_failed`. "A moment ago": the texts vihko handed out with their ETag in the last 10 minutes, the last 32 of each open note and about 4 MiB of text at most, and the texts it wrote to the note's file lately |
