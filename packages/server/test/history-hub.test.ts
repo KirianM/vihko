@@ -225,7 +225,12 @@ test('a rename rewrites the links of an open note in the same system commit, and
 async function crashAt(point: string, act: (srv: Srv, cookie: string) => Promise<void>, dead?: (stateDir: string) => void) {
   const { notes, env } = makeDirs()
   // First start: the history begins (its own commit), with no crash point.
+  // Stopped only once that commit is in git: a stop that comes first leaves it
+  // in the journal, and the next start commits it with tags.md in it, setting
+  // the crash point off before `act`.
   let srv = await startServer({ ...env, ...FAST })
+  const git = join(env.VIHKO_STATE_DIR, 'history.git')
+  await waitFor(() => spawnSync('git', ['--git-dir', git, 'rev-parse', '--verify', '--quiet', 'HEAD']).status === 0, 'the history\'s first commit')
   await srv.stop()
   srv = await startServer({ ...env, ...FAST, VIHKO_TEST_CRASH_AT: point, VIHKO_TEST_CRASH_PATH: TAGS })
   const cookie = await login(srv)
