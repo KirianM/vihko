@@ -333,8 +333,12 @@ export class OAuthServer {
     if (outside !== undefined) throw new OAuthRequestError('invalid_redirect_uri', `${outside} isn't among the domains this server allows apps from`)
     const name = clientName(b.client_name, redirectUris[0]!)
     this.prune()
-    const waiting = (this.db.prepare('select count(*) n from oauth_clients c where not exists (select 1 from api_keys k where k.oauth_client = c.id)').get() as { n: number }).n
-    if (waiting >= MAX_UNUSED_CLIENTS) throw new OAuthRequestError('temporarily_unavailable', 'too many clients waiting for an authorization; try again later', 429)
+    const waiting = this.db.prepare('select count(*) n, min(created_at) oldest from oauth_clients c where not exists (select 1 from api_keys k where k.oauth_client = c.id)').get() as { n: number; oldest: string | null }
+    if (waiting.n >= MAX_UNUSED_CLIENTS) {
+      // Until the one waiting longest is forgotten (later, if a code still holds it: at least a second).
+      const wait = Math.max(1, Math.ceil((Date.parse(waiting.oldest!) + UNUSED_CLIENT_MS - this.now().getTime()) / 1000))
+      throw new OAuthRequestError('temporarily_unavailable', `too many clients waiting for an authorization; try again in ${wait} s`, 429, wait)
+    }
     const id = randomBytes(16).toString('base64url')
     const secret = method === 'none' ? null : random()
     const issuedAt = this.now()

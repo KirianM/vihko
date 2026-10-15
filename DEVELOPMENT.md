@@ -337,13 +337,14 @@ failure prints what didn't hold and the container's log.
 
 ## Deprecations
 
-From 1.0 on, the contract is listed in
+The contract is listed in
 [guide/upgrading.md](guide/upgrading.md#what-a-version-number-promises): the
 HTTP API, the MCP tools, `vihko.yaml`, what vihko writes into notes and the
-Docker interface. (In 0.x a minor version may change it outright, with its
-*Upgrade notes*; deprecating first is still preferred where it's cheap.) When
-something there has to change within a major, the old form is deprecated, not
-removed: it keeps working until the next major, the
+Docker interface, among others. While vihko is at 0.x, a minor version may
+change it outright, with its *Upgrade notes* in `CHANGELOG.md`, and a patch
+version only fixes; deprecating first is still preferred where it's cheap.
+From 1.0 on, when something there has to change within a major, the old form
+is deprecated, not removed: it keeps working until the next major, the
 changelog says so (under "Deprecated", and in "Upgrade notes" what to use
 instead), and whoever still uses it is told:
 
@@ -403,6 +404,28 @@ the next one; everything else lives in a temporary folder, removed at the end.
 before they replace the committed ones. To change what the pictures show,
 change the demo notes, not the pictures.
 
+## Dependencies
+
+- Always the latest stable version of a dependency, and never a package its
+  author has marked `deprecated`: replace it.
+- Node runs on the active LTS line (`.nvmrc`, `engines` in `package.json`, the
+  `node:` image tag in the `Dockerfile`). Odd versions have no LTS and aren't
+  used. Dependabot doesn't propose a Node major (nor `@types/node`'s): it is
+  changed by hand, following the LTS schedule.
+- The base image is on Debian stable (`node:<major>-<codename>-slim`, today
+  `trixie`).
+- Dependabot (`.github/dependabot.yml`) checks npm, GitHub Actions and the
+  Docker image every week, and proposes a version only 7 days after it's
+  published (`cooldown`), so a compromised release pulled within days never
+  reaches us. Security updates don't wait.
+- A dependency's install script (`preinstall`, `install`, `postinstall`) runs
+  only if it's allowed by name: `allowScripts` in `package.json` lists each
+  package as `true` or `false`, and `strict-allow-scripts=true` in `.npmrc`
+  makes an unlisted one fail the install instead of running.
+- Before every minor release, a dependency review: `npm outdated`,
+  `npm audit --omit=dev`, the list of deprecated packages, the Node line and
+  the base image.
+
 ## Conventions
 
 - Everything in the code is in English: identifiers, comments, test names, log
@@ -410,3 +433,14 @@ change the demo notes, not the pictures.
   `packages/web/src/i18n.tsx` (English and Spanish); the server returns error
   and alert codes, never prose for the UI.
 - One logical change per commit; commit messages and pull requests in English.
+- **A path vihko stores follows the folder when it moves.** Any path kept in
+  `state.db` (agent keys' folders, pins, notices, the note «On opening»,
+  chosen daily series) or in the trash's entries is registered in `FolderRefs`
+  (`packages/server/src/folderRefs.ts`), or it goes stale when a folder is moved
+  or renamed: a key stops reaching its folder, a notice names a folder that
+  isn't there. To register one, add a private `rewriteX(from, to)` that maps
+  each stored path through `movedPath`, call it from `moved()` and add its
+  count to `RefsReport`. A path that points at a single note and must also
+  follow that note when it moves alone is also called from `noteMoved()`.
+  Only moves made from vihko are followed; a folder moved outside vihko is a
+  new folder to these.

@@ -39,9 +39,34 @@ test.beforeAll(async ({ browser }) => {
   mkdirSync(`${NOTES}/${DIR}`, { recursive: true })
   writeFileSync(FILE, `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
   k = await signIn(browser, ADMIN, NOTE)
+  // The "external" server is on this machine: copies from it need the local network open, for the admin too.
+  expect((await k.request.put('/api/admin/settings', { data: { membersLocalDownloads: true } })).ok()).toBe(true)
 })
 
-test.afterAll(() => { external.closeAllConnections(); external.close() })
+// Closed again, whatever happened: the other specs run on this server.
+test.afterAll(async () => {
+  external.closeAllConnections()
+  external.close()
+  expect((await k.request.put('/api/admin/settings', { data: { membersLocalDownloads: false } })).ok()).toBe(true)
+})
+
+test('«Guardar copia» from an address on the local network, while it is closed: refused for the admin too, in general words', async () => {
+  expect((await k.request.put('/api/admin/settings', { data: { membersLocalDownloads: false } })).ok()).toBe(true)
+  try {
+    await toEnd(k)
+    const before = stored().length
+    await pasteText(k, `${EXTERNAL}/${REMOTE}`)
+    await k.keyboard.press('Enter') // the default: save a copy
+    const toast = k.locator('.toast').filter({ has: k.getByRole('alert') })
+    await expect(toast).toContainText('Esa dirección no es pública')
+    await expect(toast).not.toContainText(new URL(EXTERNAL).port)
+    expect(stored()).toHaveLength(before)
+    await toast.getByRole('button', { name: 'Cerrar aviso' }).click()
+    await expect(toast).toHaveCount(0)
+  } finally {
+    expect((await k.request.put('/api/admin/settings', { data: { membersLocalDownloads: true } })).ok()).toBe(true)
+  }
+})
 
 async function pasteText(page: Page, text: string) {
   await page.locator('.cm-content').evaluate((el, text) => {

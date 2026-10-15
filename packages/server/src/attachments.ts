@@ -115,7 +115,7 @@ export interface FetchImageOptions {
   timeoutMs?: number
   maxRedirects?: number
   /**
-   * Only public addresses (for members): every address the host
+   * Only public addresses: every address the host
    * resolves to must be public (cimd.ts `isPublicAddress`), and the
    * connection goes to the one that was checked; each redirect is checked
    * again, the same way. Otherwise `private_address`.
@@ -131,9 +131,9 @@ export interface FetchImageOptions {
  * headers), a bounded number of redirects, an image content type and bytes
  * that really are one of the stored types.
  *
- * Private and LAN addresses are allowed for the vihko admin (and for members
- * if the admin allows it): a chart from a service on the network may be worth
- * a copy. Otherwise `publicOnly`. It only runs on an explicit user action,
+ * Private and LAN addresses are allowed only if the admin allows them (for
+ * everyone, the admin included): a chart from a service on the network may be
+ * worth a copy. Otherwise `publicOnly`. It only runs on an explicit user action,
  * never for URLs found in notes (agents can write those too).
  */
 export async function fetchImage(url: string, opts: FetchImageOptions): Promise<{ bytes: Uint8Array; mime: string }> {
@@ -210,7 +210,7 @@ function get(u: URL, opts: FetchImageOptions, signal: AbortSignal): Promise<Inco
 }
 
 function privateAddress(host: string) {
-  return new FetchImageError('private_address', `${host} is not a public address: members only download from public addresses`)
+  return new FetchImageError('private_address', `${host} is not a public address, and the local network isn't allowed`)
 }
 
 function parseHttpUrl(raw: string): URL {

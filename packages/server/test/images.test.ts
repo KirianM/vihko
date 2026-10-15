@@ -172,7 +172,9 @@ test('only a few images are received at once per person: beyond that, 429 and no
   const held: import('node:http').ServerResponse[] = []
   const { url, server } = await origin({ '/held.png': (res) => { held.push(res) } })
   try {
-    const { post, upload, v } = await setup()
+    const { post, upload, v, settings } = await setup()
+    // The test's origin is on this machine: the local network has to be allowed.
+    settings.set({ membersLocalDownloads: true })
     const plan = v('Plan.md')
     const waiting = Array.from({ length: IMAGES_PER_USER }, () => post('/api/attachments/fetch', { note: plan, url: `${url}/held.png` }))
     const start = Date.now()
@@ -208,7 +210,9 @@ test('by URL: a copy is downloaded and stored like an upload, following a few re
     '/slow': () => { /* never answers */ },
   })
   try {
-    const { notesDir, post, v } = await setup({ maxImageBytes: 100 })
+    const { notesDir, post, v, settings } = await setup({ maxImageBytes: 100 })
+    // The test's origin is on this machine: the local network has to be allowed.
+    settings.set({ membersLocalDownloads: true })
     const ok = await post('/api/attachments/fetch', { note: v('Plan.md'), url: `${url}/moved` })
     assert.equal(ok.status, 201)
     assert.ok(ok.body.path.startsWith(v('Plan-')) && ok.body.path.endsWith('.png'), ok.body.path)
@@ -227,6 +231,46 @@ test('by URL: a copy is downloaded and stored like an upload, following a few re
     assert.deepEqual([noNote.status, noNote.body.error], [404, 'not_found'])
 
     await assert.rejects(fetchImage(`${url}/slow`, { maxBytes: 100, timeoutMs: 200 }), (e: Error & { code?: string }) => e.code === 'fetch_failed' && /timed out/.test(e.message))
+  } finally {
+    server.closeAllConnections()
+    server.close()
+  }
+})
+
+test('by URL, a failure answers in general words: the host, port, status and system error go to the log only', async (t) => {
+  const { url, server } = await origin({
+    '/gone': (res) => { res.statusCode = 404; res.end() },
+    '/page': (res) => { res.setHeader('content-type', 'text/html'); res.end('<html>') },
+  })
+  const logged = t.mock.method(console, 'error', () => {})
+  try {
+    const { post, v, settings } = await setup({ role: m.faker.helpers.arrayElement(['admin', 'member'] as const) })
+    settings.set({ membersLocalDownloads: true })
+    const { host, port } = new URL(url)
+    // Nothing listens on the discard port: the connection is refused.
+    const refused = 'http://127.0.0.1:9/x.png'
+    const cases: [string, number, string, RegExp][] = [
+      [`${url}/gone`, 502, 'fetch_failed', /404/],
+      [`${url}/page`, 415, 'unsupported_type', /text\/html/],
+      [refused, 502, 'fetch_failed', /ECONNREFUSED|127\.0\.0\.1:9/],
+    ]
+    const messages = new Set<string>()
+    for (const [u, status, code, detail] of cases) {
+      logged.mock.resetCalls()
+      const r = await post('/api/attachments/fetch', { note: v('Plan.md'), url: u })
+      assert.deepEqual([r.status, r.body.error], [status, code], u)
+      const said = JSON.stringify(r.body)
+      for (const leak of [host, port, '127.0.0.1', ':9', detail]) assert.ok(typeof leak === 'string' ? !said.includes(leak) : !leak.test(said), `${said} tells ${leak}`)
+      const log = logged.mock.calls.map((c) => c.arguments.join(' ')).join('\n')
+      assert.match(log, detail, 'the detail is in the server log')
+      if (code === 'fetch_failed') messages.add(r.body.message)
+    }
+    assert.equal(messages.size, 1, 'a page that isn\'t there and a port that refuses answer the same')
+
+    settings.set({ membersLocalDownloads: false })
+    const blocked = await post('/api/attachments/fetch', { note: v('Plan.md'), url: `${url}/gone` })
+    assert.deepEqual([blocked.status, blocked.body.error], [403, 'private_address'])
+    assert.ok(!JSON.stringify(blocked.body).includes(host), 'the address isn\'t repeated back')
   } finally {
     server.closeAllConnections()
     server.close()
@@ -274,8 +318,10 @@ test('by URL, a member: only public addresses (also after DNS and redirects), un
     assert.equal((await plain.post('/api/attachments/fetch', { note: plain.v('Plan.md'), url: `${url}/chart.png` })).status, 201)
     plain.settings.set({ membersLocalDownloads: false })
     assert.equal((await plain.post('/api/attachments/fetch', { note: plain.v('Plan.md'), url: `${url}/chart.png` })).status, 403)
-    // The vihko admin, from anywhere (the test above downloads from 127.0.0.1 as one).
+    // The vihko admin is held to the same setting: their account can't probe the network either.
     const admin = await setup({ role: 'admin' })
+    assert.deepEqual([(await admin.post('/api/attachments/fetch', { note: admin.v('Plan.md'), url: `${url}/chart.png` })).body.error], ['private_address'])
+    admin.settings.set({ membersLocalDownloads: true })
     assert.equal((await admin.post('/api/attachments/fetch', { note: admin.v('Plan.md'), url: `${url}/chart.png` })).status, 201)
 
     await assert.rejects(fetchImage(`${url}/chart.png`, { maxBytes: 100, publicOnly: true }), (e: Error & { code?: string }) => e.code === 'private_address')

@@ -153,6 +153,11 @@ test('a note over notes.maxSize: indexed by its name alone, shown as too large, 
     assert.equal((await h.member('POST', '/api/note', { path: small, text: `# ${m.aHeading()}\n` })).status, 201)
     const appended = await h.member('POST', '/api/note/edit', { path: small, ops: [{ op: 'append', text: 'z'.repeat(5000) }] })
     assert.deepEqual([appended.status, appended.body.error], [413, 'note_too_large'])
+    // Larger counts in bytes: as many characters, one of them wider, is larger.
+    const wider = await h.member('POST', '/api/note/edit', { path: big, ops: [{ op: 'find_replace', find: `${word} x`, replace: `${word} é` }] })
+    assert.deepEqual([wider.status, wider.body.error], [413, 'note_too_large'])
+    // Trimming a note over the limit always goes through, though it stays over.
+    assert.equal((await h.member('POST', '/api/note/edit', { path: big, ops: [{ op: 'find_replace', find: `${word} x`, replace: `${word} ` }] })).status, 200)
     const key = await h.newKey('member', { name: m.aKeyName(), canWrite: true })
     const c = await h.mcp(key.token)
     try {
