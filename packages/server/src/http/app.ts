@@ -1027,10 +1027,13 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (!path || norm !== path || path.startsWith('/') || norm.split('/').includes('..')) return fail(c, 400, 'invalid_path', `invalid file path: ${path}`)
     // vihko.yaml isn't content: once it holds permissions (M4), it's not for every reader.
     if (classifyPath(norm) !== 'other' || norm === WORKSPACE_FILE) return fail(c, 404, 'not_found', `not a servable file: ${path}`)
-    // Through a symbolic link, or spelled otherwise than on the disk (a case-insensitive filesystem): not there.
-    if (!followable(deps.notesDir, norm)) return fail(c, 404, 'not_found', `does not exist: ${path}`)
+    // The permission first, from the path alone, before the disk is touched: a
+    // path the principal can't read answers as one that doesn't exist, and as
+    // fast, so the time it takes can't tell whether something is there.
     // An agent: only in its folders, and only a file a note it can read uses (one named by a note it reads: resolveFile checked).
     if (!named) scoped(c).assertFile(norm)
+    // Through a symbolic link, or spelled otherwise than on the disk (a case-insensitive filesystem): not there.
+    if (!followable(deps.notesDir, norm)) return fail(c, 404, 'not_found', `does not exist: ${path}`)
     const file = join(deps.notesDir, norm)
     let st: ReturnType<typeof statSync>
     try {
