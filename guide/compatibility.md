@@ -604,6 +604,7 @@ Every key vihko reads. [Configuration](configuration.md) explains each one.
 | `notes.maxSize` | number of MiB | 5 | The largest note vihko indexes and opens in the live editor: a larger one is indexed by its name alone, shows as plain text with a download, and the API and MCP refuse a write that leaves a note over it and larger than it was (`413 note_too_large`); a write that doesn't make a note larger always goes through |
 | `permissions.<folder>.grants` | map of subject to level | nobody | Who gets what in that folder and below |
 | `permissions.<folder>.ai` | `false` | open | Closes the folder and everything below it to agents |
+| `permissions.<root>.name` | text | none | Retired: how 0.1.0's first release candidates kept a shared space's name. Only at a shared space's root (anywhere else rejects the section). When vihko starts, it renames the space's folder to it (or, when it can't be a folder's name, to the readable part of a folder such as `home-7k2q9x`) and removes the key; when neither can be one, it only removes the key. While another space or folder in `spaces/` has that name, the space and the key stay as they are, the admins get `space_not_renamed`, and the next start tries again |
 
 `attachments.folder` without `mode: folder` (or `mode: folder` without a
 folder), and `attachments.suffix` without `mode: per-note`, are wrong values
@@ -630,7 +631,8 @@ What goes with them:
   (`people/<user>`) takes only `ai: false`. Anything else rejects the
   section: `""`, `people`, `spaces`, a path in no space, a `{user}` segment,
   grants at a personal space's root, a key written twice. A shared space's
-  name is its folder's: no key holds it.
+  name is its folder's: no key holds it (an old `name` is renamed into the
+  folder at start, above).
 - **Subjects**: a username, or `@group`. **Levels**: `read`, `comment`,
   `edit` and `manage`. No group can be named `everyone`, `all`, `public` or
   `anyone` (`400 invalid_group_name`): those subjects are kept for grants to
@@ -654,7 +656,7 @@ What goes with them:
   deletes a folder, or when a user or group is deleted or renamed; when the
   admin assigns a manager, joins a space to rescue it, restores the last
   permissions or settles a deleted person's space; when a key vihko retired
-  is migrated at start; and a format rewrite at start after an upgrade,
+  is migrated at start, a shared space's old `name` among them; and a format rewrite at start after an upgrade,
   which may raise `version`. Comments, key order and keys it doesn't know
   stay. When `vihko.yaml` is a symbolic link, vihko writes the file it
   points to, atomically, and the link stays.
@@ -786,7 +788,7 @@ else into a note unless someone asks it to (an edit, a comment, a
 |---|---|
 | The two folders | `people/` and `spaces/`, made when vihko starts if they're missing |
 | A person's folder | `people/<username>/`, made when the user is created, and again at start if it went missing; renamed with them while their invitation is unused. Empty folders in `people/` with their name in another case are removed when they're created |
-| A shared space's folder | `spaces/<name>/`, the space's name as written, made when the space is created, when a folder becomes a space of its own («Move to a new space»), when a deleted person's space is converted into a shared one, or when a deleted space is restored (with its folders); renamed with the space |
+| A shared space's folder | `spaces/<name>/`, the space's name as written, made when the space is created, when a folder becomes a space of its own («Move to a new space»), when a deleted person's space is converted into a shared one, or when a deleted space is restored (with its folders); renamed with the space, and at start to an old `name` in `vihko.yaml` |
 | A deleted person's space, transferred | Moved to `people/<recipient>/<their username>/`, or the first free `-<n>` after that name |
 | A shared space's members | `permissions.<root>.grants` in `vihko.yaml` |
 | Settings of a person or a space | `<space root>/.vihko/settings.yaml`, written when someone saves them in the UI: atomically, only the keys that changed (a `version` that isn't valid becomes 1), `version` added first when missing; comments and key order stay, the spacing and quoting of the rest of the file may not |
