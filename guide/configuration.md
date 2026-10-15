@@ -65,7 +65,7 @@ Every setting, with its default:
 | Members can create keys | `state.db` | off | Preferences → «Agents and API» | vihko admin | Yes: off suspends members' keys |
 | OAuth apps can register themselves | `state.db` | off | Preferences → «Agents and API» (only with `VIHKO_PUBLIC_URL`) | vihko admin | Yes |
 | Two-step verification policy | `state.db` | Optional | Preferences → «Users and groups» → «Settings» | vihko admin, confirmed at the moment | Yes |
-| Members can save copies of images from private addresses | `state.db` | off | Preferences → «Users and groups» → «Settings» | vihko admin | Yes |
+| Copies of images can be saved from private addresses | `state.db` | off | Preferences → «Users and groups» → «Settings» | vihko admin | Yes |
 | Retention of the trash and of the history | `state.db` | off (keep everything) | Preferences → «Users and groups» → «Retention» | vihko admin, confirmed at the moment | Yes; runs weekly, or «Run now» |
 | Who can create spaces | `state.db` | Everyone | Preferences → «Spaces» → «Who can create spaces» | vihko admin | Yes |
 | Language | `state.db`, the person's account | Automatic (the browser's) | Preferences → «Account» → «Language» | Each person | Yes |

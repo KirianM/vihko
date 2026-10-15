@@ -285,6 +285,20 @@ function fetchErrorStatus(e: FetchImageError) {
 }
 
 /**
+ * What a failed image copy tells whoever asked: the same words for every
+ * failure of a kind, never the host, port, status or system error behind it
+ * (with those, the answers would map the network the server sits on). The
+ * detail goes to the server's log.
+ */
+const FETCH_ERROR_MESSAGE = {
+  invalid: 'not an http or https address that can be downloaded',
+  too_large: 'the image is over the size limit',
+  unsupported_type: 'not an image of a supported type',
+  fetch_failed: 'the image could not be downloaded',
+  private_address: 'not a public address',
+} as const satisfies Record<FetchImageError['code'], string>
+
+/**
  * Error response: `error` is the stable code the UI translates; `message`
  * is a hint for developers, which the UI never shows.
  */
@@ -424,7 +438,10 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
     if (err instanceof AccessError) return fail(c, 403, 'forbidden', err.message)
     if (err instanceof AgentDenied) return fail(c, 403, 'agent_denied', err.message, { reason: err.reason })
     if (err instanceof AudienceWidens) return fail(c, 409, 'audience_widens', err.message, { audience: err.audience })
-    if (err instanceof FetchImageError) return fail(c, fetchErrorStatus(err), err.code, err.message)
+    if (err instanceof FetchImageError) {
+      console.error(scrub(`image copy failed (${err.code}): ${err.message}`))
+      return fail(c, fetchErrorStatus(err), err.code, FETCH_ERROR_MESSAGE[err.code])
+    }
     if (err instanceof ProfileError) return fail(c, 400, err.code, err.message)
     // What git said stays on the server (history/reader.ts `clientMessage`).
     if (err instanceof HistoryError) return fail(c, historyErrorStatus(err), err.code, clientMessage(err))
@@ -1006,11 +1023,11 @@ export function createServer(deps: AppDeps): { app: Hono<Env>; services: Service
   // A copy of an image from a URL, stored like an upload. Only on this explicit
   // request from a user: the server never fetches URLs written in notes.
   // Nothing is downloaded for a note that doesn't exist or they can't write.
-  // Members only from public addresses, unless the admin lets them reach the
-  // local network (so a member can't probe it); the vihko admin, from anywhere.
+  // Only from public addresses, unless the admin lets everyone reach the local
+  // network: so nobody, the admin's account included, can probe it through vihko.
   app.post('/api/attachments/fetch', imageSlot, async (c) => {
     const { note, url } = await jsonBody<{ note: string; url: string }>(c)
-    const publicOnly = c.get('user').role !== 'admin' && !adminSettings.view().membersLocalDownloads
+    const publicOnly = !adminSettings.view().membersLocalDownloads
     const r = await scoped(c).attachFromUrl(note ?? '', async () => (await fetchImage(String(url ?? ''), { maxBytes: notes.maxImageBytes, publicOnly, testing: deps.imageFetchTesting })).bytes)
     return c.json(withMarkdown(r), 201)
   })
