@@ -358,8 +358,7 @@ test('a note whose path is too long to name its recovery log opens, and its copy
   assert.ok(Buffer.byteLength(encodeURIComponent(note)) > 255)
   mkdirSync(join(notes, note, '..'), { recursive: true })
   writeFileSync(join(notes, note), `# ${m.aHeading()}\n\n${m.aSentence()}\n`)
-  const port = String(42450 + Math.floor(Math.random() * 40))
-  let srv = await startServer({ ...env, VIHKO_PORT: port })
+  let srv = await startServer(env)
   const pending = m.aUniqueWord()
   try {
     const cookie = await login(srv)
@@ -370,7 +369,7 @@ test('a note whose path is too long to name its recovery log opens, and its copy
     a.close()
     await srv.stop('SIGKILL')
     rmSync(join(notes, note)) // deleted while the server is down: its copy waits in the log
-    srv = await startServer({ ...env, VIHKO_PORT: port })
+    srv = await startServer(env)
     await sleep(1500)
     const cookie2 = await login(srv)
     assert.deepEqual(await orphaned(srv, cookie2), [note])

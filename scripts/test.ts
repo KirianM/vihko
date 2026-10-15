@@ -15,6 +15,9 @@ const files = process.argv.slice(2)
 const seed = testSeed()
 console.log(seedLine(seed, `npm test${files.length ? ` -- ${files.join(' ')}` : ''}`))
 const root = mkdtempSync(join(tmpdir(), 'vihko-test-run-'))
+// The ports the test servers claim (packages/server/test/_ports.ts), shared by
+// every test process of the run; outside `root`, which has to end up empty.
+const ports = mkdtempSync(join(tmpdir(), 'vihko-test-ports-'))
 // Ctrl-C reaches the tests too: this process waits for them and cleans up.
 process.on('SIGINT', () => {})
 process.on('SIGTERM', () => {})
@@ -23,7 +26,7 @@ let code = 1
 try {
   const run = spawnSync(process.execPath, ['--test', '--test-force-exit', ...(files.length ? files : ['packages/*/test/**/*.test.ts', 'test/**/*.test.ts'])], {
     stdio: 'inherit',
-    env: { ...process.env, TMPDIR: root, TMP: root, TEMP: root },
+    env: { ...process.env, TMPDIR: root, TMP: root, TEMP: root, VIHKO_TEST_PORTS_DIR: ports },
   })
   code = run.status ?? 1
   if (code !== 0) console.error(`\n${seedLine(seed, `npm test${files.length ? ` -- ${files.join(' ')}` : ''}`)}`)
@@ -35,5 +38,6 @@ try {
   }
 } finally {
   rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+  rmSync(ports, { recursive: true, force: true, maxRetries: 3 })
 }
 process.exit(code)
