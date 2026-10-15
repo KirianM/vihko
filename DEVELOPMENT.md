@@ -404,6 +404,28 @@ the next one; everything else lives in a temporary folder, removed at the end.
 before they replace the committed ones. To change what the pictures show,
 change the demo notes, not the pictures.
 
+## Dependencies
+
+- Always the latest stable version of a dependency, and never a package its
+  author has marked `deprecated`: replace it.
+- Node runs on the active LTS line (`.nvmrc`, `engines` in `package.json`, the
+  `node:` image tag in the `Dockerfile`). Odd versions have no LTS and aren't
+  used. Dependabot doesn't propose a Node major (nor `@types/node`'s): it is
+  changed by hand, following the LTS schedule.
+- The base image is on Debian stable (`node:<major>-<codename>-slim`, today
+  `trixie`).
+- Dependabot (`.github/dependabot.yml`) checks npm, GitHub Actions and the
+  Docker image every week, and proposes a version only 7 days after it's
+  published (`cooldown`), so a compromised release pulled within days never
+  reaches us. Security updates don't wait.
+- A dependency's install script (`preinstall`, `install`, `postinstall`) runs
+  only if it's allowed by name: `allowScripts` in `package.json` lists each
+  package as `true` or `false`, and `strict-allow-scripts=true` in `.npmrc`
+  makes an unlisted one fail the install instead of running.
+- Before every minor release, a dependency review: `npm outdated`,
+  `npm audit --omit=dev`, the list of deprecated packages, the Node line and
+  the base image.
+
 ## Conventions
 
 - Everything in the code is in English: identifiers, comments, test names, log
