@@ -412,7 +412,7 @@ spaces, sharing and what an admin is told of them:
 
 | Code | Who sees it | What it says |
 |---|---|---|
-| `outside_spaces` | Admins | `paths`: top-level names, and folders in `spaces/` that aren't a space, that nobody sees; `into`: the admin's own space (`people/<admin>`), where they can move them on the disk. Also a `config_warnings` entry for a `vihko.yaml` path outside the spaces |
+| `outside_spaces` | Admins | `paths`: top-level names, files right in `people/` or `spaces/`, and folders in `spaces/` that aren't a space, that nobody sees; `into`: the admin's own space (`people/<admin>`), where they can move them on the disk. Also a `config_warnings` entry for a `vihko.yaml` path outside the spaces |
 | `unreadable_notes` | Admins | `paths`: notes on the disk vihko can't read (no permission, an I/O error), among those the admin reads; `elsewhere`: the roots of the spaces that hold the others. Each stays as the index had it, and the server's log names it, until it can be read. A scan or a start never stops for one |
 | `permissions_missing` | Admins | `file`, `folders` (how many folders the kept section has rules for), `actions` (`restore_permissions`, `dismiss`): `vihko.yaml` has no `permissions` (or there's no file), so nothing is shared, while vihko kept the last section that shared something |
 | `notes_too_large` | Admins | `paths` (those the admin reads), `elsewhere` (the roots of the spaces that hold the others), `limitMb`: notes over `notes.maxSize`, indexed by their name alone and never opened live |
@@ -420,6 +420,7 @@ spaces, sharing and what an admin is told of them:
 | `person_folder_without_user` | Admins | `names`: folders in `people/` named after no user |
 | `space_without_members` | Admins | `path`, `name`: a shared space nobody has access to |
 | `space_without_managers` | Admins | `path`, `name`: a shared space with members but nobody who manages it (a disabled manager doesn't count) |
+| `space_not_renamed` | Admins | `path`, `name` (its folder's), `wanted`: a shared space whose old `name` in `vihko.yaml` vihko couldn't make its folder's at start, because another space or folder has it or the disk refused. Each start tries again; its managers can rename it |
 | `missing_folder` | Whoever manages the space | `folders`: grants in `vihko.yaml` for folders that don't exist. Never the admin as such |
 | `permissions_held` | Who could have made that move from vihko | `id`, `folder`, `notes` (a count): notes held after a move made outside vihko |
 | `shared_with_you` | The person added | `kind` (`space` or `folder`), `by`, `path`, `name`, `owner`, `space`: someone added them to a space or shared a folder with them. Names and path only while they can still see it |
