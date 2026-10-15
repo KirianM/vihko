@@ -92,6 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0 # the tags: the stable release the upgrade smoke test starts from
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -110,6 +111,10 @@ jobs:
           curl -fs http://127.0.0.1:8080/api/health
       - name: Serves the UI
         run: curl -fs http://127.0.0.1:8080/ | grep -q 'id="root"'
+      # The same upgrade the release runs before publishing, on every change:
+      # a smoke test that only ran at release time went stale unseen.
+      - name: The previous stable release upgraded to it
+        run: node scripts/upgrade-smoke.ts --new vihko:ci
       - run: npm ci
       - name: Acceptance with docker compose (startup, search, kill -9)
         run: node --test --test-force-exit packages/server/test/acceptance/docker.acceptance.ts

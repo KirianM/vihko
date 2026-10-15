@@ -46,8 +46,9 @@ const USAGE = 'usage: npm run upgrade-smoke -- --new <image> [--old <image>] [--
 
 /** A 1×1 PNG. A literal: any valid image will do, and the bytes are compared after the upgrade. */
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
-const PLAN = 'upgrade-smoke/Plan.md'
-const TARGET = 'upgrade-smoke/Target.md'
+// Notes live in a space: the admin's own (`admin` below).
+const PLAN = 'people/admin/upgrade-smoke/Plan.md'
+const TARGET = 'people/admin/upgrade-smoke/Target.md'
 /** A note written by hand: frontmatter with a comment, a key vihko doesn't know, a link. */
 const PLAN_TEXT = `---
 title: Upgrade plan
