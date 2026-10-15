@@ -55,10 +55,11 @@ ENV NODE_ENV=production \
     VIHKO_PORT=8080
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
+# The workspaces' package.json files and any node_modules npm nested in them
+# (a version that conflicts with the root's lands there).
+COPY --from=deps /app/packages ./packages
 COPY package.json ./
-COPY packages/core/package.json packages/core/
 COPY packages/core/src packages/core/src
-COPY packages/server/package.json packages/server/
 COPY packages/server/src packages/server/src
 COPY --from=web /app/packages/web/dist packages/web/dist
 COPY LICENSE ./
