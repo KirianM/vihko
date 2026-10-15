@@ -623,13 +623,17 @@ export class NoteService {
    * the note is created and the system rewrites that link so it keeps
    * leading where it did, without saying so.
    */
-  /** Unless a note's text fits the size limit (vihko.yaml `notes.maxSize`): `note_too_large`. */
-  checkSize(text: string): void {
+  /**
+   * Unless a note's text fits the size limit (vihko.yaml `notes.maxSize`), or
+   * isn't larger in bytes than `before` (what it replaces): `note_too_large`.
+   */
+  checkSize(text: string, before?: string): void {
     const max = this.opts.maxNoteBytes?.()
     // Never more than 3 bytes of UTF-8 per UTF-16 unit: a short text needs no counting.
     if (max === undefined || text.length * 3 <= max) return
     const bytes = Buffer.byteLength(text, 'utf8')
-    if (bytes > max) throw new NoteError('note_too_large', `the note would be ${bytes} bytes; notes are kept up to ${max} bytes here`)
+    if (bytes <= max || (before !== undefined && bytes <= Buffer.byteLength(before, 'utf8'))) return
+    throw new NoteError('note_too_large', `the note would be ${bytes} bytes; notes are kept up to ${max} bytes here`)
   }
 
   async create(path: string, text: string, actor: Actor, opts: { freshUid?: boolean; reason?: Reason; mayName?: (path: string) => boolean } = {}): Promise<{ path: string; etag: string; uid: string | null }> {
@@ -673,7 +677,7 @@ export class NoteService {
     const fn = (t: string): Change => {
       const change = given(t)
       const next = changedText(t, change)
-      if (next.length > t.length) this.checkSize(next)
+      this.checkSize(next, t)
       return change
     }
     // An alias the edit adds is a name the note takes, as when creating one.
