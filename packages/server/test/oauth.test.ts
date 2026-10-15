@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { OAuthServer, REGISTRATIONS_PER_HOUR, REGISTRATION_ADDRESSES, WindowLimit, nameFitsDomain, publicUrlFrom, sameRedirect } from '@vihko/server'
+import { MAX_UNUSED_CLIENTS, OAuthServer, REGISTRATIONS_PER_HOUR, REGISTRATION_ADDRESSES, UNUSED_CLIENT_MS, WindowLimit, nameFitsDomain, publicUrlFrom, sameRedirect } from '@vihko/server'
 import { setup } from './_agents.ts'
 import { inShared } from './_permissions.ts'
 import { mother } from '../../../test/mother.ts'
@@ -518,6 +518,32 @@ test('registration is limited per address: 5 an hour, then 429 with Retry-After;
     assert.ok(Number(later.retryAfter) > 1700 && Number(later.retryAfter) <= 1800, String(later.retryAfter))
     h.clock.now = new Date(h.clock.now.getTime() + 31 * 60_000)
     assert.equal((await from('203.0.113.5')).status, 201)
+  } finally { await h.close() }
+})
+
+test('at most so many clients wait for an authorization: then 429 with Retry-After until the oldest is forgotten', async () => {
+  const h = await setup({ files: FILES, publicUrl: PUBLIC, ui: true })
+  try {
+    await h.enableMcp()
+    await openRegistration(h)
+    let n = 0
+    /** A registration from an address of its own, so the per-address limit never steps in. */
+    const another = async () => {
+      n++
+      const res = await h.app.request('/oauth/register', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ client_name: CLIENT, redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none' }),
+      }, { incoming: { socket: { remoteAddress: `10.${n >> 16 & 255}.${n >> 8 & 255}.${n & 255}` } } })
+      return { status: res.status, retryAfter: res.headers.get('retry-after'), body: await res.json() as Record<string, unknown> }
+    }
+    assert.equal((await another()).status, 201)
+    h.clock.now = new Date(h.clock.now.getTime() + 6 * 3600_000)
+    for (let i = 1; i < MAX_UNUSED_CLIENTS; i++) assert.equal((await another()).status, 201)
+    const full = await another()
+    assert.deepEqual([full.status, full.body.error, full.retryAfter], [429, 'temporarily_unavailable', String((UNUSED_CLIENT_MS - 6 * 3600_000) / 1000)])
+    // Once the oldest is forgotten, one more fits.
+    h.clock.now = new Date(h.clock.now.getTime() + UNUSED_CLIENT_MS - 6 * 3600_000)
+    assert.equal((await another()).status, 201)
   } finally { await h.close() }
 })
 
