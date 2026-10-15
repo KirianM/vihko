@@ -10,6 +10,67 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.1] - 2026-10-15
+
+Fixes only: nothing in [guide/compatibility.md](guide/compatibility.md)
+changes in a way a script, an agent or your setup would notice, so there are
+no upgrade notes. Install it over 0.1.0 as usual.
+
+### Security
+
+- **`/api/file` decides whether you may read a file before it looks at the
+  disk.** It used to look first, and how long the answer took could tell
+  someone who can't read a folder whether a file exists in it. A file you
+  can't read and one that doesn't exist now answer the same, at once.
+- **«Save a copy» of an external image answers in general words.** Its
+  errors named the host, the port and the system error, enough to probe
+  which ports answer on the server's network. The detail goes to the
+  server's log; the answer keeps its code.
+- **The admin is held to the setting for images on the local network too.**
+  With it off (the default), nobody, the admin included, saves a copy of an
+  image from a private address. If you relied on it as admin, turn on
+  *Copies of images can be saved from private addresses* in the
+  administration.
+
+### Fixed
+
+- An edit could make a note over `notes.maxSize` larger when it swapped
+  characters for wider ones without adding any: "larger" now counts bytes, as
+  the limit does. Trimming a note over the limit still always goes through.
+- `POST /oauth/register` answers its cap on apps waiting for an
+  authorization with `Retry-After`, as the contract says: the time until the
+  one waiting longest is forgotten.
+- Deleting a person whose space goes to someone else, or becomes a shared
+  space, now says that their trash goes along with it, in the dialog and in
+  *Spaces* when it's settled later.
+
+### Documentation
+
+- Restoring a backup: the restore test passes the secret key, without which
+  nobody with two-step sign-in could get into the restored copy.
+- Changing the domain vihko is served on (`guide/reverse-proxy.md`): what to
+  update, and what people and connected apps have to do again.
+- A shared space's folder renamed outside vihko comes back without members:
+  rename spaces from vihko.
+- NFS `hard` mounts: a network cut freezes vihko until the share is back.
+- `guide/compatibility.md` says what a later minor version may still add: new
+  names with a meaning at the root of a space, a paginated `GET /api/tree`,
+  and the `n` query parameter, reserved. It also lists what it had left out:
+  the retired name key of a shared space in `vihko.yaml`, the
+  `space_not_renamed` alert, and spaces around a space's attachments suffix.
+- The note size limit is described as it works: a write is refused only if
+  it leaves a note over the limit and larger than it was.
+- For contributors: `DEVELOPMENT.md` states the dependencies policy, the
+  0.x rules for deprecations, and that every stored path is kept up to date
+  through `FolderRefs`; `CLAUDE.md` no longer says links cross spaces.
+
+### Dependencies
+
+- Updated within their versions: `@lezer/markdown` 1.8.0, the MCP SDK 2.3.1,
+  CodeMirror, `react-aria-components` 1.22.0, Vite 8.3.4, Playwright 1.64.0,
+  and the GitHub Actions the CI uses. `npm audit` finds nothing, and no
+  package in the tree is deprecated.
+
 ## [0.1.0] - 2026-10-08
 
 The first public release: a self-hosted notebook over plain Markdown files,
@@ -1490,6 +1551,7 @@ published under its exact image tag, `ghcr.io/kirianm/vihko:1.0.0-rc.1`.
 
 </details>
 
+[0.1.1]: https://github.com/KirianM/vihko/releases/tag/v0.1.1
 [0.1.0]: https://github.com/KirianM/vihko/releases/tag/v0.1.0
 [0.1.0-rc.8]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.8
 [0.1.0-rc.7]: https://github.com/KirianM/vihko/releases/tag/v0.1.0-rc.7
