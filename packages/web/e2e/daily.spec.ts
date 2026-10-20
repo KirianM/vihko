@@ -167,7 +167,7 @@ test('«Today» creates the note from the template in the series folder, then on
   await expect(k).toHaveURL(new RegExp(`\\?${noteInUrl(path)}$`))
   await expect.poll(() => editorText(k)).toContain(`${BY} ${ADMIN.username}. ${UNKNOWN}`)
   const onDisk = readFileSync(`${NOTES}/${path}`, 'utf8')
-  expect(onDisk).toMatch(new RegExp(`^---\\ntags: \\[${literally(TEMPLATE_TAG)}\\]\\nuid: \\w+\\n---\\n# ${ddmmyyyy(today).replace(/\//g, '\\/')}\\n`))
+  expect(onDisk).toMatch(new RegExp(`^---\\ntags: \\[${literally(TEMPLATE_TAG)}\\]\\nuid: \\w+\\n---\\n# ${literally(ddmmyyyy(today))}\\n`))
   // The tree shows it where it is.
   await expect(k.getByRole('row', { name: today })).toHaveAttribute('aria-selected', 'true')
 

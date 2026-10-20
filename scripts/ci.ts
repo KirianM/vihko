@@ -170,7 +170,7 @@ function rerun(failed: Result[]): string | null {
   const e2e = failed.find((r) => r.stage === 'e2e')
   const files = e2e ? [...new Set(playwrightSummary(e2e.log).failed.map((t) => /([^/\s]+\.spec\.ts):\d+/.exec(t)?.[1]).filter((f): f is string => !!f))] : []
   // A pattern only when the browser tests are all that failed: it would filter the others' tests too.
-  if (failed.length === 1 && files.length) args.push('--grep', files.map((f) => f.replace(/[.]/g, '\\.')).join('|'))
+  if (failed.length === 1 && files.length) args.push('--grep', files.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'))
   else if (opt.grep !== undefined) args.push('--grep', opt.grep)
   return `${SEED_VARIABLE}=${SEED} npm run ci -- ${args.map(shell).join(' ')}`
 }

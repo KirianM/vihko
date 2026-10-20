@@ -16,6 +16,7 @@ import { mother } from '../../../test/mother.ts'
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 const m = mother(import.meta.url)
+const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 
 /** How vihko lists names (SQLite's `collate nocase`): ASCII letters ignore case, everything else by code point. */
 const nocase = (a: string, b: string) => {
@@ -490,7 +491,7 @@ test('the CLI gives a reset link (the way back for an admin who lost their passw
     const env = { ...process.env, VIHKO_STATE_DIR: s.dir, VIHKO_NOTES_DIR: s.notesDir, VIHKO_PUBLIC_URL: publicUrl }
     const r = spawnSync(process.execPath, ['--no-experimental-webstorage', CLI, 'user', 'reset-link', admin], { env, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
-    const token = new RegExp(`${publicUrl.replace(/[.]/g, '\\.')}/invite/([A-Za-z0-9_-]{43})`).exec(r.stdout)?.[1]
+    const token = new RegExp(`${literally(publicUrl)}/invite/([A-Za-z0-9_-]{43})`).exec(r.stdout)?.[1]
     assert.ok(token, r.stdout)
     assert.ok(r.stdout.includes(`password reset link for ${admin}`), r.stdout)
     assert.deepEqual((await anon(s.app, 'GET', `/api/invite/${token}`)).body, { kind: 'reset', username: admin }, 'a running vihko reads it at once')

@@ -13,6 +13,7 @@ import { tempDir } from './_tmp.ts'
 import { mother } from '../../../test/mother.ts'
 
 const m = mother(import.meta.url)
+const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 
 const topPair = (doc: Document, key: string) => (isMap(doc.contents) ? (doc.contents as YAMLMap).items.find((p) => isScalar(p.key) && p.key.value === key) as Pair<Scalar> | undefined : undefined)
 
@@ -76,7 +77,7 @@ test('an old file is rewritten once: the new form, every other byte kept, atomic
   assert.equal(readFileSync(join(s.stateDir, BACKUP_DIR, copy!), 'utf8'), OLD)
   // The log and the admins' alert say which migration and where the copy is.
   assert.equal(s.logs.length, 1)
-  assert.match(s.logs[0]!, new RegExp(`${renameSeries.id}.*${renameSeries.description}.*${copy!.replace(/\./g, '\\.')}`))
+  assert.match(s.logs[0]!, new RegExp(`${literally(renameSeries.id)}.*${literally(renameSeries.description)}.*${literally(copy!)}`))
   const alerts = r.alerts()
   assert.equal(alerts.length, 1)
   const a = alerts[0]!
