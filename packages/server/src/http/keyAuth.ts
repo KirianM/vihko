@@ -14,8 +14,12 @@ import type { Integrations } from '../integrations.ts'
  */
 export function bearerToken(header: string | undefined): string | null {
   if (!header) return null
-  const m = /^\s*bearer(?:\s+(.*))?$/i.exec(header)
-  return m ? (m[1] ?? '').trim() : null
+  // Compared by hand: `^\s*bearer(?:\s+(.*))?$` backtracks quadratically on a long run of spaces.
+  const h = header.trimStart()
+  if (h.slice(0, 6).toLowerCase() !== 'bearer') return null
+  const rest = h.slice(6)
+  if (rest !== '' && !/^\s/.test(rest)) return null
+  return rest.trim()
 }
 
 export type KeyAuth =

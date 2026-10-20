@@ -61,7 +61,9 @@ export function wideTrustedProxies(raw: string | undefined): string[] {
 
 /** An address as compared and counted: IPv4-mapped IPv6 as IPv4, without an IPv6 zone. */
 function plain(ip: string): string {
-  const s = ip.trim().replace(/%.*$/, '')
+  const trimmed = ip.trim()
+  const zone = trimmed.indexOf('%')
+  const s = zone === -1 ? trimmed : trimmed.slice(0, zone)
   const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(s)
   return mapped ? mapped[1]! : s
 }

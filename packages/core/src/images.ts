@@ -11,7 +11,8 @@ const IMAGE_RE = new RegExp(`\\.(?:${IMAGE_EXTENSIONS.join('|')})$`, 'i')
 
 /** true if the reference (a path or a URL, without `#anchor` or `?query`) names an image file. */
 export function isImageRef(ref: string): boolean {
-  return IMAGE_RE.test(ref.replace(/[?#].*$/, ''))
+  const cut = ref.search(/[?#]/)
+  return IMAGE_RE.test(cut === -1 ? ref : ref.slice(0, cut))
 }
 
 /** `http://` or `https://`: an image outside the notes folder. */
