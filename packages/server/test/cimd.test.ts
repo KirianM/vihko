@@ -47,7 +47,7 @@ async function clientSite(tls: { key: string; cert: string }, routes: Record<str
   const server: Server = createServer(tls, (req, res) => {
     const path = (req.url ?? '').split('?')[0]!
     hits[path] = (hits[path] ?? 0) + 1
-    const route = routes[path]
+    const route = Object.hasOwn(routes, path) ? routes[path] : undefined
     if (!route) { res.writeHead(404); res.end(); return }
     const r = route(`${base}${path}`)
     if (r.hang) return // never answers
