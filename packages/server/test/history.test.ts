@@ -118,7 +118,10 @@ test('an external change closes what was pending; external changes in a row are 
 })
 
 test('external versions close after the quiet time; several files closing together are one commit, dated at their last change', async () => {
-  const h = await setup()
+  // The recorder's clock stands still while both files change: on a loaded machine, the real one could
+  // put them further apart than the grouping's margin (a fifth of the quiet time).
+  let clock: number | null = null
+  const h = await setup({ now: () => clock ?? Date.now() })
   try {
     // Whole seconds after the history's first commit (the floor of these dates) and before now.
     const first = Math.ceil(Date.now() / 1000)
@@ -130,11 +133,13 @@ test('external versions close after the quiet time; several files closing togeth
     utimesSync(tags, first, first)
     writeFileSync(code, `${m.aSentence()}\n`)
     utimesSync(code, first, first)
+    clock = Date.now()
     h.indexer.indexPaths([TAGS, CODE], { detectMoves: true })
     writeFileSync(tags, `${save2}\n`)
     utimesSync(tags, first + 1, first + 1)
     h.indexer.indexPaths([TAGS], { detectMoves: true })
     // No closeAll: the quiet time (150 ms here) closes them.
+    clock = null
     await sleep(400)
     await h.history.recorder.settle()
     const { changes } = await h.changes()
