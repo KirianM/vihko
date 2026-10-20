@@ -10,6 +10,20 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.2] - 2026-10-20
+
+The same code as 0.1.1 in a rebuilt image. There are no upgrade notes:
+install it over 0.1.1 as usual.
+
+### Security
+
+- **The image carries Debian's fixed Expat (`libexpat1` 2.9.0-1~deb13u1).**
+  Expat comes in with git, which keeps the note history, and the version in
+  0.1.1 has known flaws rated high (CVE-2026-66046, CVE-2026-76956,
+  CVE-2026-76957, CVE-2026-77214, CVE-2026-93990). vihko's own use of git
+  parses no XML, so nothing it does was exposed, but scanners flag the image
+  until it's updated.
+
 ## [0.1.1] - 2026-10-15
 
 Fixes only: nothing in [guide/compatibility.md](guide/compatibility.md)
