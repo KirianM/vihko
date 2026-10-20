@@ -64,7 +64,8 @@ async function setup(opts: { maxImageBytes?: number; webDir?: string; externalIm
 /** A local HTTP server for the URL downloads; routes by path. */
 async function origin(routes: Record<string, (res: import('node:http').ServerResponse) => void>): Promise<{ url: string; server: Server }> {
   const server = createServer((req, res) => {
-    const route = Object.hasOwn(routes, req.url ?? '') ? routes[req.url ?? ''] : undefined
+    const path = req.url ?? ''
+    const route = Object.hasOwn(routes, path) ? routes[path] : undefined
     if (route) route(res)
     else { res.statusCode = 404; res.end() }
   })
