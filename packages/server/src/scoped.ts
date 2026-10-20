@@ -1711,7 +1711,7 @@ export class ScopedNotes {
 function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | null {
   const s = typeof link === 'string' ? link.trim() : ''
   if (!s) return null
-  if (/^!?\[\[[\s\S]*\]\]$|^\[[\s\S]*\]\([\s\S]*\)$/.test(s)) {
+  if (isWrittenLink(s)) {
     const l = extract(s).links[0]
     return l ? { kind: l.kind, target: l.target, anchor: l.anchor } : null
   }
@@ -1720,6 +1720,18 @@ function parseLink(link: string): Pick<LinkRef, 'kind' | 'target' | 'anchor'> | 
   const target = (hash === -1 ? bare : bare.slice(0, hash)).trim()
   const anchor = hash === -1 ? null : bare.slice(hash + 1).trim() || null
   return { kind: 'wiki', target, anchor }
+}
+
+/**
+ * `[[…]]`, `![[…]]` or `[…](…)`, the whole string. Checked by hand: the
+ * regular expression for it backtracks polynomially on many `](`.
+ */
+function isWrittenLink(s: string): boolean {
+  const wiki = s.startsWith('![[') ? 3 : s.startsWith('[[') ? 2 : 0
+  if (wiki && s.length >= wiki + 2 && s.endsWith(']]')) return true
+  if (!s.startsWith('[') || !s.endsWith(')')) return false
+  const mid = s.indexOf('](', 1)
+  return mid !== -1 && mid + 2 <= s.length - 1
 }
 
 /** A link to a note hidden from the principal: its own text and why (if one reason), nothing of where it leads. */

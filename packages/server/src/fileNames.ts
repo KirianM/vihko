@@ -13,9 +13,15 @@ import type { Db } from './db.ts'
  */
 const FILE_EXTENSION = /\.(?=[a-z0-9]*[a-z])[a-z0-9]{1,8}$/i
 
+/** The target up to its `#anchor`. Sliced, not a `/#.*$/` replace: that one is quadratic on many `#` before a line break. */
+const withoutAnchor = (target: string) => {
+  const hash = target.indexOf('#')
+  return hash === -1 ? target : target.slice(0, hash)
+}
+
 /** Whether a link's target names a file that isn't a note: it has an extension (FILE_EXTENSION), and it isn't `.md`. */
 export function isFileTarget(target: string): boolean {
-  const t = target.replace(/#.*$/, '').trim()
+  const t = withoutAnchor(target).trim()
   const name = t.slice(t.lastIndexOf('/') + 1)
   return FILE_EXTENSION.test(name) && !name.startsWith('.') && classifyPath(t.replace(/^\/+/, '')) === 'other'
 }
@@ -26,7 +32,7 @@ export function isFileTarget(target: string): boolean {
  * (ambiguous: as for a note, nothing is guessed).
  */
 export function fileByName(index: Db, source: string, target: string): string | null {
-  const t = target.replace(/#.*$/, '').trim()
+  const t = withoutAnchor(target).trim()
   if (!t || !isFileTarget(t)) return null
   const has = index.prepare('select 1 from files where path = ?')
   // Relative to the note first, as `![[…]]` always resolved.

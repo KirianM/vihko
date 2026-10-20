@@ -142,7 +142,9 @@ loopback.addAddress('::1', 'ipv6')
 /** An IPv6 address as its eight 16-bit groups; null if it isn't one. */
 function v6Groups(ip: string): number[] | null {
   if (isIP(ip) !== 6) return null
-  let s = ip.toLowerCase().replace(/%.*$/, '')
+  let s = ip.toLowerCase()
+  const zone = s.indexOf('%')
+  if (zone !== -1) s = s.slice(0, zone)
   // A dotted IPv4 tail becomes two groups.
   const dotted = /^(.*:)(\d+\.\d+\.\d+\.\d+)$/.exec(s)
   if (dotted) {
