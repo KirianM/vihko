@@ -193,9 +193,9 @@ export function planEdits(text: string, ops: EditOp[]): Splice[] {
  */
 function section(text: string, heading: string, i: number): { bodyStart: number; end: number; ownEnd: number } {
   if (typeof heading !== 'string' || !heading.trim()) throw new NoteError('edit_mismatch', `operation ${i}: empty heading`)
-  const m = /^\s*(#{1,6})\s+(.*)$/.exec(heading)
-  const level = m ? m[1]!.length : null
-  const want = normKey(withoutClosingHashes(m ? m[2]! : heading, /\s/))
+  const m = headingMarker(heading)
+  const level = m ? m.level : null
+  const want = normKey(withoutClosingHashes(m ? m.text : heading, /\s/))
   const headings = extract(text).headings
   const found = headings.filter((h) => normKey(h.text) === want && (level === null || h.level === level))
   if (found.length !== 1) {
@@ -211,6 +211,18 @@ function section(text: string, heading: string, i: number): { bodyStart: number;
   const end = next ? next.from : text.length
   const sub = headings.find((x) => x.from > h.from)
   return { bodyStart, end, ownEnd: sub && sub.from < end ? sub.from : end }
+}
+
+/**
+ * `## Text` as its level and text, as `^\s*(#{1,6})\s+(.*)$` would read it, or
+ * null. Split by hand: that pattern backtracks quadratically on a long run of
+ * spaces before a line break.
+ */
+function headingMarker(heading: string): { level: number; text: string } | null {
+  const m = /^\s*(#{1,6})\s/.exec(heading)
+  if (!m) return null
+  const text = heading.slice(m[0].length).trimStart()
+  return /[\n\r\u2028\u2029]/.test(text) ? null : { level: m[1]!.length, text }
 }
 
 /** Offset right after the line that holds `at` (its `\n` included), or the end of the text. */
