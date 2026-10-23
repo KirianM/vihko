@@ -10,6 +10,25 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.4] - 2026-10-23
+
+Fixes only. There are no upgrade notes: install it over 0.1.3 as usual.
+
+### Security
+
+- **A section edit can no longer freeze vihko.** The heading named by an edit
+  that replaces a section or appends under a heading (from the API or MCP)
+  was read with a pattern that backtracked on a long run of spaces before a
+  line break: one such request, from anyone allowed to edit a note, could
+  keep the server busy for minutes. It's now read in linear time, with the
+  same results.
+
+### Changed
+
+- Updated dependencies: `@hocuspocus/server` and `@hocuspocus/provider`
+  4.7.1, `@hono/node-server` 2.1.5, `zod` 4.6.7, `react` and `react-dom`
+  19.3.1, `react-aria-components` 1.22.1.
+
 ## [0.1.3] - 2026-10-23
 
 Security fixes only. There are no upgrade notes: install it over 0.1.2 as
