@@ -10,6 +10,23 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.3] - 2026-10-23
+
+Security fixes only. There are no upgrade notes: install it over 0.1.2 as
+usual.
+
+### Security
+
+- **The image runs Node.js 26.12.1**, from the Node.js security release of
+  2026-10-21. It fixes CVE-2026-111497, an out-of-bounds write in the bundled
+  Brotli decoder that can lead to remote code execution when decompressing
+  data from an attacker; 0.1.2 runs Node.js 26.12.0, which is affected.
+- **Crafted input can no longer make vihko spend polynomial time matching
+  text.** A few patterns, used to read the `Authorization: Bearer` header, a
+  client's IPv6 address, links and their anchors, and image references, could
+  backtrack on long crafted input; each now reads it in linear time,
+  with the same results.
+
 ## [0.1.2] - 2026-10-20
 
 The same code as 0.1.1 in a rebuilt image. There are no upgrade notes:
