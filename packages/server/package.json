@@ -26,7 +26,7 @@
     "@modelcontextprotocol/inspector": "^2.11.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/ws": "^8.18.2",
-    "mcp-remote": "^0.15.1"
+    "mcp-remote": "^0.15.2"
   },
   "bin": {
     "vihko": "./src/cli.ts"
