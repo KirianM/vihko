@@ -10,6 +10,28 @@ setup rely on, and a patch version only fixes things, as
 The line released earlier as 1.0.x was withdrawn; its history is in git, and
 its entries are kept at the end of this file.
 
+## [0.1.5] - 2026-11-06
+
+Fixes only. There are no upgrade notes: install it over 0.1.4 as usual.
+
+### Security
+
+- **The image carries Debian's fixed Brotli (`libbrotli1` 1.1.0-2+deb13u1).**
+  Brotli comes in with git, which keeps the note history, and the version in
+  0.1.4 has CVE-2026-111497, an out-of-bounds write in its decoder; the
+  Brotli inside Node.js was already fixed in 0.1.3.
+- **Asking who has access to a folder can no longer freeze vihko.** The
+  folder's path, from the API or MCP, was trimmed of its slashes with a
+  pattern that backtracked on a long run of `/` inside it: one such request,
+  from anyone signed in, could keep the server busy for minutes. It's now
+  trimmed in linear time, with the same results.
+
+### Changed
+
+- Updated dependencies: `@lezer/common` 1.5.4, `@lezer/markdown` 1.8.1,
+  `@modelcontextprotocol/server` 2.4.0, `hono` 4.13.14,
+  `@codemirror/autocomplete` 6.20.4, `@codemirror/view` 6.43.15.
+
 ## [0.1.4] - 2026-10-23
 
 Fixes only. There are no upgrade notes: install it over 0.1.3 as usual.
