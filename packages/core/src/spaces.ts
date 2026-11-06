@@ -177,9 +177,18 @@ const ACCENTS = /[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]/g
  */
 export function readablePart(name: string): string {
   const base = name.normalize('NFD').replace(ACCENTS, '').normalize('NFC').toLowerCase()
-  const dashed = base.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '')
-  const cut = [...dashed].slice(0, READABLE_MAX).join('').replace(/-+$/, '')
+  const dashed = trimDashes(base.replace(/[^\p{L}\p{N}]+/gu, '-'))
+  const cut = trimDashes([...dashed].slice(0, READABLE_MAX).join(''))
   return cut === '' ? 'space' : cut
+}
+
+/** `s` without the `-` it starts or ends with: a loop, not `/^-+|-+$/g`, which is quadratic on a long run of `-`. */
+function trimDashes(s: string): string {
+  let start = 0
+  let end = s.length
+  while (start < end && s[start] === '-') start++
+  while (end > start && s[end - 1] === '-') end--
+  return s.slice(start, end)
 }
 
 // --- Paths ------------------------------------------------------------------------

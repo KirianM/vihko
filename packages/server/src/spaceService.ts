@@ -18,7 +18,7 @@
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  LEVELS, SPACES, SpaceRules, isReserved, isSpaceRoot, maxLevel, nameKey, newUid, parseSpacePath, personalRoot, removeRules, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey,
+  LEVELS, SPACES, SpaceRules, isReserved, isSpaceRoot, maxLevel, nameKey, newUid, parseSpacePath, personalRoot, removeRules, rulesInFile, setRule, sharedRoot, spaceNameProblem, subjectKey, trimSlashes,
   type Level, type PermissionRule, type RuleValue,
 } from '@vihko/core'
 import type { Access } from './access.ts'
@@ -508,7 +508,7 @@ export class SpaceService {
    * is closed to agents).
    */
   whoHasAccess(access: Access, path: unknown): MembersView {
-    const p = typeof path === 'string' ? path.normalize('NFC').replace(/^\/+|\/+$/g, '') : ''
+    const p = typeof path === 'string' ? trimSlashes(path.normalize('NFC')) : ''
     let folder: string
     try { folder = this.folderArg(p) } catch { throw notFound() }
     const s = parseSpacePath(folder)
