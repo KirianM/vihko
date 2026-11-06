@@ -3,7 +3,7 @@
 // we check where it resolves after the change; if it differs, it's rewritten
 // with the shortest form that still points to its destination.
 import { posix } from 'node:path'
-import { extract, markdownDest, resolveImageRef, rootedTarget, sameSpace, wikiLink, type ImageLink, type LinkIndex, type LinkRef, type Resolution } from '@vihko/core'
+import { extract, markdownDest, resolveImageRef, rootedTarget, suffixStart, sameSpace, wikiLink, type ImageLink, type LinkIndex, type LinkRef, type Resolution } from '@vihko/core'
 
 export interface Replacement {
   from: number
@@ -185,7 +185,8 @@ function imageDest(img: ImageLink, src: string, path: string): string {
   const fromRoot = bare.startsWith('/')
   const rel = posix.relative(posix.dirname(src), path)
   if (isWiki(img)) return fromRoot || rel.startsWith('../') ? rootedTarget(src, path) : rel
-  const suffix = /[?#].*$/.exec(bare)?.[0] ?? ''
+  const at = suffixStart(bare)
+  const suffix = at === -1 ? '' : bare.slice(at)
   const dest = markdownDest(fromRoot ? rootedTarget(src, path) : rel) + suffix
   return img.dest.startsWith('<') ? `<${dest}>` : dest
 }
