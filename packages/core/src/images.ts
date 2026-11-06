@@ -27,6 +27,21 @@ function decode(s: string) {
   try { return decodeURIComponent(s) } catch { return s }
 }
 
+/** Line breaks, as `.` doesn't match them: \n, \r, U+2028, U+2029. */
+const LINE_BREAKS = new Set([10, 13, 0x2028, 0x2029])
+
+/**
+ * Where a destination's `?query` or `#anchor` starts, as `/[?#].*$/` finds it
+ * (the first one after its last line break), or -1. A search, not that
+ * pattern: it's quadratic on many `?` or `#` before a line break.
+ */
+export function suffixStart(dest: string): number {
+  let from = dest.length
+  while (from > 0 && !LINE_BREAKS.has(dest.charCodeAt(from - 1))) from--
+  const at = dest.slice(from).search(/[?#]/)
+  return at === -1 ? -1 : from + at
+}
+
 /**
  * Path in the notes folder that a reference written in `notePath` points to, or
  * null if it isn't a local path or it leaves the folder. Markdown destinations
@@ -38,7 +53,8 @@ function decode(s: string) {
 export function resolveImageRef(notePath: string, ref: string, opts: { embed?: boolean } = {}): string | null {
   let dest = ref.trim().replace(/^<|>$/g, '')
   if (!dest || HAS_SCHEME.test(dest)) return null
-  dest = dest.replace(/[?#].*$/, '')
+  const suffix = suffixStart(dest)
+  if (suffix !== -1) dest = dest.slice(0, suffix)
   if (!opts.embed) dest = decode(dest)
   if (dest.startsWith('/')) dest = rootedPath(notePath, dest)
   else dest = `${dirOf(notePath)}/${dest}`
