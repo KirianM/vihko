@@ -42,8 +42,11 @@ RUN npm run build --workspace @vihko/web
 
 FROM node:26-trixie-slim
 # The note history keeps its versions with the system's git. vihko never runs
-# npm, npx or corepack: they go, and their bundled packages with them.
+# npm, npx or corepack: they go, and their bundled packages with them. Debian's
+# updates are applied at build time: the Node image is rebuilt on its own
+# schedule, and a release shouldn't wait for it to carry a fix Debian has.
 RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends git \
  && rm -rf /var/lib/apt/lists/* \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \

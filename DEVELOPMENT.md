@@ -273,10 +273,11 @@ or anything on it that changed incompatibly, stops the release.
 5. Follow the run (`gh run watch`, or the Actions tab). The image job waits in
    the `release` environment until the maintainer approves it on the run's
    page, and until the smoke job has passed: nothing is published before
-   that. If the check or the smoke job fails, nothing was published: delete
-   the tag (`git push --delete origin v1.2.3`, `git tag -d v1.2.3`), fix it in
-   a pull request and tag again. If a later job fails, run it again from the
-   Actions tab.
+   that. If the check or the smoke job fails (the upgrade, or the image's
+   scan: see *Image scans* below), nothing was published: delete the tag
+   (`git push --delete origin v1.2.3`, `git tag -d v1.2.3`), fix it in a pull
+   request and tag again. If a later job fails, run it again from the Actions
+   tab.
 6. Check the result: `docker buildx imagetools inspect
    ghcr.io/kirianm/vihko:1.2.3` lists linux/amd64 and linux/arm64, the moving
    tags have the same digest, the image pulls without logging in (`docker
@@ -289,19 +290,33 @@ or anything on it that changed incompatibly, stops the release.
    first stable version is out. Change its image line (and its copy in
    `guide/install.md`) in the release pull request that makes that change.
 
-### The weekly image scan
+### Image scans
+
+Every release is scanned before it's published: the `smoke` job of
+`release.yml` scans its amd64 build with Trivy, and a known vulnerability
+rated HIGH or CRITICAL that has a fix stops the release before anything is
+pushed. The image's last stage applies Debian's updates (`apt-get upgrade`),
+so a fix Debian has published is in the image even before the Node base image
+is rebuilt with it; what the scan stops is mostly a dependency to update.
 
 `.github/workflows/image-scan.yml` scans the newest published image every
-Monday (or when run by hand from the Actions tab) with Trivy, for known
-vulnerabilities rated HIGH or CRITICAL that have a fix. If it finds any, the
-run fails and an issue lists them (a later finding comments on the same open
-issue). **A serious finding is followed by a patch release** (`vX.Y.Z+1`, or
-the next release candidate while there are only those): update what it names
-(the base image in the `Dockerfile`, or a dependency), release as above, and
-close the issue once the next scan is clean. Published tags never change. The
-scanner's image is pinned by digest in the workflow; Dependabot doesn't see
-it, so update the digest and its release comment by hand, to a release at
-least a week old.
+Monday (or when run by hand from the Actions tab) the same way, and uploads
+what it finds to the repository's code scanning alerts (category `image`). A
+finding doesn't fail the run: a published image ages, and Debian fixes
+something in it most weeks. Triage each alert like any other:
+
+- **It reaches vihko** (a flaw in code vihko runs on what it receives, like
+  Node's own HTTP or decompression): a patch release (`vX.Y.Z+1`, or the next
+  release candidate while there are only those), as above.
+- **It doesn't** (a library vihko's own use never touches, like the ones git
+  brings for remote transports it doesn't use): dismiss it with the reason,
+  or leave it open; the next release carries the fix, and its own scan won't
+  publish without it.
+
+An alert closes by itself once a scan no longer finds it. Published tags
+never change. The scanner's image is pinned by digest in both workflows;
+Dependabot doesn't see it, so update the digest and its release comment by
+hand in both, to a release at least a week old.
 
 ### The upgrade smoke test
 
