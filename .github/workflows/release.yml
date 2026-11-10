@@ -62,8 +62,10 @@ jobs:
 
   # An installation of the previous stable release upgraded to this one
   # (scripts/upgrade-smoke.ts), on an amd64 build of the tag's code made here
-  # and never pushed. It needs no approval, and `image` waits for it: an
-  # upgrade that breaks publishes nothing.
+  # and never pushed, which is first scanned the way image-scan.yml scans the
+  # published one. It needs no approval, and `image` waits for it: an upgrade
+  # that breaks, or an image with a known flaw that has a fix, publishes
+  # nothing.
   smoke:
     needs: check
     runs-on: ubuntu-latest
@@ -81,6 +83,14 @@ jobs:
           package-manager-cache: false
       - name: The image, for linux/amd64
         run: docker build --tag vihko:smoke .
+      - name: No known vulnerability rated HIGH or CRITICAL that has a fix
+        env:
+          # The same scanner as image-scan.yml: update both together.
+          TRIVY: aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 # 0.74.0
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY" image \
+            --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --no-progress --skip-version-check \
+            --exit-code 1 --format table vihko:smoke
       - name: The previous stable release upgraded to it
         env:
           VERSION: ${{ needs.check.outputs.version }}
