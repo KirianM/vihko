@@ -21,7 +21,7 @@
     "./spaces": "./src/spaces.ts"
   },
   "dependencies": {
-    "@lezer/common": "^1.5.4",
+    "@lezer/common": "^1.5.5",
     "@lezer/markdown": "^1.8.1",
     "yaml": "^2.9.1"
   }
